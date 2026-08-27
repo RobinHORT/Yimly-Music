@@ -105,6 +105,22 @@ fun PlaylistDetailScreen(
     var editIsPublic by remember { mutableStateOf(playlist.isPublic) }
     var showArtworkEditor by remember { mutableStateOf(false) }
 
+    if (showArtworkEditor) {
+        androidx.compose.ui.window.Dialog(
+            onDismissRequest = { showArtworkEditor = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            com.example.ui.components.PlaylistArtworkEditor(
+                playlistId = playlist.id,
+                onDismiss = { showArtworkEditor = false },
+                onSave = { uri ->
+                    onUpdateArtwork?.invoke(uri)
+                    showArtworkEditor = false
+                }
+            )
+        }
+    }
+
     LazyColumn(
         modifier = modifier
             .fillMaxSize()
@@ -112,16 +128,6 @@ fun PlaylistDetailScreen(
             .testTag("playlist_detail_screen"),
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
-        if (showArtworkEditor) {
-            androidx.compose.ui.window.Dialog(onDismissRequest = { showArtworkEditor = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-                com.example.ui.components.PlaylistArtworkEditor(
-                    playlistId = playlist.id,
-                    onDismiss = { showArtworkEditor = false },
-                    onSave = { uri -> onUpdateArtwork?.invoke(uri); showArtworkEditor = false }
-                )
-            }
-        }
-
         // Hero Header
         item {
             Box(

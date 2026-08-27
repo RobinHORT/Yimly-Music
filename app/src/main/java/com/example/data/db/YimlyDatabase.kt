@@ -14,7 +14,7 @@ import androidx.room.RoomDatabase
         PlaylistSongCrossRef::class,
         PlayHistoryEntity::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class YimlyDatabase : RoomDatabase() {
@@ -31,7 +31,9 @@ abstract class YimlyDatabase : RoomDatabase() {
                     YimlyDatabase::class.java,
                     "yimly_database"
                 )
-                    .fallbackToDestructiveMigration()
+                    .fallbackToDestructiveMigration(true)
+                    .fallbackToDestructiveMigrationFrom(1, 2, 3, 4)
+                    .fallbackToDestructiveMigrationOnDowngrade(true)
                     .build()
                 INSTANCE = instance
                 instance
