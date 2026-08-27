@@ -38,8 +38,12 @@ class PreferencesManager(private val context: Context) {
         private val KEY_REPEAT_MODE = intPreferencesKey("repeat_mode")
 
         // Lyrics Config Keys
+        private val KEY_LYRICS_VISIBLE_LINES = intPreferencesKey("lyrics_visible_lines")
+        private val KEY_LYRICS_AUTO_SCROLL = booleanPreferencesKey("lyrics_auto_scroll")
+        private val KEY_LYRICS_HIGHLIGHT_CURRENT = booleanPreferencesKey("lyrics_highlight_current")
         private val KEY_LYRICS_FONT_FAMILY = stringPreferencesKey("lyrics_font_family")
         private val KEY_LYRICS_CURRENT_FONT_SIZE = floatPreferencesKey("lyrics_current_font_size")
+        private val KEY_LYRICS_CURRENT_COLOR = stringPreferencesKey("lyrics_current_color")
         private val KEY_LYRICS_OTHER_FONT_SIZE = floatPreferencesKey("lyrics_other_font_size")
         private val KEY_LYRICS_FONT_WEIGHT_BOLD = booleanPreferencesKey("lyrics_font_weight_bold")
         private val KEY_LYRICS_OTHER_OPACITY = floatPreferencesKey("lyrics_other_opacity")
@@ -47,6 +51,7 @@ class PreferencesManager(private val context: Context) {
         private val KEY_LYRICS_TEXT_CASE = stringPreferencesKey("lyrics_text_case")
         private val KEY_LYRICS_ALIGNMENT = stringPreferencesKey("lyrics_alignment")
         private val KEY_LYRICS_ANIM_DURATION = intPreferencesKey("lyrics_anim_duration")
+        private val KEY_LYRICS_OVERLAY = booleanPreferencesKey("lyrics_overlay")
         private val KEY_LYRICS_MANUAL_OFFSET = longPreferencesKey("lyrics_manual_offset")
 
         const val DEFAULT_SERVER_URL = "https://yimly.robinhort.link"
@@ -103,27 +108,32 @@ class PreferencesManager(private val context: Context) {
 
     val lyricsConfigFlow: Flow<LyricsDisplayConfig> = context.dataStore.data.map { prefs ->
         LyricsDisplayConfig(
-            fontFamily = try {
-                LyricFontFamily.valueOf(prefs[KEY_LYRICS_FONT_FAMILY] ?: LyricFontFamily.DEFAULT.name)
-            } catch (e: Exception) {
-                LyricFontFamily.DEFAULT
-            },
-            currentLineFontSizeSp = prefs[KEY_LYRICS_CURRENT_FONT_SIZE] ?: 24f,
-            otherLineFontSizeSp = prefs[KEY_LYRICS_OTHER_FONT_SIZE] ?: 15f,
-            fontWeightBold = prefs[KEY_LYRICS_FONT_WEIGHT_BOLD] ?: true,
-            otherLinesOpacity = prefs[KEY_LYRICS_OTHER_OPACITY] ?: 0.35f,
+            visibleLines = prefs[KEY_LYRICS_VISIBLE_LINES] ?: 3,
+            autoScroll = prefs[KEY_LYRICS_AUTO_SCROLL] ?: true,
+            highlightCurrentLine = prefs[KEY_LYRICS_HIGHLIGHT_CURRENT] ?: true,
+            animationDurationMs = prefs[KEY_LYRICS_ANIM_DURATION] ?: 250,
             lineSpacingDp = prefs[KEY_LYRICS_LINE_SPACING] ?: 16f,
-            textCase = try {
-                LyricTextCase.valueOf(prefs[KEY_LYRICS_TEXT_CASE] ?: LyricTextCase.ORIGINAL.name)
-            } catch (e: Exception) {
-                LyricTextCase.ORIGINAL
-            },
             alignment = try {
                 LyricAlignment.valueOf(prefs[KEY_LYRICS_ALIGNMENT] ?: LyricAlignment.CENTER.name)
             } catch (e: Exception) {
                 LyricAlignment.CENTER
             },
-            animationDurationMs = prefs[KEY_LYRICS_ANIM_DURATION] ?: 250,
+            fontFamily = try {
+                LyricFontFamily.valueOf(prefs[KEY_LYRICS_FONT_FAMILY] ?: LyricFontFamily.DEFAULT.name)
+            } catch (e: Exception) {
+                LyricFontFamily.DEFAULT
+            },
+            textCase = try {
+                LyricTextCase.valueOf(prefs[KEY_LYRICS_TEXT_CASE] ?: LyricTextCase.ORIGINAL.name)
+            } catch (e: Exception) {
+                LyricTextCase.ORIGINAL
+            },
+            currentLineFontSizeSp = prefs[KEY_LYRICS_CURRENT_FONT_SIZE] ?: 24f,
+            currentLineColorHex = prefs[KEY_LYRICS_CURRENT_COLOR] ?: "#FF3366",
+            fontWeightBold = prefs[KEY_LYRICS_FONT_WEIGHT_BOLD] ?: true,
+            otherLineFontSizeSp = prefs[KEY_LYRICS_OTHER_FONT_SIZE] ?: 15f,
+            otherLinesOpacity = prefs[KEY_LYRICS_OTHER_OPACITY] ?: 0.35f,
+            lyricsOverlay = prefs[KEY_LYRICS_OVERLAY] ?: false,
             manualOffsetMs = prefs[KEY_LYRICS_MANUAL_OFFSET] ?: 0L
         )
     }
@@ -210,15 +220,20 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun updateLyricsConfig(config: LyricsDisplayConfig) {
         context.dataStore.edit { prefs ->
-            prefs[KEY_LYRICS_FONT_FAMILY] = config.fontFamily.name
-            prefs[KEY_LYRICS_CURRENT_FONT_SIZE] = config.currentLineFontSizeSp
-            prefs[KEY_LYRICS_OTHER_FONT_SIZE] = config.otherLineFontSizeSp
-            prefs[KEY_LYRICS_FONT_WEIGHT_BOLD] = config.fontWeightBold
-            prefs[KEY_LYRICS_OTHER_OPACITY] = config.otherLinesOpacity
-            prefs[KEY_LYRICS_LINE_SPACING] = config.lineSpacingDp
-            prefs[KEY_LYRICS_TEXT_CASE] = config.textCase.name
-            prefs[KEY_LYRICS_ALIGNMENT] = config.alignment.name
+            prefs[KEY_LYRICS_VISIBLE_LINES] = config.visibleLines
+            prefs[KEY_LYRICS_AUTO_SCROLL] = config.autoScroll
+            prefs[KEY_LYRICS_HIGHLIGHT_CURRENT] = config.highlightCurrentLine
             prefs[KEY_LYRICS_ANIM_DURATION] = config.animationDurationMs
+            prefs[KEY_LYRICS_LINE_SPACING] = config.lineSpacingDp
+            prefs[KEY_LYRICS_ALIGNMENT] = config.alignment.name
+            prefs[KEY_LYRICS_FONT_FAMILY] = config.fontFamily.name
+            prefs[KEY_LYRICS_TEXT_CASE] = config.textCase.name
+            prefs[KEY_LYRICS_CURRENT_FONT_SIZE] = config.currentLineFontSizeSp
+            prefs[KEY_LYRICS_CURRENT_COLOR] = config.currentLineColorHex
+            prefs[KEY_LYRICS_FONT_WEIGHT_BOLD] = config.fontWeightBold
+            prefs[KEY_LYRICS_OTHER_FONT_SIZE] = config.otherLineFontSizeSp
+            prefs[KEY_LYRICS_OTHER_OPACITY] = config.otherLinesOpacity
+            prefs[KEY_LYRICS_OVERLAY] = config.lyricsOverlay
             prefs[KEY_LYRICS_MANUAL_OFFSET] = config.manualOffsetMs
         }
     }

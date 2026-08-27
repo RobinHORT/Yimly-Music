@@ -26,12 +26,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.RestartAlt
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -39,6 +39,7 @@ import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -50,16 +51,18 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricFontFamily
+import com.example.data.models.LyricLine
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.formatLyricText
 import com.example.lyrics.LyricsParser
 import com.example.ui.theme.SurfaceBorderDark
 import com.example.ui.theme.SurfaceCardDark
@@ -67,7 +70,7 @@ import com.example.ui.theme.SurfaceElevatedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
-import com.example.ui.theme.YimlyPinkGlow
+import com.example.ui.theme.toComposeFontFamily
 
 @Composable
 fun LyricsView(
@@ -80,18 +83,21 @@ fun LyricsView(
     onOffsetChange: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var viewMode by remember { mutableStateOf(0) } // 0 = Three Slot Focus Mode, 1 = Full Synced List
+    var viewMode by remember { mutableStateOf(0) } // 0 = Focus Mode, 1 = Full Synced List
 
     val lines = lyricsData?.lines ?: emptyList()
     val slotState = remember(lines, currentPositionMs, songOffsetMs) {
         LyricsParser.findActiveLyricSlots(lines, currentPositionMs, songOffsetMs)
     }
 
-    val composeFontFamily = when (config.fontFamily) {
-        LyricFontFamily.MONOSPACE -> FontFamily.Monospace
-        LyricFontFamily.SERIF -> FontFamily.Serif
-        LyricFontFamily.CURSIVE -> FontFamily.Cursive
-        LyricFontFamily.DEFAULT -> FontFamily.Default
+    val composeFontFamily = config.fontFamily.toComposeFontFamily()
+
+    val currentLineColor = remember(config.currentLineColorHex) {
+        try {
+            Color(android.graphics.Color.parseColor(config.currentLineColorHex))
+        } catch (e: Exception) {
+            YimlyPink
+        }
     }
 
     val textAlign = when (config.alignment) {
@@ -104,12 +110,6 @@ fun LyricsView(
         LyricAlignment.START -> Alignment.Start
         LyricAlignment.CENTER -> Alignment.CenterHorizontally
         LyricAlignment.END -> Alignment.End
-    }
-
-    fun formatText(text: String): String = when (config.textCase) {
-        LyricTextCase.UPPERCASE -> text.uppercase()
-        LyricTextCase.LOWERCASE -> text.lowercase()
-        LyricTextCase.ORIGINAL -> text
     }
 
     Column(
@@ -164,42 +164,43 @@ fun LyricsView(
             // Offset Adjuster & Settings Button
             Row(verticalAlignment = Alignment.CenterVertically) {
                 // Timing Offset Buttons
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(SurfaceElevatedDark)
-                        .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { onOffsetChange(songOffsetMs - 200L) },
-                        modifier = Modifier.size(28.dp).testTag("offset_minus_btn")
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                    Row(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(SurfaceElevatedDark)
+                            .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Remove, contentDescription = "-0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
-                    }
-
-                    Text(
-                        text = if (songOffsetMs == 0L) "Sync" else String.format("%+.1fs", songOffsetMs / 1000f),
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (songOffsetMs != 0L) YimlyPink else TextSecondaryDark,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
-
-                    IconButton(
-                        onClick = { onOffsetChange(songOffsetMs + 200L) },
-                        modifier = Modifier.size(28.dp).testTag("offset_plus_btn")
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "+0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
-                    }
-
-                    if (songOffsetMs != 0L) {
                         IconButton(
-                            onClick = { onOffsetChange(0L) },
-                            modifier = Modifier.size(28.dp)
+                            onClick = { onOffsetChange(songOffsetMs - 200L) },
+                            modifier = Modifier.size(28.dp).testTag("offset_minus_btn")
                         ) {
-                            Icon(Icons.Default.RestartAlt, contentDescription = "Reset offset", tint = YimlyPink, modifier = Modifier.size(14.dp))
+                            Icon(Icons.Default.Remove, contentDescription = "-0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onOffsetChange(0L) }
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                                .testTag("lyrics_sync_label"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (songOffsetMs == 0L) "Sync" else String.format(java.util.Locale.US, "%+.1fs", songOffsetMs / 1000f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (songOffsetMs != 0L) YimlyPink else TextSecondaryDark
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { onOffsetChange(songOffsetMs + 200L) },
+                            modifier = Modifier.size(28.dp).testTag("offset_plus_btn")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "+0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
                         }
                     }
                 }
@@ -239,7 +240,27 @@ fun LyricsView(
                 )
             }
         } else if (viewMode == 0) {
-            // Three-Slot Focus Mode: Previous, CURRENT, Next
+            // Focus Mode: Supports configurable visible lines (1, 3, 5, 7)
+            val radius = ((config.visibleLines - 1) / 2).coerceAtLeast(0)
+            val currentIndex = slotState.currentIndex
+
+            val previousLines = if (currentIndex >= 0 && radius > 0) {
+                (1..radius).mapNotNull { offset ->
+                    val idx = currentIndex - (radius - offset + 1)
+                    if (idx >= 0) lines.getOrNull(idx) else null
+                }
+            } else emptyList()
+
+            val currentLine = if (currentIndex >= 0) lines.getOrNull(currentIndex) else null
+
+            val nextLines = if (currentIndex >= 0 && radius > 0) {
+                (1..radius).mapNotNull { offset ->
+                    lines.getOrNull(currentIndex + offset)
+                }
+            } else if (currentIndex == -1) {
+                lines.take(config.visibleLines)
+            } else emptyList()
+
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -249,39 +270,66 @@ fun LyricsView(
                     horizontalAlignment = alignmentModifier,
                     verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
                 ) {
-                    // 1. Previous Line
-                    Text(
-                        text = formatText(slotState.previousLine?.text ?: "•••"),
-                        fontSize = config.otherLineFontSizeSp.sp,
-                        fontFamily = composeFontFamily,
-                        fontWeight = FontWeight.Normal,
-                        color = TextPrimaryDark.copy(alpha = config.otherLinesOpacity),
-                        textAlign = textAlign,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = slotState.previousLine != null) {
-                                slotState.previousLine?.let { onSeekTo(it.timeMs) }
-                            }
-                    )
-
-                    // 2. CURRENT LINE (Dominant, Highlighted with Yimly Pink)
-                    Card(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(18.dp))
-                            .border(1.dp, YimlyPink.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-                            .clickable(enabled = slotState.currentLine != null) {
-                                slotState.currentLine?.let { onSeekTo(it.timeMs) }
-                            }
-                            .testTag("current_lyric_slot"),
-                        colors = CardDefaults.cardColors(
-                            containerColor = YimlyPinkGlow.copy(alpha = 0.25f)
+                    // Previous Lines (Shared Other Line Size & Opacity)
+                    previousLines.forEach { prev ->
+                        Text(
+                            text = formatLyricText(prev.text, config.textCase),
+                            fontSize = config.otherLineFontSizeSp.sp,
+                            fontFamily = composeFontFamily,
+                            fontWeight = FontWeight.Normal,
+                            color = TextPrimaryDark.copy(alpha = config.otherLinesOpacity),
+                            textAlign = textAlign,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSeekTo(prev.timeMs) }
                         )
-                    ) {
+                    }
+
+                    // CURRENT LINE (Independently Styled with Current Line Size & Color)
+                    if (config.highlightCurrentLine) {
+                        Card(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(18.dp))
+                                .border(1.dp, currentLineColor.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                                .clickable(enabled = currentLine != null) {
+                                    currentLine?.let { onSeekTo(it.timeMs) }
+                                }
+                                .testTag("current_lyric_slot"),
+                            colors = CardDefaults.cardColors(
+                                containerColor = currentLineColor.copy(alpha = 0.20f)
+                            )
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 18.dp, vertical = 20.dp),
+                                contentAlignment = when (config.alignment) {
+                                    LyricAlignment.START -> Alignment.CenterStart
+                                    LyricAlignment.CENTER -> Alignment.Center
+                                    LyricAlignment.END -> Alignment.CenterEnd
+                                }
+                            ) {
+                                Text(
+                                    text = formatLyricText(currentLine?.text ?: "♪ Music playing ♪", config.textCase),
+                                    fontSize = config.currentLineFontSizeSp.sp,
+                                    fontFamily = composeFontFamily,
+                                    fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+                                    color = currentLineColor,
+                                    textAlign = textAlign,
+                                    lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
+                                )
+                            }
+                        }
+                    } else {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 20.dp),
+                                .clickable(enabled = currentLine != null) {
+                                    currentLine?.let { onSeekTo(it.timeMs) }
+                                }
+                                .padding(horizontal = 18.dp, vertical = 12.dp)
+                                .testTag("current_lyric_slot"),
                             contentAlignment = when (config.alignment) {
                                 LyricAlignment.START -> Alignment.CenterStart
                                 LyricAlignment.CENTER -> Alignment.Center
@@ -289,39 +337,39 @@ fun LyricsView(
                             }
                         ) {
                             Text(
-                                text = formatText(slotState.currentLine?.text ?: "♪ Music playing ♪"),
+                                text = formatLyricText(currentLine?.text ?: "♪ Music playing ♪", config.textCase),
                                 fontSize = config.currentLineFontSizeSp.sp,
                                 fontFamily = composeFontFamily,
-                                fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
-                                color = YimlyPink,
+                                fontWeight = if (config.fontWeightBold) FontWeight.Bold else FontWeight.Normal,
+                                color = TextPrimaryDark,
                                 textAlign = textAlign,
                                 lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
                             )
                         }
                     }
 
-                    // 3. Next Line
-                    Text(
-                        text = formatText(slotState.nextLine?.text ?: "•••"),
-                        fontSize = config.otherLineFontSizeSp.sp,
-                        fontFamily = composeFontFamily,
-                        fontWeight = FontWeight.Normal,
-                        color = TextPrimaryDark.copy(alpha = config.otherLinesOpacity),
-                        textAlign = textAlign,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable(enabled = slotState.nextLine != null) {
-                                slotState.nextLine?.let { onSeekTo(it.timeMs) }
-                            }
-                    )
+                    // Next Lines (Shared Other Line Size & Opacity)
+                    nextLines.forEach { next ->
+                        Text(
+                            text = formatLyricText(next.text, config.textCase),
+                            fontSize = config.otherLineFontSizeSp.sp,
+                            fontFamily = composeFontFamily,
+                            fontWeight = FontWeight.Normal,
+                            color = TextPrimaryDark.copy(alpha = config.otherLinesOpacity),
+                            textAlign = textAlign,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSeekTo(next.timeMs) }
+                        )
+                    }
                 }
             }
         } else {
-            // Full Synced List with Auto-scroll
+            // Full Synced List with optional Auto-scroll
             val listState = rememberLazyListState()
 
-            LaunchedEffect(slotState.currentIndex) {
-                if (slotState.currentIndex >= 0 && slotState.currentIndex < lines.size) {
+            LaunchedEffect(slotState.currentIndex, config.autoScroll) {
+                if (config.autoScroll && slotState.currentIndex >= 0 && slotState.currentIndex < lines.size) {
                     val target = (slotState.currentIndex - 2).coerceAtLeast(0)
                     listState.animateScrollToItem(target)
                 }
@@ -335,8 +383,12 @@ fun LyricsView(
             ) {
                 itemsIndexed(lines) { index, line ->
                     val isCurrent = index == slotState.currentIndex
+                    val targetColor = if (isCurrent) {
+                        if (config.highlightCurrentLine) currentLineColor else TextPrimaryDark
+                    } else TextPrimaryDark
+
                     val animColor by animateColorAsState(
-                        targetValue = if (isCurrent) YimlyPink else TextPrimaryDark,
+                        targetValue = targetColor,
                         animationSpec = tween(config.animationDurationMs),
                         label = "lyricColor"
                     )
@@ -364,7 +416,7 @@ fun LyricsView(
                         }
                     ) {
                         Text(
-                            text = formatText(line.text),
+                            text = formatLyricText(line.text, config.textCase),
                             fontSize = animSize.sp,
                             fontFamily = composeFontFamily,
                             fontWeight = if (isCurrent && config.fontWeightBold) FontWeight.Bold else FontWeight.Normal,

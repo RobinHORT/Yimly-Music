@@ -20,16 +20,18 @@ data class LyricsData(
 )
 
 enum class LyricFontFamily(val displayName: String) {
-    DEFAULT("Sans Serif"),
+    DEFAULT("Default"),
     MONOSPACE("Monospace"),
     SERIF("Serif"),
-    CURSIVE("Rounded")
+    CURSIVE("Cursive"),
+    SUPER_SALE("Super Sale")
 }
 
 enum class LyricTextCase(val displayName: String) {
     ORIGINAL("Original"),
     UPPERCASE("UPPERCASE"),
-    LOWERCASE("lowercase")
+    LOWERCASE("lowercase"),
+    TITLE_CASE("Title Case")
 }
 
 enum class LyricAlignment(val displayName: String) {
@@ -38,15 +40,58 @@ enum class LyricAlignment(val displayName: String) {
     END("Right")
 }
 
+fun toTitleCase(input: String): String {
+    if (input.isEmpty()) return input
+    val result = StringBuilder()
+    var capitalizeNext = true
+    val lower = input.lowercase()
+    for (i in lower.indices) {
+        val ch = lower[i]
+        if (ch.isWhitespace()) {
+            result.append(ch)
+            capitalizeNext = true
+        } else if (capitalizeNext && ch.isLetter()) {
+            result.append(ch.titlecase())
+            capitalizeNext = false
+        } else {
+            result.append(ch)
+        }
+    }
+    return result.toString()
+}
+
+fun formatLyricText(text: String, textCase: LyricTextCase): String = when (textCase) {
+    LyricTextCase.ORIGINAL -> text
+    LyricTextCase.UPPERCASE -> text.uppercase()
+    LyricTextCase.LOWERCASE -> text.lowercase()
+    LyricTextCase.TITLE_CASE -> toTitleCase(text)
+}
+
 data class LyricsDisplayConfig(
-    val fontFamily: LyricFontFamily = LyricFontFamily.DEFAULT,
-    val currentLineFontSizeSp: Float = 24f,
-    val otherLineFontSizeSp: Float = 15f,
-    val fontWeightBold: Boolean = true,
-    val otherLinesOpacity: Float = 0.35f,
-    val lineSpacingDp: Float = 16f,
-    val textCase: LyricTextCase = LyricTextCase.ORIGINAL,
-    val alignment: LyricAlignment = LyricAlignment.CENTER,
+    // Lyrics Display
+    val visibleLines: Int = 3,
+    val autoScroll: Boolean = true,
+    val highlightCurrentLine: Boolean = true,
     val animationDurationMs: Int = 250,
+    val lineSpacingDp: Float = 16f,
+    val alignment: LyricAlignment = LyricAlignment.CENTER,
+
+    // Font
+    val fontFamily: LyricFontFamily = LyricFontFamily.DEFAULT,
+
+    // Text Case
+    val textCase: LyricTextCase = LyricTextCase.ORIGINAL,
+
+    // Current Line
+    val currentLineFontSizeSp: Float = 24f,
+    val currentLineColorHex: String = "#FF3366",
+    val fontWeightBold: Boolean = true,
+
+    // Previous & Next Lines
+    val otherLineFontSizeSp: Float = 15f,
+    val otherLinesOpacity: Float = 0.35f,
+
+    // Other
+    val lyricsOverlay: Boolean = false,
     val manualOffsetMs: Long = 0L
 )
