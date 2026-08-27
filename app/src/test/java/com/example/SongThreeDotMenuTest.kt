@@ -69,6 +69,49 @@ class SongThreeDotMenuTest {
 
         // Verify "Add to Queue" does NOT exist
         composeTestRule.onNodeWithText("Add to Queue").assertDoesNotExist()
+
+        // Verify Admin-only items do NOT exist for normal user
+        composeTestRule.onNodeWithText("LRC Editor").assertDoesNotExist()
+        composeTestRule.onNodeWithText("Delete").assertDoesNotExist()
+    }
+
+    @Test
+    fun verifyAdminUserSeesLrcEditorAndDeleteOptions() {
+        var editLrcClicked = false
+        var deleteSongClicked = false
+
+        composeTestRule.setContent {
+            SongItemRow(
+                song = testSong,
+                isPlaying = false,
+                isCurrentSong = false,
+                onSongClick = {},
+                onToggleFavorite = {},
+                isAdmin = true,
+                onEditLrc = { editLrcClicked = true },
+                onDeleteSong = { deleteSongClicked = true }
+            )
+        }
+
+        // Open three-dot menu
+        composeTestRule.onNodeWithTag("menu_btn_${testSong.id}").performClick()
+
+        // Verify all 6 options are present for admin
+        composeTestRule.onNodeWithText("Play").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Add to Now Playing").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Add to Playlist").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Add to Favourites").assertIsDisplayed()
+        composeTestRule.onNodeWithText("LRC Editor").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Delete").assertIsDisplayed()
+
+        // Test LRC Editor action
+        composeTestRule.onNodeWithTag("menu_lrc_editor_${testSong.id}").performClick()
+        assertTrue("Edit LRC callback should be triggered for admin", editLrcClicked)
+
+        // Open menu again to test Delete action
+        composeTestRule.onNodeWithTag("menu_btn_${testSong.id}").performClick()
+        composeTestRule.onNodeWithTag("menu_delete_${testSong.id}").performClick()
+        assertTrue("Delete song callback should be triggered for admin", deleteSongClicked)
     }
 
     @Test

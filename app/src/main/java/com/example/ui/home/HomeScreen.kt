@@ -59,6 +59,7 @@ import com.example.ui.components.SongItemRow
 import com.example.ui.components.YimlyCard
 import com.example.ui.components.YimlyHeaderBrand
 import com.example.ui.components.YimlyMicIcon
+import com.example.ui.components.resolveCoverUrl
 import com.example.ui.theme.NeonCyan
 import com.example.ui.theme.SurfaceBorderDark
 import com.example.ui.theme.SurfaceCardDark
@@ -311,7 +312,7 @@ fun HomeScreen(
                                 ) {
                                     if (!topPl.coverUrl.isNullOrBlank()) {
                                         AsyncImage(
-                                            model = topPl.coverUrl,
+                                            model = topPl.coverUrl.resolveCoverUrl(),
                                             contentDescription = topPl.name,
                                             contentScale = ContentScale.Crop,
                                             modifier = Modifier.fillMaxSize()

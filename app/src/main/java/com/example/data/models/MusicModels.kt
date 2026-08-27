@@ -139,7 +139,14 @@ data class Playlist(
     @Json(name = "id") val id: String,
     @Json(name = "name") val name: String,
     @Json(name = "description") val description: String? = null,
-    @Json(name = "coverUrl") val coverUrl: String? = null,
+    @Json(name = "coverUrl") val rawCoverUrl: String? = null,
+    @Json(name = "cover_url") val rawCoverUrlSnake: String? = null,
+    @Json(name = "coverImage") val rawCoverImage: String? = null,
+    @Json(name = "cover_image") val rawCoverImageSnake: String? = null,
+    @Json(name = "coverPath") val rawCoverPath: String? = null,
+    @Json(name = "cover_path") val rawCoverPathSnake: String? = null,
+    @Json(name = "cover") val rawCover: String? = null,
+    @Json(name = "artwork_url") val rawArtworkUrl: String? = null,
     @Json(name = "songCount") val songCount: Int = 0,
     @Json(name = "createdAt") val createdAt: String? = null,
     @Json(name = "isCustom") val isCustom: Boolean = true,
@@ -150,20 +157,36 @@ data class Playlist(
     @Json(name = "permission") val permission: String = "owner",
     @Json(name = "isPublic") val isPublic: Boolean = false,
     @Json(name = "songs") val songs: List<Song> = emptyList()
-)
+) {
+    val coverUrl: String?
+        get() = (rawCoverUrl
+            ?: rawCoverUrlSnake
+            ?: rawCoverImage
+            ?: rawCoverImageSnake
+            ?: rawCoverPath
+            ?: rawCoverPathSnake
+            ?: rawCover
+            ?: rawArtworkUrl)
+}
 
 @JsonClass(generateAdapter = true)
 data class CreatePlaylistRequest(
     @Json(name = "name") val name: String,
     @Json(name = "description") val description: String? = null,
-    @Json(name = "isPublic") val isPublic: Boolean? = false
+    @Json(name = "isPublic") val isPublic: Boolean? = false,
+    @Json(name = "coverUrl") val coverUrl: String? = null,
+    @Json(name = "cover_url") val coverUrlSnake: String? = null,
+    @Json(name = "cover") val cover: String? = null
 )
 
 @JsonClass(generateAdapter = true)
 data class UpdatePlaylistRequest(
     @Json(name = "name") val name: String,
     @Json(name = "description") val description: String? = null,
-    @Json(name = "isPublic") val isPublic: Boolean? = null
+    @Json(name = "isPublic") val isPublic: Boolean? = null,
+    @Json(name = "coverUrl") val coverUrl: String? = null,
+    @Json(name = "cover_url") val coverUrlSnake: String? = null,
+    @Json(name = "cover") val cover: String? = null
 )
 
 @JsonClass(generateAdapter = true)

@@ -182,7 +182,7 @@ data class PlaylistEntity(
         id = id,
         name = name,
         description = description,
-        coverUrl = coverUrl,
+        rawCoverUrl = coverUrl,
         songCount = songCount,
         createdAt = createdAt,
         isCustom = isCustom,

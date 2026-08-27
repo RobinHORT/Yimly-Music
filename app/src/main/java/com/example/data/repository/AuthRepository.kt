@@ -32,12 +32,22 @@ class AuthRepository(
     private val _inMemorySession = MutableStateFlow<AuthSession?>(null)
     private val _authError = MutableStateFlow<String?>(null)
 
+    @Suppress("UNCHECKED_CAST")
     val authStateFlow: Flow<AuthState> = combine(
         _inMemorySession,
         preferencesManager.authTokenFlow,
         preferencesManager.usernameFlow,
+        preferencesManager.userRoleFlow,
+        preferencesManager.isAdminFlow,
         _authError
-    ) { inMem, token, username, error ->
+    ) { flows ->
+        val inMem = flows[0] as? AuthSession
+        val token = flows[1] as? String
+        val username = flows[2] as? String
+        val role = flows[3] as? String
+        val isAdmin = flows[4] as? Boolean ?: false
+        val error = flows[5] as? String
+
         if (inMem != null) {
             AuthState.Authenticated(
                 user = inMem.user,
@@ -51,7 +61,8 @@ class AuthRepository(
                     email = null,
                     displayName = username.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() },
                     avatarUrl = null,
-                    isAdmin = false
+                    rawIsAdmin = isAdmin,
+                    role = role
                 ),
                 token = token
             )
@@ -86,8 +97,14 @@ class AuthRepository(
                 email = profile.email,
                 displayName = profile.displayName,
                 avatarUrl = profile.avatarUrl,
+                role = profile.role,
                 isAdmin = profile.isAdmin,
                 rememberMe = true
+            )
+            _inMemorySession.value = AuthSession(
+                user = profile,
+                token = token,
+                isPersistent = true
             )
         } catch (e: HttpException) {
             if (e.code() == 401 || e.code() == 403) {
@@ -115,6 +132,7 @@ class AuthRepository(
                     email = user.email,
                     displayName = user.displayName,
                     avatarUrl = user.avatarUrl,
+                    role = user.role,
                     isAdmin = user.isAdmin,
                     rememberMe = true
                 )

@@ -9,6 +9,7 @@ import com.example.data.db.YimlyDatabase
 import com.example.data.db.toEntity
 import com.example.data.models.Playlist
 import com.example.data.repository.MusicRepository
+import com.example.ui.components.resolveCoverUrl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -204,19 +205,28 @@ class PlaylistSharingTest {
         val relativeCoverPlaylist = Playlist(
             id = "rel_1",
             name = "Community Playlist 1",
-            coverUrl = "/api/playlists/rel_1/cover",
+            rawCoverUrl = "/api/playlists/rel_1/cover",
             isPublic = true
         )
-        val resolved = if (relativeCoverPlaylist.coverUrl!!.startsWith("http")) relativeCoverPlaylist.coverUrl else "${com.example.data.datastore.PreferencesManager.DEFAULT_SERVER_URL}${relativeCoverPlaylist.coverUrl}"
+        val resolved = relativeCoverPlaylist.coverUrl.resolveCoverUrl()
         assertEquals("https://yimly.robinhort.link/api/playlists/rel_1/cover", resolved)
 
         val absoluteCoverPlaylist = Playlist(
             id = "abs_2",
             name = "Community Playlist 2",
-            coverUrl = "https://custom.server.com/cover.jpg",
+            rawCoverUrl = "https://custom.server.com/cover.jpg",
             isPublic = true
         )
-        val resolvedAbs = if (absoluteCoverPlaylist.coverUrl!!.startsWith("http")) absoluteCoverPlaylist.coverUrl else "${com.example.data.datastore.PreferencesManager.DEFAULT_SERVER_URL}${absoluteCoverPlaylist.coverUrl}"
+        val resolvedAbs = absoluteCoverPlaylist.coverUrl.resolveCoverUrl()
         assertEquals("https://custom.server.com/cover.jpg", resolvedAbs)
+
+        val localFilePlaylist = Playlist(
+            id = "loc_3",
+            name = "Local Playlist",
+            rawCoverUrl = "file:///data/user/0/com.example/files/cover.jpg",
+            isPublic = true
+        )
+        val resolvedLocal = localFilePlaylist.coverUrl.resolveCoverUrl()
+        assertEquals("file:///data/user/0/com.example/files/cover.jpg", resolvedLocal)
     }
 }

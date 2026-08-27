@@ -16,17 +16,28 @@ import coil.compose.AsyncImage
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
 
+fun String?.resolveCoverUrl(baseUrl: String = PreferencesManager.DEFAULT_SERVER_URL): String? {
+    if (this.isNullOrBlank()) return null
+    val trimmed = this.trim()
+    if (trimmed.startsWith("http://", ignoreCase = true) ||
+        trimmed.startsWith("https://", ignoreCase = true) ||
+        trimmed.startsWith("file://", ignoreCase = true) ||
+        trimmed.startsWith("content://", ignoreCase = true)
+    ) {
+        return trimmed
+    }
+    val cleanBase = baseUrl.trimEnd('/')
+    val cleanPath = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
+    return "$cleanBase$cleanPath"
+}
+
 @Composable
 fun PlaylistArtwork(
     coverUrl: String?,
     songs: List<Song>,
     modifier: Modifier = Modifier
 ) {
-    val resolvedCover = remember(coverUrl) {
-        if (coverUrl.isNullOrBlank()) null
-        else if (coverUrl.startsWith("http")) coverUrl
-        else "${PreferencesManager.DEFAULT_SERVER_URL}$coverUrl"
-    }
+    val resolvedCover = remember(coverUrl) { coverUrl.resolveCoverUrl() }
     if (!resolvedCover.isNullOrEmpty()) {
         AsyncImage(
             model = resolvedCover,

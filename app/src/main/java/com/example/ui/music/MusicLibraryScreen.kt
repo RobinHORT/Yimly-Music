@@ -64,6 +64,7 @@ import com.example.data.models.Song
 import com.example.ui.components.SongItemRow
 import com.example.ui.components.YimlyCard
 import com.example.ui.components.YimlyMicIcon
+import com.example.ui.components.resolveCoverUrl
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.SurfaceBorderDark
 import com.example.ui.theme.SurfaceCardDark
@@ -732,7 +733,7 @@ private fun PlaylistCardItem(
             ) {
                 if (!playlist.coverUrl.isNullOrBlank()) {
                     AsyncImage(
-                        model = playlist.coverUrl,
+                        model = playlist.coverUrl.resolveCoverUrl(),
                         contentDescription = playlist.name,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

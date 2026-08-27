@@ -380,24 +380,77 @@ class MainViewModel(
         return musicRepository.getLyricsText(songId)
     }
 
-    fun updateLyrics(songId: String, lrcText: String) {
+    fun updateLyrics(songId: String, lrcText: String, onResult: ((Result<Unit>) -> Unit)? = null) {
         viewModelScope.launch {
-            musicRepository.updateLyrics(songId, lrcText)
-            syncLibrary()
+            val res = musicRepository.updateLyrics(songId, lrcText)
+            if (res.isSuccess) {
+                val current = playbackInfo.value.currentSong
+                if (current?.id == songId) {
+                    _currentLyricsData.value = musicRepository.getLyricsForSong(current)
+                }
+                syncLibrary()
+                _uiMessage.value = "Lyrics saved successfully"
+            } else {
+                val ex = res.exceptionOrNull()
+                val msg = if (ex is retrofit2.HttpException && ex.code() == 403) {
+                    "Access denied: Administrator privileges required."
+                } else if (ex is retrofit2.HttpException && ex.code() == 404) {
+                    "Song not found on server."
+                } else {
+                    "Failed to save lyrics: ${ex?.message ?: "Unknown error"}"
+                }
+                _uiMessage.value = msg
+            }
+            onResult?.invoke(res)
         }
     }
 
-    fun deleteLrc(songId: String) {
+    fun deleteLrc(songId: String, onResult: ((Result<Unit>) -> Unit)? = null) {
         viewModelScope.launch {
-            musicRepository.deleteLrc(songId)
-            syncLibrary()
+            val res = musicRepository.deleteLrc(songId)
+            if (res.isSuccess) {
+                val current = playbackInfo.value.currentSong
+                if (current?.id == songId) {
+                    _currentLyricsData.value = musicRepository.getLyricsForSong(current)
+                }
+                syncLibrary()
+                _uiMessage.value = "LRC deleted successfully"
+            } else {
+                val ex = res.exceptionOrNull()
+                val msg = if (ex is retrofit2.HttpException && ex.code() == 403) {
+                    "Access denied: Administrator privileges required."
+                } else if (ex is retrofit2.HttpException && ex.code() == 404) {
+                    "Song not found on server."
+                } else {
+                    "Failed to delete LRC: ${ex?.message ?: "Unknown error"}"
+                }
+                _uiMessage.value = msg
+            }
+            onResult?.invoke(res)
         }
     }
 
-    fun deleteSong(songId: String) {
+    fun deleteSong(songId: String, onResult: ((Result<Unit>) -> Unit)? = null) {
         viewModelScope.launch {
-            musicRepository.deleteSong(songId)
-            syncLibrary()
+            val res = musicRepository.deleteSong(songId)
+            if (res.isSuccess) {
+                if (playbackInfo.value.currentSong?.id == songId) {
+                    playbackManager.pause()
+                }
+                syncLibrary()
+                _uiMessage.value = "Song deleted successfully"
+            } else {
+                val ex = res.exceptionOrNull()
+                val msg = if (ex is retrofit2.HttpException && ex.code() == 403) {
+                    "Access denied: Administrator privileges required."
+                } else if (ex is retrofit2.HttpException && ex.code() == 404) {
+                    "Song not found on server."
+                } else {
+                    "Failed to delete song: ${ex?.message ?: "Unknown error"}"
+                }
+                _uiMessage.value = msg
+            }
+            onResult?.invoke(res)
         }
     }
 

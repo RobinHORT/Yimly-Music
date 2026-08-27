@@ -20,6 +20,8 @@ import com.example.data.models.Song
 import com.example.data.models.UpdatePlaylistRequest
 import com.example.lyrics.LyricsParser
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import retrofit2.HttpException
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -251,6 +253,46 @@ class MusicRepository(
 
     suspend fun updatePlaylistArtwork(playlistId: String, localUri: String?) = withContext(Dispatchers.IO) {
         musicDao.updatePlaylistCoverUrl(playlistId, localUri)
+        if (!localUri.isNullOrBlank()) {
+            try {
+                val localPl = musicDao.getPlaylistById(playlistId)
+                val currentName = localPl?.name ?: "Playlist"
+                val currentDesc = localPl?.description
+                val currentIsPublic = localPl?.isPublic
+                val req = UpdatePlaylistRequest(
+                    name = currentName,
+                    description = currentDesc,
+                    isPublic = currentIsPublic,
+                    coverUrl = localUri,
+                    coverUrlSnake = localUri,
+                    cover = localUri
+                )
+                val updatedRemote = apiService.updatePlaylist(playlistId, req)
+                if (!updatedRemote.coverUrl.isNullOrBlank()) {
+                    musicDao.insertPlaylist(updatedRemote.toEntity())
+                }
+            } catch (_: Exception) {
+                if (localUri.startsWith("file://") || localUri.startsWith("/")) {
+                    try {
+                        val filePath = localUri.removePrefix("file://")
+                        val file = java.io.File(filePath)
+                        if (file.exists()) {
+                            val requestFile = okhttp3.RequestBody.create("image/*".toMediaTypeOrNull(), file)
+                            val body = okhttp3.MultipartBody.Part.createFormData("cover", file.name, requestFile)
+                            val uploaded = try {
+                                apiService.uploadPlaylistCover(playlistId, body)
+                            } catch (_: Exception) {
+                                val artworkBody = okhttp3.MultipartBody.Part.createFormData("artwork", file.name, requestFile)
+                                apiService.uploadPlaylistArtwork(playlistId, artworkBody)
+                            }
+                            if (!uploaded.coverUrl.isNullOrBlank()) {
+                                musicDao.insertPlaylist(uploaded.toEntity())
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
+        }
     }
 
     suspend fun addSongToPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
@@ -288,7 +330,7 @@ class MusicRepository(
             // The getPlaylistById response might not include songCount, so we derive it from the fetched songs array
             val localPl = musicDao.getPlaylistById(playlistId)
             val finalCover = remotePlaylist.coverUrl ?: localPl?.coverUrl
-            val playlistWithCorrectCount = remotePlaylist.copy(songCount = songs.size, coverUrl = finalCover)
+            val playlistWithCorrectCount = remotePlaylist.copy(songCount = songs.size, rawCoverUrl = finalCover)
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
             musicDao.syncPlaylistSongs(playlistId, songs.map { it.toEntity() })
         } catch (_: Exception) {}
@@ -349,15 +391,26 @@ class MusicRepository(
     suspend fun updateLyrics(songId: String, lrcText: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val body = okhttp3.RequestBody.create("text/plain; charset=utf-8".toMediaType(), lrcText)
-            apiService.updateLyrics(songId, body)
+            try {
+                apiService.updateLyrics(songId, body)
+            } catch (e: HttpException) {
+                if (e.code() == 404 || e.code() == 405) {
+                    try {
+                        apiService.createLyrics(songId, body)
+                    } catch (e2: HttpException) {
+                        if (e2.code() == 404 || e2.code() == 405) {
+                            apiService.patchLyrics(songId, body)
+                        } else {
+                            throw e2
+                        }
+                    }
+                } else {
+                    throw e
+                }
+            }
             Result.success(Unit)
         } catch (e: Exception) {
-            try {
-                apiService.updateLyricsJson(songId, mapOf("lyrics" to lrcText))
-                Result.success(Unit)
-            } catch (ex: Exception) {
-                Result.failure(ex)
-            }
+            Result.failure(e)
         }
     }
 
@@ -469,7 +522,7 @@ class MusicRepository(
                 for (pl in remotePlaylists) {
                     val localPl = musicDao.getPlaylistById(pl.id)
                     val finalCover = pl.coverUrl ?: localPl?.coverUrl
-                    val plToInsert = pl.copy(coverUrl = finalCover)
+                    val plToInsert = pl.copy(rawCoverUrl = finalCover)
                     musicDao.insertPlaylist(plToInsert.toEntity())
                     if (pl.songs.isNotEmpty()) {
                         musicDao.syncPlaylistSongs(pl.id, pl.songs.map { it.toEntity() })
