@@ -1,0 +1,6 @@
+{
+  "name": "Yimly",
+  "description": "Native Spotify-style music streaming and player client for Yimly with rich library browsing, search, lyrics, sessions, and Media3 background playback.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

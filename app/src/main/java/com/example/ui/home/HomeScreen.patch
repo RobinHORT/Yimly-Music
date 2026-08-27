@@ -1,0 +1,27 @@
+--- app/src/main/java/com/example/ui/home/HomeScreen.kt
++++ app/src/main/java/com/example/ui/home/HomeScreen.kt
+@@ -557,19 +557,11 @@
+                     .background(SurfaceElevatedDark),
+                 contentAlignment = Alignment.Center
+             ) {
+-                if (!playlist.coverUrl.isNullOrBlank()) {
+-                    AsyncImage(
+-                        model = playlist.coverUrl,
+-                        contentDescription = playlist.name,
+-                        contentScale = ContentScale.Crop,
+-                        modifier = Modifier.fillMaxSize()
+-                    )
+-                } else {
+-                    YimlyMicIcon(
+-                        tint = Color(0xFF9C27B0),
+-                        modifier = Modifier.size(36.dp)
+-                    )
+-                }
++                com.example.ui.components.PlaylistArtwork(
++                    coverUrl = playlist.coverUrl,
++                    songs = playlist.songs,
++                    modifier = Modifier.fillMaxSize()
++                )
+ 
+                 // Community badge on top-left of artwork
+                 Surface(

@@ -1,0 +1,101 @@
+--- app/src/main/java/com/example/ui/music/PlaylistDetailScreen.kt
++++ app/src/main/java/com/example/ui/music/PlaylistDetailScreen.kt
+@@ -32,6 +32,7 @@
+ import androidx.compose.material.icons.filled.PlayArrow
+ import androidx.compose.material.icons.filled.Share
+ import androidx.compose.material.icons.filled.Shuffle
++import androidx.compose.material.icons.filled.AddCircle
+ import androidx.compose.material3.AlertDialog
+ import androidx.compose.material3.Button
+ import androidx.compose.material3.ButtonDefaults
+@@ -60,6 +61,7 @@
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.unit.sp
++import androidx.compose.ui.window.DialogProperties
+ import coil.compose.AsyncImage
+ import com.example.data.models.Collaborator
+ import com.example.data.models.Playlist
+@@ -94,6 +96,7 @@
+     onSharePlaylist: ((String, String) -> Unit)? = null,
+     onGetCollaborators: ((onResult: (List<Collaborator>) -> Unit) -> Unit)? = null,
+     onRevokeShare: ((String) -> Unit)? = null,
++    onUpdateArtwork: ((String) -> Unit)? = null,
+     modifier: Modifier = Modifier
+ ) {
+     var showShareDialog by remember { mutableStateOf(false) }
+@@ -102,6 +105,7 @@
+     var editDesc by remember { mutableStateOf(playlist.description ?: "") }
+     var editIsPublic by remember { mutableStateOf(playlist.isPublic) }
+ 
++    var showArtworkEditor by remember { mutableStateOf(false) }
++
+     LazyColumn(
+         modifier = modifier
+             .fillMaxSize()
+@@ -109,6 +113,16 @@
+             .testTag("playlist_detail_screen"),
+         contentPadding = PaddingValues(bottom = 120.dp)
+     ) {
++
++        if (showArtworkEditor) {
++            androidx.compose.ui.window.Dialog(onDismissRequest = { showArtworkEditor = false }, properties = DialogProperties(usePlatformDefaultWidth = false)) {
++                com.example.ui.components.PlaylistArtworkEditor(
++                    playlistId = playlist.id,
++                    onDismiss = { showArtworkEditor = false },
++                    onSave = { uri -> onUpdateArtwork?.invoke(uri); showArtworkEditor = false }
++                )
++            }
++        }
++
+         // Hero Header
+         item {
+             Box(
+@@ -116,16 +130,10 @@
+                     .fillMaxWidth()
+                     .height(300.dp)
+             ) {
+-                if (!playlist.coverUrl.isNullOrBlank()) {
+-                    AsyncImage(
+-                        model = playlist.coverUrl,
+-                        contentDescription = playlist.name,
+-                        contentScale = ContentScale.Crop,
+-                        modifier = Modifier.fillMaxSize()
+-                    )
+-                } else {
+-                    Box(
+-                        modifier = Modifier
+-                            .fillMaxSize()
+-                            .background(SurfaceElevatedDark),
+-                        contentAlignment = Alignment.Center
+-                    ) {
+-                        YimlyMicIcon(tint = SurfaceBorderDark, modifier = Modifier.size(120.dp))
+-                    }
+-                }
++                com.example.ui.components.PlaylistArtwork(
++                    coverUrl = playlist.coverUrl,
++                    songs = playlist.songs,
++                    modifier = Modifier.fillMaxSize()
++                )
+ 
+                 Box(
+@@ -172,6 +180,21 @@
+                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                         if (playlist.canEdit && onUpdatePlaylist != null) {
++                            IconButton(
++                                onClick = { showArtworkEditor = true },
++                                modifier = Modifier
++                                    .size(40.dp)
++                                    .clip(CircleShape)
++                                    .background(SurfaceElevatedDark.copy(alpha = 0.8f))
++                                    .border(1.dp, SurfaceBorderDark, CircleShape)
++                                    .testTag("edit_artwork_btn")
++                            ) {
++                                Icon(
++                                    imageVector = Icons.Default.AddCircle,
++                                    contentDescription = "Edit Artwork",
++                                    tint = Color.White
++                                )
++                            }
+                             IconButton(
+                                 onClick = {
