@@ -27,10 +27,22 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.DeleteForever
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Upload
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
+import kotlinx.coroutines.launch
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -72,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.R
+import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Album
 import com.example.data.models.Artist
 import com.example.data.models.Playlist
@@ -278,9 +291,48 @@ fun SongItemRow(
     onAddToQueue: (() -> Unit)? = null,
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onAddToPlaylistClick: (() -> Unit)? = null,
+    isAdmin: Boolean = false,
+    onEditLrc: (() -> Unit)? = null,
+    onUploadLrc: (() -> Unit)? = null,
+    onDeleteLrc: (() -> Unit)? = null,
+    onDeleteSong: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var menuExpanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
+    val isUserAdmin = isAdmin
+
+    val getViewModel = {
+        runCatching {
+            val activity = context as? androidx.activity.ComponentActivity
+            if (activity != null) {
+                androidx.lifecycle.ViewModelProvider(activity).get(com.example.ui.MainViewModel::class.java)
+            } else {
+                null
+            }
+        }.getOrNull()
+    }
+
+    var showEditLrcDialog by remember { mutableStateOf(false) }
+    var editLrcText by remember { mutableStateOf("") }
+    var showDeleteLrcDialog by remember { mutableStateOf(false) }
+    var showDeleteSongDialog by remember { mutableStateOf(false) }
+
+    val lrcPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val text = inputStream?.bufferedReader()?.use { it.readText() } ?: ""
+                if (text.isNotBlank()) {
+                    if (onUploadLrc != null) onUploadLrc()
+                    else getViewModel()?.updateLyrics(song.id, text)
+                }
+            } catch (_: Exception) {}
+        }
+    }
 
     Surface(
         modifier = modifier
@@ -508,9 +560,188 @@ fun SongItemRow(
                             modifier = Modifier.testTag("menu_remove_from_playlist_${song.id}")
                         )
                     }
+
+                    // Admin Actions
+                    if (isUserAdmin) {
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = SurfaceBorderDark)
+
+                        DropdownMenuItem(
+                            text = { Text("Edit LRC", color = TextPrimaryDark, fontWeight = FontWeight.Medium) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = null,
+                                    tint = YimlyPink,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                if (onEditLrc != null) {
+                                    onEditLrc()
+                                } else {
+                                    coroutineScope.launch {
+                                        val vm = getViewModel()
+                                        val currentText = vm?.getLyricsText(song.id) ?: (song.lyricsText ?: "")
+                                        editLrcText = currentText
+                                        showEditLrcDialog = true
+                                    }
+                                }
+                            },
+                            modifier = Modifier.testTag("menu_edit_lrc_${song.id}")
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Upload / Replace LRC", color = TextPrimaryDark, fontWeight = FontWeight.Medium) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Upload,
+                                    contentDescription = null,
+                                    tint = YimlyPink,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                if (onUploadLrc != null) {
+                                    onUploadLrc()
+                                } else {
+                                    lrcPickerLauncher.launch("*/*")
+                                }
+                            },
+                            modifier = Modifier.testTag("menu_upload_lrc_${song.id}")
+                        )
+
+                        DropdownMenuItem(
+                            text = { Text("Delete LRC", color = Color(0xFFFF5252), fontWeight = FontWeight.Medium) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.Delete,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF5252),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                if (onDeleteLrc != null) {
+                                    onDeleteLrc()
+                                } else {
+                                    showDeleteLrcDialog = true
+                                }
+                            },
+                            modifier = Modifier.testTag("menu_delete_lrc_${song.id}")
+                        )
+
+                        HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = SurfaceBorderDark)
+
+                        DropdownMenuItem(
+                            text = { Text("Delete Song", color = Color(0xFFFF5252), fontWeight = FontWeight.Medium) },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = Icons.Default.DeleteForever,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFF5252),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            onClick = {
+                                menuExpanded = false
+                                if (onDeleteSong != null) {
+                                    onDeleteSong()
+                                } else {
+                                    showDeleteSongDialog = true
+                                }
+                            },
+                            modifier = Modifier.testTag("menu_delete_song_${song.id}")
+                        )
+                    }
                 }
             }
         }
+    }
+
+    if (showEditLrcDialog) {
+        AlertDialog(
+            onDismissRequest = { showEditLrcDialog = false },
+            title = { Text("Edit LRC - ${song.title}") },
+            text = {
+                OutlinedTextField(
+                    value = editLrcText,
+                    onValueChange = { editLrcText = it },
+                    modifier = Modifier.fillMaxWidth().height(200.dp).testTag("edit_lrc_input_${song.id}"),
+                    textStyle = TextStyle(color = TextPrimaryDark)
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showEditLrcDialog = false
+                        getViewModel()?.updateLyrics(song.id, editLrcText)
+                    },
+                    modifier = Modifier.testTag("save_lrc_btn_${song.id}")
+                ) {
+                    Text("Save", color = YimlyPink)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditLrcDialog = false }) {
+                    Text("Cancel", color = TextSecondaryDark)
+                }
+            },
+            containerColor = SurfaceElevatedDark
+        )
+    }
+
+    if (showDeleteLrcDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteLrcDialog = false },
+            title = { Text("Delete LRC?") },
+            text = { Text("Are you sure you want to delete the LRC lyrics for \"${song.title}\"?") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteLrcDialog = false
+                        getViewModel()?.deleteLrc(song.id)
+                    },
+                    modifier = Modifier.testTag("confirm_delete_lrc_btn_${song.id}")
+                ) {
+                    Text("Delete", color = Color(0xFFFF5252))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteLrcDialog = false }) {
+                    Text("Cancel", color = TextSecondaryDark)
+                }
+            },
+            containerColor = SurfaceElevatedDark
+        )
+    }
+
+    if (showDeleteSongDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSongDialog = false },
+            title = { Text("Delete \"${song.title}\"?") },
+            text = { Text("This permanently deletes the original song, matching LRC, matching instrumental, and associated server library data.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showDeleteSongDialog = false
+                        getViewModel()?.deleteSong(song.id)
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFF5252)),
+                    modifier = Modifier.testTag("confirm_delete_song_btn_${song.id}")
+                ) {
+                    Text("DELETE", color = Color.White)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteSongDialog = false }) {
+                    Text("CANCEL", color = TextSecondaryDark)
+                }
+            },
+            containerColor = SurfaceElevatedDark
+        )
     }
 }
 
@@ -717,8 +948,9 @@ fun MediaCard(
                     .border(0.8.dp, SurfaceBorderSubtle, RoundedCornerShape(12.dp))
             ) {
                 if (!imageUrl.isNullOrBlank()) {
+                    val resolvedImageUrl = if (imageUrl!!.startsWith("http")) imageUrl else "${PreferencesManager.DEFAULT_SERVER_URL}$imageUrl"
                     AsyncImage(
-                        model = imageUrl,
+                        model = resolvedImageUrl,
                         contentDescription = title,
                         contentScale = ContentScale.Crop,
                         modifier = Modifier.fillMaxSize()

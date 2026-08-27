@@ -113,6 +113,18 @@ interface YimlyApiService {
     @GET("api/songs/{songId}/lyrics")
     suspend fun getLyrics(@Path("songId") songId: String): okhttp3.ResponseBody
 
+    @PUT("api/songs/{id}/lrc")
+    suspend fun updateLyrics(@Path("id") id: String, @Body body: okhttp3.RequestBody): okhttp3.ResponseBody
+
+    @PUT("api/songs/{id}/lrc")
+    suspend fun updateLyricsJson(@Path("id") id: String, @Body request: Map<String, String>): Map<String, Any>
+
+    @DELETE("api/songs/{id}/lrc")
+    suspend fun deleteLrc(@Path("id") id: String): Map<String, Any>
+
+    @DELETE("api/songs/{id}")
+    suspend fun deleteSong(@Path("id") id: String): Map<String, Any>
+
     @GET("api/songs/{id}/lyrics/offset")
     suspend fun getLyricsOffset(@Path("id") id: String): com.example.data.models.LyricsOffsetResponse
 

@@ -88,6 +88,9 @@ interface MusicDao {
     @Query("SELECT COUNT(*) FROM songs")
     suspend fun getSongCount(): Int
 
+    @Query("DELETE FROM songs WHERE id = :songId")
+    suspend fun deleteSongById(songId: String)
+
     // Albums
     @Query("SELECT * FROM albums ORDER BY title ASC")
     fun getAllAlbums(): Flow<List<AlbumEntity>>

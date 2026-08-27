@@ -19,6 +19,7 @@ import com.example.data.models.SharePlaylistRequest
 import com.example.data.models.Song
 import com.example.data.models.UpdatePlaylistRequest
 import com.example.lyrics.LyricsParser
+import okhttp3.MediaType.Companion.toMediaType
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -334,6 +335,49 @@ class MusicRepository(
             // Fallback to local parsed lyrics
         }
         LyricsParser.parse(song.lyricsText ?: "", song.id, song.durationMs)
+    }
+
+    suspend fun getLyricsText(songId: String): String = withContext(Dispatchers.IO) {
+        try {
+            val responseBody = apiService.getLyrics(songId)
+            return@withContext responseBody.string()
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    suspend fun updateLyrics(songId: String, lrcText: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val body = okhttp3.RequestBody.create("text/plain; charset=utf-8".toMediaType(), lrcText)
+            apiService.updateLyrics(songId, body)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            try {
+                apiService.updateLyricsJson(songId, mapOf("lyrics" to lrcText))
+                Result.success(Unit)
+            } catch (ex: Exception) {
+                Result.failure(ex)
+            }
+        }
+    }
+
+    suspend fun deleteLrc(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            apiService.deleteLrc(songId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteSong(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            apiService.deleteSong(songId)
+            musicDao.deleteSongById(songId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
     }
 
     suspend fun getLyricsOffset(songId: String): Long? = withContext(Dispatchers.IO) {

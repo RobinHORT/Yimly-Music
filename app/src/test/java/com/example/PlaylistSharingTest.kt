@@ -198,4 +198,25 @@ class PlaylistSharingTest {
         assertEquals(2, privateAndShared.size)
         assertEquals(listOf("1", "2"), privateAndShared.map { it.id })
     }
+
+    @Test
+    fun testCommunityPlaylistCoverUrlResolution() {
+        val relativeCoverPlaylist = Playlist(
+            id = "rel_1",
+            name = "Community Playlist 1",
+            coverUrl = "/api/playlists/rel_1/cover",
+            isPublic = true
+        )
+        val resolved = if (relativeCoverPlaylist.coverUrl!!.startsWith("http")) relativeCoverPlaylist.coverUrl else "${com.example.data.datastore.PreferencesManager.DEFAULT_SERVER_URL}${relativeCoverPlaylist.coverUrl}"
+        assertEquals("https://yimly.robinhort.link/api/playlists/rel_1/cover", resolved)
+
+        val absoluteCoverPlaylist = Playlist(
+            id = "abs_2",
+            name = "Community Playlist 2",
+            coverUrl = "https://custom.server.com/cover.jpg",
+            isPublic = true
+        )
+        val resolvedAbs = if (absoluteCoverPlaylist.coverUrl!!.startsWith("http")) absoluteCoverPlaylist.coverUrl else "${com.example.data.datastore.PreferencesManager.DEFAULT_SERVER_URL}${absoluteCoverPlaylist.coverUrl}"
+        assertEquals("https://custom.server.com/cover.jpg", resolvedAbs)
+    }
 }

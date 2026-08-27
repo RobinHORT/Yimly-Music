@@ -6,12 +6,14 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
 
 @Composable
@@ -20,9 +22,14 @@ fun PlaylistArtwork(
     songs: List<Song>,
     modifier: Modifier = Modifier
 ) {
-    if (!coverUrl.isNullOrEmpty()) {
+    val resolvedCover = remember(coverUrl) {
+        if (coverUrl.isNullOrBlank()) null
+        else if (coverUrl.startsWith("http")) coverUrl
+        else "${PreferencesManager.DEFAULT_SERVER_URL}$coverUrl"
+    }
+    if (!resolvedCover.isNullOrEmpty()) {
         AsyncImage(
-            model = coverUrl,
+            model = resolvedCover,
             contentDescription = "Playlist Cover",
             modifier = modifier,
             contentScale = ContentScale.Crop

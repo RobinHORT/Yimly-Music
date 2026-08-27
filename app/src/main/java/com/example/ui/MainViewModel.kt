@@ -52,6 +52,10 @@ class MainViewModel(
         if (it is AuthState.Authenticated) it.user else null
     }.stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
+    val isAdmin: StateFlow<Boolean> = userProfile.map { profile ->
+        profile?.isAdmin == true || profile?.role == "admin"
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
@@ -369,6 +373,31 @@ class MainViewModel(
     fun saveLyricsConfig(config: LyricsDisplayConfig) {
         viewModelScope.launch {
             preferencesManager.saveLyricsConfig(config)
+        }
+    }
+
+    suspend fun getLyricsText(songId: String): String {
+        return musicRepository.getLyricsText(songId)
+    }
+
+    fun updateLyrics(songId: String, lrcText: String) {
+        viewModelScope.launch {
+            musicRepository.updateLyrics(songId, lrcText)
+            syncLibrary()
+        }
+    }
+
+    fun deleteLrc(songId: String) {
+        viewModelScope.launch {
+            musicRepository.deleteLrc(songId)
+            syncLibrary()
+        }
+    }
+
+    fun deleteSong(songId: String) {
+        viewModelScope.launch {
+            musicRepository.deleteSong(songId)
+            syncLibrary()
         }
     }
 
