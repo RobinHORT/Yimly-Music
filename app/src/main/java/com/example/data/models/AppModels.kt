@@ -23,12 +23,9 @@ data class UserProfile(
     @Json(name = "email") val email: String? = null,
     @Json(name = "display_name") val displayName: String? = null,
     @Json(name = "avatar_url") val avatarUrl: String? = null,
-    @Json(name = "is_admin") val rawIsAdmin: Boolean = false,
+    @Json(name = "is_admin") val isAdmin: Boolean = false,
     @Json(name = "role") val role: String? = null
-) {
-    val isAdmin: Boolean
-        get() = role.equals("administrator", ignoreCase = true) || role.equals("admin", ignoreCase = true) || rawIsAdmin
-}
+)
 
 sealed class AuthState {
     data object Authenticating : AuthState()

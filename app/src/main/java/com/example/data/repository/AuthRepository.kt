@@ -32,22 +32,12 @@ class AuthRepository(
     private val _inMemorySession = MutableStateFlow<AuthSession?>(null)
     private val _authError = MutableStateFlow<String?>(null)
 
-    @Suppress("UNCHECKED_CAST")
     val authStateFlow: Flow<AuthState> = combine(
         _inMemorySession,
         preferencesManager.authTokenFlow,
         preferencesManager.usernameFlow,
-        preferencesManager.userRoleFlow,
-        preferencesManager.isAdminFlow,
         _authError
-    ) { flows ->
-        val inMem = flows[0] as? AuthSession
-        val token = flows[1] as? String
-        val username = flows[2] as? String
-        val role = flows[3] as? String
-        val isAdmin = flows[4] as? Boolean ?: false
-        val error = flows[5] as? String
-
+    ) { inMem, token, username, error ->
         if (inMem != null) {
             AuthState.Authenticated(
                 user = inMem.user,
@@ -61,8 +51,7 @@ class AuthRepository(
                     email = null,
                     displayName = username.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() },
                     avatarUrl = null,
-                    rawIsAdmin = isAdmin,
-                    role = role
+                    isAdmin = false
                 ),
                 token = token
             )
@@ -97,14 +86,8 @@ class AuthRepository(
                 email = profile.email,
                 displayName = profile.displayName,
                 avatarUrl = profile.avatarUrl,
-                role = profile.role,
                 isAdmin = profile.isAdmin,
                 rememberMe = true
-            )
-            _inMemorySession.value = AuthSession(
-                user = profile,
-                token = token,
-                isPersistent = true
             )
         } catch (e: HttpException) {
             if (e.code() == 401 || e.code() == 403) {
@@ -132,7 +115,6 @@ class AuthRepository(
                     email = user.email,
                     displayName = user.displayName,
                     avatarUrl = user.avatarUrl,
-                    role = user.role,
                     isAdmin = user.isAdmin,
                     rememberMe = true
                 )
@@ -155,6 +137,7 @@ class AuthRepository(
 
             Result.success(user)
         } catch (e: HttpException) {
+            
             val msg = when (e.code()) {
                 401, 403 -> "Invalid username or password. Please try again."
                 404 -> "Authentication endpoint not found on server."
@@ -164,15 +147,18 @@ class AuthRepository(
             _authError.value = msg
             Result.failure(Exception(msg, e))
         } catch (e: IOException) {
+            
             val msg = "Unable to connect to Yimly server. Please check your network."
             _authError.value = msg
             Result.failure(Exception(msg, e))
         } catch (e: Exception) {
+            
             val msg = e.message ?: "Authentication failed. Please check your credentials."
             _authError.value = msg
             Result.failure(Exception(msg, e))
         }
     }
+
 
     suspend fun logout() = withContext(Dispatchers.IO) {
         _inMemorySession.value = null

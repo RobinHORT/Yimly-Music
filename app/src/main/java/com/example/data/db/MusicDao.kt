@@ -91,6 +91,57 @@ interface MusicDao {
     @Query("DELETE FROM songs WHERE id = :songId")
     suspend fun deleteSongById(songId: String)
 
+    @Query("DELETE FROM songs WHERE id NOT IN (:validIds)")
+    suspend fun deleteSongsNotIn(validIds: List<String>)
+
+    @Query("DELETE FROM songs")
+    suspend fun clearAllSongs()
+
+    @Query("DELETE FROM playlist_songs WHERE songId = :songId")
+    suspend fun deletePlaylistSongsBySongId(songId: String)
+
+    @Query("DELETE FROM playlist_songs WHERE songId NOT IN (:validSongIds)")
+    suspend fun deletePlaylistSongsForStaleSongs(validSongIds: List<String>)
+
+    @Query("DELETE FROM play_history WHERE songId = :songId")
+    suspend fun deleteHistoryBySongId(songId: String)
+
+    @Query("DELETE FROM play_history WHERE songId NOT IN (:validSongIds)")
+    suspend fun deleteHistoryForStaleSongs(validSongIds: List<String>)
+
+    @Transaction
+    suspend fun deleteSongAndCascade(songId: String) {
+        deleteSongById(songId)
+        deletePlaylistSongsBySongId(songId)
+        deleteHistoryBySongId(songId)
+    }
+
+    @Transaction
+    suspend fun reconcileSongs(serverSongs: List<SongEntity>) {
+        if (serverSongs.isEmpty()) {
+            clearAllSongs()
+            clearAllPlaylistSongs()
+            clearHistory()
+            return
+        }
+        val validIds = serverSongs.map { it.id }
+        deleteSongsNotIn(validIds)
+        deletePlaylistSongsForStaleSongs(validIds)
+        deleteHistoryForStaleSongs(validIds)
+        for (song in serverSongs) {
+            val existing = getSongById(song.id)
+            val merged = if (existing != null) {
+                song.copy(
+                    isFavorite = existing.isFavorite || song.isFavorite,
+                    addedAt = existing.addedAt
+                )
+            } else {
+                song
+            }
+            insertSong(merged)
+        }
+    }
+
     // Albums
     @Query("SELECT * FROM albums ORDER BY title ASC")
     fun getAllAlbums(): Flow<List<AlbumEntity>>
@@ -101,6 +152,22 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAlbums(albums: List<AlbumEntity>)
 
+    @Query("DELETE FROM albums WHERE id NOT IN (:validIds)")
+    suspend fun deleteAlbumsNotIn(validIds: List<String>)
+
+    @Query("DELETE FROM albums")
+    suspend fun clearAllAlbums()
+
+    @Transaction
+    suspend fun reconcileAlbums(validAlbums: List<AlbumEntity>) {
+        if (validAlbums.isEmpty()) {
+            clearAllAlbums()
+        } else {
+            deleteAlbumsNotIn(validAlbums.map { it.id })
+            insertAlbums(validAlbums)
+        }
+    }
+
     // Artists
     @Query("SELECT * FROM artists ORDER BY name ASC")
     fun getAllArtists(): Flow<List<ArtistEntity>>
@@ -110,6 +177,22 @@ interface MusicDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertArtists(artists: List<ArtistEntity>)
+
+    @Query("DELETE FROM artists WHERE id NOT IN (:validIds)")
+    suspend fun deleteArtistsNotIn(validIds: List<String>)
+
+    @Query("DELETE FROM artists")
+    suspend fun clearAllArtists()
+
+    @Transaction
+    suspend fun reconcileArtists(validArtists: List<ArtistEntity>) {
+        if (validArtists.isEmpty()) {
+            clearAllArtists()
+        } else {
+            deleteArtistsNotIn(validArtists.map { it.id })
+            insertArtists(validArtists)
+        }
+    }
 
     // Playlists
     @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
@@ -129,6 +212,30 @@ interface MusicDao {
 
     @Query("DELETE FROM playlists WHERE id NOT IN (:validIds)")
     suspend fun deleteStalePlaylists(validIds: List<String>)
+
+    @Query("DELETE FROM playlists")
+    suspend fun clearAllPlaylists()
+
+    @Query("DELETE FROM playlist_songs WHERE playlistId NOT IN (:validPlaylistIds)")
+    suspend fun deletePlaylistSongsForStalePlaylists(validPlaylistIds: List<String>)
+
+    @Query("DELETE FROM playlist_songs")
+    suspend fun clearAllPlaylistSongs()
+
+    @Transaction
+    suspend fun reconcilePlaylists(serverPlaylists: List<PlaylistEntity>) {
+        if (serverPlaylists.isEmpty()) {
+            clearAllPlaylists()
+            clearAllPlaylistSongs()
+            return
+        }
+        val validIds = serverPlaylists.map { it.id }
+        deleteStalePlaylists(validIds)
+        deletePlaylistSongsForStalePlaylists(validIds)
+        for (pl in serverPlaylists) {
+            insertPlaylist(pl)
+        }
+    }
 
     // Playlist Songs
     @Query("""

@@ -11,6 +11,7 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Done
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,12 +25,14 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import coil.compose.AsyncImage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -40,8 +43,10 @@ import java.io.FileOutputStream
 @Composable
 fun PlaylistArtworkEditor(
     playlistId: String,
+    currentCoverUrl: String? = null,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit
+    onSave: (String) -> Unit,
+    onDeleteArtwork: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
@@ -76,6 +81,14 @@ fun PlaylistArtworkEditor(
                     IconButton(onClick = onDismiss) { Icon(Icons.Default.Close, contentDescription = "Cancel") }
                 },
                 actions = {
+                    if (onDeleteArtwork != null && !currentCoverUrl.isNullOrBlank()) {
+                        IconButton(
+                            onClick = onDeleteArtwork,
+                            modifier = Modifier.testTag("delete_artwork_top_btn")
+                        ) {
+                            Icon(Icons.Default.Delete, contentDescription = "Delete Artwork", tint = Color(0xFFFF5252))
+                        }
+                    }
                     if (bitmap != null && !isSaving) {
                         IconButton(
                             onClick = {
@@ -194,7 +207,16 @@ fun PlaylistArtworkEditor(
                         }
                     }
                 } ?: run {
-                    Text("No image selected", color = Color.White)
+                    if (!currentCoverUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = currentCoverUrl,
+                            contentDescription = "Current Cover",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop
+                        )
+                    } else {
+                        Text("No image selected", color = Color.White)
+                    }
                 }
                 
                 // Crop overlay guides
@@ -222,6 +244,19 @@ fun PlaylistArtworkEditor(
 
             Button(onClick = { launcher.launch("image/*") }, modifier = Modifier.testTag("upload_image_button")) {
                 Text(if (bitmap == null) "Upload Image" else "Change Image")
+            }
+
+            if (onDeleteArtwork != null && !currentCoverUrl.isNullOrBlank()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = onDeleteArtwork,
+                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF5252)),
+                    modifier = Modifier.testTag("delete_artwork_btn")
+                ) {
+                    Icon(Icons.Default.Delete, contentDescription = null, tint = Color(0xFFFF5252))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Remove Current Artwork", color = Color(0xFFFF5252))
+                }
             }
             if (bitmap != null) {
                 Text("Drag to reposition, pinch to zoom", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))

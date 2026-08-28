@@ -534,7 +534,7 @@ fun MusicLibraryScreen(
                 3 -> {
                     // Playlists List
                     val myPlaylists = playlists.filter { (it.isOwner || it.permission == "owner") && !it.isPublic }
-                    val sharedWithMe = playlists.filter { !it.isOwner && it.permission != "owner" && !it.isPublic }
+                    val sharedWithMe = playlists.filter { !it.isOwner && it.permission != "owner" && !it.isPublic && (it.permission.equals("view", ignoreCase = true) || it.permission.equals("edit", ignoreCase = true) || it.canEdit) }
                     val communityPlaylists = playlists.filter { it.isPublic }
 
                     LazyColumn(

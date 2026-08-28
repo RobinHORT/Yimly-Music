@@ -29,7 +29,6 @@ class PreferencesManager(private val context: Context) {
         private val KEY_USER_EMAIL = stringPreferencesKey("user_email")
         private val KEY_DISPLAY_NAME = stringPreferencesKey("display_name")
         private val KEY_AVATAR_URL = stringPreferencesKey("avatar_url")
-        private val KEY_USER_ROLE = stringPreferencesKey("user_role")
         private val KEY_IS_ADMIN = booleanPreferencesKey("is_admin")
         private val KEY_REMEMBER_ME = booleanPreferencesKey("remember_me")
         private val KEY_AUDIO_QUALITY = stringPreferencesKey("audio_quality")
@@ -84,10 +83,6 @@ class PreferencesManager(private val context: Context) {
 
     val avatarUrlFlow: Flow<String?> = context.dataStore.data.map { preferences ->
         preferences[KEY_AVATAR_URL]
-    }
-
-    val userRoleFlow: Flow<String?> = context.dataStore.data.map { preferences ->
-        preferences[KEY_USER_ROLE]
     }
 
     val isAdminFlow: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -156,7 +151,6 @@ class PreferencesManager(private val context: Context) {
         email: String?,
         displayName: String? = null,
         avatarUrl: String? = null,
-        role: String? = null,
         isAdmin: Boolean = false,
         rememberMe: Boolean = true
     ) {
@@ -169,8 +163,7 @@ class PreferencesManager(private val context: Context) {
                 if (email != null) preferences[KEY_USER_EMAIL] = email else preferences.remove(KEY_USER_EMAIL)
                 if (displayName != null) preferences[KEY_DISPLAY_NAME] = displayName else preferences.remove(KEY_DISPLAY_NAME)
                 if (avatarUrl != null) preferences[KEY_AVATAR_URL] = avatarUrl else preferences.remove(KEY_AVATAR_URL)
-                if (role != null) preferences[KEY_USER_ROLE] = role else preferences.remove(KEY_USER_ROLE)
-                preferences[KEY_IS_ADMIN] = isAdmin || role.equals("administrator", ignoreCase = true) || role.equals("admin", ignoreCase = true)
+                preferences[KEY_IS_ADMIN] = isAdmin
             } else {
                 preferences.remove(KEY_AUTH_TOKEN)
                 preferences.remove(KEY_USER_ID)
@@ -178,7 +171,6 @@ class PreferencesManager(private val context: Context) {
                 preferences.remove(KEY_USER_EMAIL)
                 preferences.remove(KEY_DISPLAY_NAME)
                 preferences.remove(KEY_AVATAR_URL)
-                preferences.remove(KEY_USER_ROLE)
                 preferences.remove(KEY_IS_ADMIN)
             }
         }
@@ -192,7 +184,6 @@ class PreferencesManager(private val context: Context) {
             preferences.remove(KEY_USER_EMAIL)
             preferences.remove(KEY_DISPLAY_NAME)
             preferences.remove(KEY_AVATAR_URL)
-            preferences.remove(KEY_USER_ROLE)
             preferences.remove(KEY_IS_ADMIN)
         }
     }

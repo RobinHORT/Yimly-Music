@@ -4,10 +4,14 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.api.YimlyApiService
+import com.example.data.datastore.PreferencesManager
 import com.example.data.db.PlaylistEntity
 import com.example.data.db.YimlyDatabase
 import com.example.data.db.toEntity
+import com.example.data.models.AuthState
 import com.example.data.models.Playlist
+import com.example.data.models.UserProfile
+import com.example.data.repository.AuthRepository
 import com.example.data.repository.MusicRepository
 import com.example.ui.components.resolveCoverUrl
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +31,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -35,6 +41,8 @@ class PlaylistSharingTest {
     private lateinit var context: Context
     private lateinit var database: YimlyDatabase
     private lateinit var musicRepository: MusicRepository
+    private lateinit var preferencesManager: PreferencesManager
+    private lateinit var authRepository: AuthRepository
 
     @Before
     fun setUp() {
@@ -43,9 +51,13 @@ class PlaylistSharingTest {
             .allowMainThreadQueries()
             .build()
 
+        val moshi = Moshi.Builder()
+            .addLast(KotlinJsonAdapterFactory())
+            .build()
+
         val retrofit = Retrofit.Builder()
             .baseUrl("https://yimly.robinhort.link/")
-            .addConverterFactory(MoshiConverterFactory.create())
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
         val apiService = retrofit.create(YimlyApiService::class.java)
 
@@ -54,10 +66,20 @@ class PlaylistSharingTest {
             apiService = apiService,
             coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         )
+
+        preferencesManager = PreferencesManager(context)
+        authRepository = AuthRepository(
+            apiService = apiService,
+            preferencesManager = preferencesManager,
+            coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        )
     }
 
     @After
     fun tearDown() {
+        runBlocking {
+            preferencesManager.clearAuthSession()
+        }
         database.close()
     }
 
@@ -228,5 +250,182 @@ class PlaylistSharingTest {
         )
         val resolvedLocal = localFilePlaylist.coverUrl.resolveCoverUrl()
         assertEquals("file:///data/user/0/com.example/files/cover.jpg", resolvedLocal)
+    }
+
+    @Test
+    fun testLoginWithTestUser() = runBlocking {
+        // 1. Initially unauthenticated
+        val initialAuth = authRepository.authStateFlow.first()
+        assertTrue("Initially unauthenticated", initialAuth is AuthState.Unauthenticated)
+
+        // 2. Login with test user credentials
+        val result = authRepository.login(username = "test", password = "1234", rememberMe = true)
+        assertTrue("Test user login should succeed", result.isSuccess)
+
+        val user = result.getOrNull()
+        assertNotNull("User profile must not be null", user)
+        assertEquals("test", user?.username)
+        assertTrue("User ID must not be empty", user?.id?.isNotEmpty() == true)
+
+        // 3. AuthState must reflect authenticated test user
+        val currentAuth = authRepository.authStateFlow.first()
+        assertTrue("Auth state should be Authenticated", currentAuth is AuthState.Authenticated)
+        val authenticatedState = currentAuth as AuthState.Authenticated
+        assertEquals("test", authenticatedState.user.username)
+        assertEquals(user?.id, authenticatedState.user.id)
+        assertTrue("Token must be non-empty", authenticatedState.token.isNotEmpty())
+    }
+
+    @Test
+    fun testPublicAndPrivatePlaylistAccessControl() = runBlocking {
+        // 1. Insert a public playlist (created by test user)
+        val publicPlaylist = PlaylistEntity(
+            id = "pl_public_chill",
+            name = "Community Public Chill",
+            description = "Public for everybody",
+            isOwner = true,
+            userId = "usr_test",
+            ownerName = "test",
+            isPublic = true
+        )
+        database.musicDao().insertPlaylist(publicPlaylist)
+
+        // 2. Insert a private playlist (owned by test user)
+        val testPrivatePlaylist = PlaylistEntity(
+            id = "pl_private_test",
+            name = "Test User's Secret Diary",
+            description = "Private only for test user",
+            isOwner = true,
+            userId = "usr_test",
+            ownerName = "test",
+            isPublic = false
+        )
+        database.musicDao().insertPlaylist(testPrivatePlaylist)
+
+        // 3. Insert a private playlist (owned by another user)
+        val otherPrivatePlaylist = PlaylistEntity(
+            id = "pl_private_other",
+            name = "Other User's Secret Diary",
+            description = "Private only for other user",
+            isOwner = false,
+            userId = "usr_other",
+            ownerName = "other",
+            isPublic = false
+        )
+        database.musicDao().insertPlaylist(otherPrivatePlaylist)
+
+        // Fetch models
+        val dbPlaylists = database.musicDao().getAllPlaylists().first().map { it.toPlaylist() }
+        assertEquals(3, dbPlaylists.size)
+
+        val pubPl = dbPlaylists.first { it.id == "pl_public_chill" }
+        val testPrivPl = dbPlaylists.first { it.id == "pl_private_test" }
+        val otherPrivPl = dbPlaylists.first { it.id == "pl_private_other" }
+
+        // Test User context ("usr_test", "test"):
+        // Public playlist is viewable by every user
+        assertTrue("Public playlist must be viewable by test user", pubPl.isViewableBy(userId = "usr_test", username = "test"))
+        // Private playlist is viewable by its owner
+        assertTrue("Test user must view their own private playlist", testPrivPl.isViewableBy(userId = "usr_test", username = "test", isCurrentUserOwner = true))
+        // Private playlist of other user is NOT viewable by test user
+        assertFalse("Test user must NOT view other user's private playlist", otherPrivPl.isViewableBy(userId = "usr_test", username = "test", isCurrentUserOwner = false))
+
+        // Other User context ("usr_other", "other"):
+        // Public playlist is viewable by other user
+        assertTrue("Public playlist must be viewable by other user", pubPl.isViewableBy(userId = "usr_other", username = "other"))
+        // Test user's private playlist is NOT viewable by other user
+        assertFalse("Other user must NOT view test user's private playlist", testPrivPl.isViewableBy(userId = "usr_other", username = "other", isCurrentUserOwner = false))
+        // Other user's private playlist IS viewable by other user (owner)
+        assertTrue("Other user must view their own private playlist", otherPrivPl.isViewableBy(userId = "usr_other", username = "other", isCurrentUserOwner = true))
+
+        // Unauthenticated / Guest context (null, null):
+        // Public playlist is viewable by guest
+        assertTrue("Public playlist must be viewable by guest", pubPl.isViewableBy(userId = null, username = null, isCurrentUserOwner = false))
+        // Private playlists are NOT viewable by guest
+        assertFalse("Guest must NOT view test user's private playlist", testPrivPl.isViewableBy(userId = null, username = null, isCurrentUserOwner = false))
+        assertFalse("Guest must NOT view other user's private playlist", otherPrivPl.isViewableBy(userId = null, username = null, isCurrentUserOwner = false))
+    }
+
+    @Test
+    fun testVisiblePlaylistsStreamFiltering() = runBlocking {
+        // Insert public playlist and private playlists
+        database.musicDao().insertPlaylist(
+            PlaylistEntity(
+                id = "pl_pub_1",
+                name = "Global Beats",
+                userId = "usr_test",
+                ownerName = "test",
+                isPublic = true
+            )
+        )
+        database.musicDao().insertPlaylist(
+            PlaylistEntity(
+                id = "pl_priv_test_1",
+                name = "Test Private Gems",
+                userId = "usr_test",
+                ownerName = "test",
+                isPublic = false,
+                isOwner = true
+            )
+        )
+        database.musicDao().insertPlaylist(
+            PlaylistEntity(
+                id = "pl_priv_other_1",
+                name = "Other Private Gems",
+                userId = "usr_other",
+                ownerName = "other",
+                isPublic = false,
+                isOwner = false
+            )
+        )
+
+        // 1. Visible playlists for Test User
+        val testUserPlaylists = musicRepository.getVisiblePlaylists(userId = "usr_test", username = "test").first()
+        assertEquals(2, testUserPlaylists.size)
+        assertTrue(testUserPlaylists.any { it.id == "pl_pub_1" })
+        assertTrue(testUserPlaylists.any { it.id == "pl_priv_test_1" })
+        assertFalse("Other user's private playlist must not be visible to test user", testUserPlaylists.any { it.id == "pl_priv_other_1" })
+
+        // 2. Visible playlists for Other User
+        val otherUserPlaylists = musicRepository.getVisiblePlaylists(userId = "usr_other", username = "other").first()
+        assertEquals(2, otherUserPlaylists.size)
+        assertTrue(otherUserPlaylists.any { it.id == "pl_pub_1" })
+        assertTrue(otherUserPlaylists.any { it.id == "pl_priv_other_1" })
+        assertFalse("Test user's private playlist must not be visible to other user", otherUserPlaylists.any { it.id == "pl_priv_test_1" })
+
+        // 3. Visible playlists for Guest (Unauthenticated)
+        val guestPlaylists = musicRepository.getVisiblePlaylists(userId = null, username = null).first()
+        assertEquals(1, guestPlaylists.size)
+        assertEquals("pl_pub_1", guestPlaylists.first().id)
+    }
+
+    @Test
+    fun testLibraryCategorizationRespectsPublicAndPrivateOwnership() = runBlocking {
+        val testUser = UserProfile(id = "usr_test", username = "test", email = "test@yimly.app")
+
+        val playlists = listOf(
+            Playlist(id = "pub_all", name = "Community Beats", isPublic = true, userId = "usr_someone", ownerName = "someone", isOwner = false),
+            Playlist(id = "priv_mine", name = "My Private Jam", isPublic = false, userId = "usr_test", ownerName = "test", isOwner = true),
+            Playlist(id = "priv_theirs", name = "Stranger Private", isPublic = false, userId = "usr_other", ownerName = "other", isOwner = false, canEdit = false, permission = "none")
+        )
+
+        // Filter for visible playlists for testUser:
+        // - Public is viewable by every user
+        // - Private is only seen by playlist owner
+        val visibleForTestUser = playlists.filter { it.isViewableBy(testUser.id, testUser.username) }
+        assertEquals(2, visibleForTestUser.size)
+        assertTrue("Public playlist must be visible", visibleForTestUser.any { it.id == "pub_all" })
+        assertTrue("Owned private playlist must be visible", visibleForTestUser.any { it.id == "priv_mine" })
+        assertFalse("Other user's private playlist must not be visible", visibleForTestUser.any { it.id == "priv_theirs" })
+
+        // UI Library categorizations for testUser
+        val myPlaylists = visibleForTestUser.filter { (it.isOwner || it.permission == "owner") && !it.isPublic }
+        val communityPlaylists = visibleForTestUser.filter { it.isPublic }
+
+        assertEquals(1, myPlaylists.size)
+        assertEquals("priv_mine", myPlaylists.first().id)
+
+        assertEquals(1, communityPlaylists.size)
+        assertEquals("pub_all", communityPlaylists.first().id)
     }
 }

@@ -579,6 +579,54 @@ class PlaybackManager(
         }
     }
 
+    fun removeDeletedSong(songId: String) {
+        val currentSong = _playbackInfo.value.currentSong
+        val isCurrent = currentSong?.id == songId
+        val wasInQueue = currentQueue.any { it.id == songId } || originalQueue.any { it.id == songId }
+
+        if (!isCurrent && !wasInQueue) return
+
+        val newOriginalQueue = originalQueue.filter { it.id != songId }
+        val newCurrentQueue = currentQueue.filter { it.id != songId }
+        originalQueue = newOriginalQueue
+        currentQueue = newCurrentQueue
+
+        if (isCurrent) {
+            instrumentalResolutionJob?.cancel()
+            if (newCurrentQueue.isNotEmpty()) {
+                val nextIndex = currentIndex.coerceIn(0, newCurrentQueue.lastIndex)
+                currentIndex = nextIndex
+                playCurrentQueueIndex()
+            } else {
+                stopProgressTracker()
+                exoPlayer?.stop()
+                exoPlayer?.clearMediaItems()
+                currentIndex = 0
+                currentNormalAudioUrl = null
+                currentInstrumentalAudioUrl = null
+                updatePlaybackState {
+                    it.copy(
+                        currentSong = null,
+                        isPlaying = false,
+                        queue = emptyList(),
+                        currentQueueIndex = 0,
+                        currentPositionMs = 0L,
+                        durationMs = 0L
+                    )
+                }
+            }
+        } else {
+            val newIdx = newCurrentQueue.indexOfFirst { it.id == currentSong?.id }.coerceAtLeast(0)
+            currentIndex = newIdx
+            updatePlaybackState {
+                it.copy(
+                    queue = newCurrentQueue,
+                    currentQueueIndex = newIdx
+                )
+            }
+        }
+    }
+
     fun release() {
         stopProgressTracker()
         try {

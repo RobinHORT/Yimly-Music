@@ -70,5 +70,8 @@ class YimlyApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
+        musicRepository.onSongDeletedListener = { deletedSongId ->
+            playbackManager.removeDeletedSong(deletedSongId)
+        }
     }
 }
