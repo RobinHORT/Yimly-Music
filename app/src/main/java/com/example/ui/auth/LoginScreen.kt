@@ -274,34 +274,6 @@ fun LoginScreen(
                             Text("Sign In", color = Color.White, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                     }
-
-                    // Quick Sign In (Test User) Button
-                    androidx.compose.material3.OutlinedButton(
-                        onClick = {
-                            username = "test"
-                            password = "password"
-                            onLogin("test", "password", rememberMe)
-                        },
-                        enabled = !isLoading,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(48.dp)
-                            .testTag("quick_test_user_btn"),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = YimlyPink
-                        ),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, YimlyPink.copy(alpha = 0.6f)),
-                        shape = RoundedCornerShape(14.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Person,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                            tint = YimlyPink
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sign In as Test User", fontWeight = FontWeight.SemiBold, fontSize = 14.sp)
-                    }
                 }
             }
         }
