@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -96,8 +97,30 @@ fun PlaylistDetailScreen(
     onGetCollaborators: ((onResult: (List<Collaborator>) -> Unit) -> Unit)? = null,
     onRevokeShare: ((String) -> Unit)? = null,
     onUpdateArtwork: ((String) -> Unit)? = null,
+    isAdmin: Boolean = false,
     modifier: Modifier = Modifier
 ) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val getViewModel = {
+        runCatching {
+            val activity = context as? androidx.activity.ComponentActivity
+            if (activity != null) {
+                androidx.lifecycle.ViewModelProvider(activity).get(com.example.ui.MainViewModel::class.java)
+            } else {
+                null
+            }
+        }.getOrNull()
+    }
+
+    val vm = getViewModel()
+    val vmIsAdminState = vm?.isAdmin?.collectAsState(initial = false)
+    val userProfileState = vm?.userProfile?.collectAsState(initial = null)
+    val isUserAdmin = isAdmin ||
+            (vmIsAdminState?.value == true) ||
+            (userProfileState?.value?.isAdmin == true) ||
+            (userProfileState?.value?.role.equals("administrator", ignoreCase = true)) ||
+            (userProfileState?.value?.role.equals("admin", ignoreCase = true))
+
     var showShareDialog by remember { mutableStateOf(false) }
     var showEditDialog by remember { mutableStateOf(false) }
     var editName by remember { mutableStateOf(playlist.name) }
@@ -234,7 +257,7 @@ fun PlaylistDetailScreen(
                             }
                         }
 
-                        if ((playlist.isOwner || playlist.permission == "owner") && onDeletePlaylist != null) {
+                        if ((playlist.isOwner || playlist.permission == "owner" || isUserAdmin) && onDeletePlaylist != null) {
                             IconButton(
                                 onClick = onDeletePlaylist,
                                 modifier = Modifier

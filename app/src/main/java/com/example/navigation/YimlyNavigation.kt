@@ -99,6 +99,7 @@ fun YimlyNavigation(
     val serverUrl by viewModel.serverUrl.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val authError by viewModel.authError.collectAsState()
+    val isAdmin by viewModel.isAdmin.collectAsState()
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -425,11 +426,13 @@ fun YimlyNavigation(
                         val playlist = playlists.firstOrNull { it.id == playlistId }
                         if (playlist != null) {
                             val playlistSongs by viewModel.getSongsForPlaylist(playlist.id).collectAsState(initial = emptyList())
+                            val isUserAdmin = isAdmin || userProfile?.isAdmin == true || userProfile?.role.equals("administrator", ignoreCase = true) || userProfile?.role.equals("admin", ignoreCase = true)
                             PlaylistDetailScreen(
                                 playlist = playlist,
                                 songs = playlistSongs,
                                 currentSong = playbackInfo.currentSong,
                                 isPlaying = playbackInfo.isPlaying,
+                                isAdmin = isUserAdmin,
                                 onBack = { navController.popBackStack() },
                                 onSongClick = { song, list -> viewModel.playSong(song, list) },
                                 onToggleFavorite = { songId -> viewModel.toggleFavorite(songId) },
@@ -437,7 +440,7 @@ fun YimlyNavigation(
                                 onAddToQueue = { song -> viewModel.addToQueue(song) },
                                 onAddToNowPlaying = { song -> viewModel.addToQueue(song) },
                                 onAddToPlaylist = { song -> songToAddToPlaylist = song },
-                                onDeletePlaylist = if (playlist.isOwner || playlist.permission == "owner") {
+                                onDeletePlaylist = if (playlist.isOwner || playlist.permission == "owner" || isUserAdmin) {
                                     {
                                         viewModel.deletePlaylist(playlist.id) {
                                             navController.popBackStack()

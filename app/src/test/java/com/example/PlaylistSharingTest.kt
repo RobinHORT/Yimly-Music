@@ -229,4 +229,89 @@ class PlaylistSharingTest {
         val resolvedLocal = localFilePlaylist.coverUrl.resolveCoverUrl()
         assertEquals("file:///data/user/0/com.example/files/cover.jpg", resolvedLocal)
     }
+
+    @Test
+    fun testAdminPlaylistDeletionPreservesSongsAndOtherPlaylists() = runBlocking {
+        val song1 = com.example.data.db.SongEntity(id = "s1", title = "Track 1", artist = "Artist 1", album = "Album 1", durationSeconds = 180L)
+        val song2 = com.example.data.db.SongEntity(id = "s2", title = "Track 2", artist = "Artist 2", album = "Album 2", durationSeconds = 200L)
+        database.musicDao().insertSongs(listOf(song1, song2))
+
+        val otherUserPlaylist = PlaylistEntity(
+            id = "pl_other_user",
+            name = "Target Playlist",
+            isOwner = false,
+            canEdit = false,
+            permission = "view",
+            ownerName = "other_user"
+        )
+        val remainingPlaylist = PlaylistEntity(
+            id = "pl_remaining",
+            name = "Remaining Playlist",
+            isOwner = true,
+            canEdit = true,
+            permission = "owner"
+        )
+        database.musicDao().insertPlaylist(otherUserPlaylist)
+        database.musicDao().insertPlaylist(remainingPlaylist)
+
+        database.musicDao().insertPlaylistSongCrossRef(
+            com.example.data.db.PlaylistSongCrossRef(playlistId = "pl_other_user", songId = "s1", orderIndex = 0)
+        )
+        database.musicDao().insertPlaylistSongCrossRef(
+            com.example.data.db.PlaylistSongCrossRef(playlistId = "pl_remaining", songId = "s2", orderIndex = 0)
+        )
+
+        // Simulate admin deletion of otherUserPlaylist
+        database.musicDao().deletePlaylist("pl_other_user")
+        database.musicDao().clearPlaylistSongs("pl_other_user")
+
+        // Verify otherUserPlaylist is deleted
+        val deletedPl = database.musicDao().getPlaylistById("pl_other_user")
+        org.junit.Assert.assertNull(deletedPl)
+
+        // Verify remaining playlist is untouched
+        val keptPl = database.musicDao().getPlaylistById("pl_remaining")
+        assertNotNull(keptPl)
+
+        // Verify songs still exist in songs table
+        val remainingSongs = database.musicDao().getAllSongsList()
+        assertEquals(2, remainingSongs.size)
+
+        // Verify playlist songs cross-ref
+        val remainingPlSongs = database.musicDao().getSongsForPlaylist("pl_remaining").first()
+        assertEquals(1, remainingPlSongs.size)
+        assertEquals("s2", remainingPlSongs[0].id)
+    }
+
+    @Test
+    fun testUserProfileAdminRoleChecks() {
+        val adminUser = com.example.data.models.UserProfile(
+            id = "u1",
+            username = "admin_user",
+            role = "administrator"
+        )
+        assertTrue(adminUser.isAdmin)
+
+        val shortAdminUser = com.example.data.models.UserProfile(
+            id = "u2",
+            username = "admin_user_2",
+            role = "admin"
+        )
+        assertTrue(shortAdminUser.isAdmin)
+
+        val flagAdminUser = com.example.data.models.UserProfile(
+            id = "u3",
+            username = "admin_user_3",
+            rawIsAdmin = true
+        )
+        assertTrue(flagAdminUser.isAdmin)
+
+        val normalUser = com.example.data.models.UserProfile(
+            id = "u4",
+            username = "normal_user",
+            role = "user",
+            rawIsAdmin = false
+        )
+        assertFalse(normalUser.isAdmin)
+    }
 }
