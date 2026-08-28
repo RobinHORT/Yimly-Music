@@ -96,7 +96,6 @@ fun PlaylistDetailScreen(
     onGetCollaborators: ((onResult: (List<Collaborator>) -> Unit) -> Unit)? = null,
     onRevokeShare: ((String) -> Unit)? = null,
     onUpdateArtwork: ((String) -> Unit)? = null,
-    onDeleteArtwork: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var showShareDialog by remember { mutableStateOf(false) }
@@ -113,18 +112,11 @@ fun PlaylistDetailScreen(
         ) {
             com.example.ui.components.PlaylistArtworkEditor(
                 playlistId = playlist.id,
-                currentCoverUrl = playlist.coverUrl,
                 onDismiss = { showArtworkEditor = false },
                 onSave = { uri ->
                     onUpdateArtwork?.invoke(uri)
                     showArtworkEditor = false
-                },
-                onDeleteArtwork = if (playlist.canEdit && onDeleteArtwork != null && !playlist.coverUrl.isNullOrBlank()) {
-                    {
-                        onDeleteArtwork()
-                        showArtworkEditor = false
-                    }
-                } else null
+                }
             )
         }
     }

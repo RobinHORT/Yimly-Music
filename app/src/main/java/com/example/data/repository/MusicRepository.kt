@@ -21,6 +21,7 @@ import com.example.data.models.UpdatePlaylistRequest
 import com.example.lyrics.LyricsParser
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import retrofit2.HttpException
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -47,8 +48,6 @@ class MusicRepository(
     private val coroutineScope: CoroutineScope
 ) {
 
-    var onSongDeletedListener: ((String) -> Unit)? = null
-
     init {
         coroutineScope.launch(Dispatchers.IO) {
             syncWithBackend()
@@ -69,13 +68,11 @@ class MusicRepository(
         musicDao.getAllAlbums().map { list -> list.map { it.toAlbum() } },
         allSongs
     ) { dbAlbums, songs ->
-        val derived = deriveAlbumsFromSongs(songs)
         if (dbAlbums.isNotEmpty()) {
-            val merged = mergeAlbums(dbAlbums, derived)
-            val activeAlbumTitles = songs.map { it.album.trim().lowercase() }.toSet()
-            merged.filter { it.songCount > 0 || activeAlbumTitles.contains(it.title.trim().lowercase()) }
+            // Merge DB albums with derived albums from songs to guarantee complete library coverage
+            mergeAlbums(dbAlbums, deriveAlbumsFromSongs(songs))
         } else {
-            derived
+            deriveAlbumsFromSongs(songs)
         }
     }
 
@@ -83,23 +80,15 @@ class MusicRepository(
         musicDao.getAllArtists().map { list -> list.map { it.toArtist() } },
         allSongs
     ) { dbArtists, songs ->
-        val derived = deriveArtistsFromSongs(songs)
         if (dbArtists.isNotEmpty()) {
-            val merged = mergeArtists(dbArtists, derived)
-            val activeArtists = songs.map { it.artist.trim().lowercase() }.toSet()
-            merged.filter { it.songCount > 0 || activeArtists.contains(it.name.trim().lowercase()) }
+            // Merge DB artists with derived artists from songs to guarantee complete library coverage
+            mergeArtists(dbArtists, deriveArtistsFromSongs(songs))
         } else {
-            derived
+            deriveArtistsFromSongs(songs)
         }
     }
 
     val allPlaylists: Flow<List<Playlist>> = musicDao.getAllPlaylists().map { list -> list.map { it.toPlaylist() } }
-
-    fun getVisiblePlaylists(userId: String? = null, username: String? = null): Flow<List<Playlist>> {
-        return allPlaylists.map { list ->
-            list.filter { it.isViewableBy(userId, username) }
-        }
-    }
 
     suspend fun getSongById(id: String): Song? = withContext(Dispatchers.IO) {
         try {
@@ -244,102 +233,36 @@ class MusicRepository(
 
     suspend fun createPlaylist(name: String, description: String?, isPublic: Boolean = false): Playlist = withContext(Dispatchers.IO) {
         val request = CreatePlaylistRequest(name = name, description = description, isPublic = isPublic)
-        val playlistToSave = try {
-            apiService.createPlaylist(request)
-        } catch (_: Exception) {
-            Playlist(
-                id = "pl_${UUID.randomUUID().toString().take(8)}",
-                name = name,
-                description = description,
-                isPublic = isPublic,
-                isOwner = true,
-                canEdit = true,
-                permission = "owner",
-                songCount = 0
-            )
-        }
-        musicDao.insertPlaylist(playlistToSave.toEntity())
-        playlistToSave
+        val remotePlaylist = apiService.createPlaylist(request)
+        musicDao.insertPlaylist(remotePlaylist.toEntity())
+        remotePlaylist
     }
 
     suspend fun updatePlaylist(playlistId: String, name: String, description: String?, isPublic: Boolean? = null): Playlist = withContext(Dispatchers.IO) {
         val request = UpdatePlaylistRequest(name = name, description = description, isPublic = isPublic)
-        val updatedPlaylist = try {
-            apiService.updatePlaylist(playlistId, request)
-        } catch (_: Exception) {
-            val existing = musicDao.getPlaylistById(playlistId)?.toPlaylist()
-            existing?.copy(
-                name = name,
-                description = description,
-                isPublic = isPublic ?: existing.isPublic
-            ) ?: Playlist(id = playlistId, name = name, description = description, isPublic = isPublic ?: false)
-        }
+        val updatedPlaylist = apiService.updatePlaylist(playlistId, request)
         musicDao.insertPlaylist(updatedPlaylist.toEntity())
         updatedPlaylist
     }
 
-    suspend fun deletePlaylist(playlistId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            // 1. Complete real DELETE request against the server
-            apiService.deletePlaylist(playlistId)
-            // 2. Confirm server deletion succeeded
-            // 3. Immediately trigger authoritative full data resync from the real server
-            syncPlaylists()
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("MusicRepository", "Server failed to delete playlist $playlistId", e)
-            Result.failure(e)
-        }
-    }
-
-    suspend fun deletePlaylistCover(playlistId: String): Result<Playlist> = withContext(Dispatchers.IO) {
-        try {
-            // 1. Complete real DELETE request against the server
-            apiService.deletePlaylistCover(playlistId)
-            // 2. Clear local cover immediately
-            musicDao.updatePlaylistCoverUrl(playlistId, null)
-            // 3. Authoritative resync from the real server
-            val updated = refreshPlaylistDetail(playlistId).getOrThrow()
-            Result.success(updated)
-        } catch (e: Exception) {
-            Log.e("MusicRepository", "Server failed to delete playlist cover for $playlistId", e)
-            Result.failure(e)
-        }
+    suspend fun deletePlaylist(playlistId: String) = withContext(Dispatchers.IO) {
+        apiService.deletePlaylist(playlistId)
+        musicDao.deletePlaylist(playlistId)
+        musicDao.clearPlaylistSongs(playlistId)
     }
 
     suspend fun updatePlaylistArtwork(playlistId: String, localUri: String?) = withContext(Dispatchers.IO) {
-        if (localUri.isNullOrBlank()) {
-            deletePlaylistCover(playlistId)
-            return@withContext
-        }
         musicDao.updatePlaylistCoverUrl(playlistId, localUri)
-        if (localUri.startsWith("file://") || localUri.startsWith("/")) {
-            try {
-                val filePath = localUri.removePrefix("file://")
-                val file = java.io.File(filePath)
-                if (file.exists()) {
-                    val requestFile = okhttp3.RequestBody.create("image/jpeg".toMediaTypeOrNull(), file)
-                    val uploaded = try {
-                        apiService.uploadPlaylistCover(playlistId, requestFile)
-                    } catch (_: Exception) {
-                        val artworkBody = okhttp3.MultipartBody.Part.createFormData("artwork", file.name, requestFile)
-                        apiService.uploadPlaylistArtwork(playlistId, artworkBody)
-                    }
-                    if (!uploaded.coverUrl.isNullOrBlank()) {
-                        musicDao.insertPlaylist(uploaded.toEntity())
-                    }
-                    refreshPlaylistDetail(playlistId)
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        } else {
+        if (!localUri.isNullOrBlank()) {
             try {
                 val localPl = musicDao.getPlaylistById(playlistId)
+                val currentName = localPl?.name ?: "Playlist"
+                val currentDesc = localPl?.description
+                val currentIsPublic = localPl?.isPublic
                 val req = UpdatePlaylistRequest(
-                    name = localPl?.name ?: "Playlist",
-                    description = localPl?.description,
-                    isPublic = localPl?.isPublic,
+                    name = currentName,
+                    description = currentDesc,
+                    isPublic = currentIsPublic,
                     coverUrl = localUri,
                     coverUrlSnake = localUri,
                     cover = localUri
@@ -348,8 +271,27 @@ class MusicRepository(
                 if (!updatedRemote.coverUrl.isNullOrBlank()) {
                     musicDao.insertPlaylist(updatedRemote.toEntity())
                 }
-                refreshPlaylistDetail(playlistId)
-            } catch (_: Exception) {}
+            } catch (_: Exception) {
+                if (localUri.startsWith("file://") || localUri.startsWith("/")) {
+                    try {
+                        val filePath = localUri.removePrefix("file://")
+                        val file = java.io.File(filePath)
+                        if (file.exists()) {
+                            val requestFile = okhttp3.RequestBody.create("image/*".toMediaTypeOrNull(), file)
+                            val body = okhttp3.MultipartBody.Part.createFormData("cover", file.name, requestFile)
+                            val uploaded = try {
+                                apiService.uploadPlaylistCover(playlistId, body)
+                            } catch (_: Exception) {
+                                val artworkBody = okhttp3.MultipartBody.Part.createFormData("artwork", file.name, requestFile)
+                                apiService.uploadPlaylistArtwork(playlistId, artworkBody)
+                            }
+                            if (!uploaded.coverUrl.isNullOrBlank()) {
+                                musicDao.insertPlaylist(uploaded.toEntity())
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+            }
         }
     }
 
@@ -358,18 +300,10 @@ class MusicRepository(
         refreshPlaylistDetail(playlistId)
     }
 
-    suspend fun removeSongFromPlaylist(playlistId: String, songId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            // 1. Complete real DELETE request against the server
-            apiService.removeSongFromPlaylist(playlistId, songId)
-            // 2. Server confirmed success
-            // 3. Immediately trigger authoritative resync from the real server
-            refreshPlaylistDetail(playlistId)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("MusicRepository", "Server failed to remove song $songId from playlist $playlistId", e)
-            Result.failure(e)
-        }
+    suspend fun removeSongFromPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
+        apiService.removeSongFromPlaylist(playlistId, songId)
+        musicDao.removeSongFromPlaylist(playlistId, songId)
+        refreshPlaylistDetail(playlistId)
     }
 
     suspend fun sharePlaylist(playlistId: String, username: String, permission: String) = withContext(Dispatchers.IO) {
@@ -380,38 +314,26 @@ class MusicRepository(
         apiService.getCollaborators(playlistId)
     }
 
-    suspend fun revokeShare(playlistId: String, userId: String): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun revokeShare(playlistId: String, userId: String) = withContext(Dispatchers.IO) {
         try {
-            try {
-                apiService.revokeShare(playlistId, userId)
-            } catch (_: Exception) {
-                apiService.removeCollaborator(playlistId, userId)
-            }
-            refreshPlaylistDetail(playlistId)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Log.e("MusicRepository", "Server failed to revoke share for $userId on playlist $playlistId", e)
-            Result.failure(e)
+            apiService.revokeShare(playlistId, userId)
+        } catch (_: Exception) {
+            apiService.removeCollaborator(playlistId, userId)
         }
     }
 
-    suspend fun refreshPlaylistDetail(playlistId: String): Result<Playlist> = withContext(Dispatchers.IO) {
+    suspend fun refreshPlaylistDetail(playlistId: String) = withContext(Dispatchers.IO) {
         try {
             val remotePlaylist = apiService.getPlaylistById(playlistId)
             val songs = if (remotePlaylist.songs.isNotEmpty()) remotePlaylist.songs else try { apiService.getPlaylistSongs(playlistId) } catch (_: Exception) { emptyList() }
             
-            // Derive accurate songCount from songs list; server is authoritative for coverUrl
-            val playlistWithCorrectCount = remotePlaylist.copy(songCount = songs.size)
+            // The getPlaylistById response might not include songCount, so we derive it from the fetched songs array
+            val localPl = musicDao.getPlaylistById(playlistId)
+            val finalCover = remotePlaylist.coverUrl ?: localPl?.coverUrl
+            val playlistWithCorrectCount = remotePlaylist.copy(songCount = songs.size, rawCoverUrl = finalCover)
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
             musicDao.syncPlaylistSongs(playlistId, songs.map { it.toEntity() })
-            Result.success(playlistWithCorrectCount)
-        } catch (e: Exception) {
-            if (e is retrofit2.HttpException && e.code() == 404) {
-                musicDao.deletePlaylist(playlistId)
-                musicDao.clearPlaylistSongs(playlistId)
-            }
-            Result.failure(e)
-        }
+        } catch (_: Exception) {}
     }
 
     suspend fun search(query: String): SearchResult = withContext(Dispatchers.IO) {
@@ -469,54 +391,44 @@ class MusicRepository(
     suspend fun updateLyrics(songId: String, lrcText: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val body = okhttp3.RequestBody.create("text/plain; charset=utf-8".toMediaType(), lrcText)
-            apiService.updateLyrics(songId, body)
+            try {
+                apiService.updateLyrics(songId, body)
+            } catch (e: HttpException) {
+                if (e.code() == 404 || e.code() == 405) {
+                    try {
+                        apiService.createLyrics(songId, body)
+                    } catch (e2: HttpException) {
+                        if (e2.code() == 404 || e2.code() == 405) {
+                            apiService.patchLyrics(songId, body)
+                        } else {
+                            throw e2
+                        }
+                    }
+                } else {
+                    throw e
+                }
+            }
             Result.success(Unit)
         } catch (e: Exception) {
-            try {
-                apiService.updateLyricsJson(songId, mapOf("lyrics" to lrcText))
-                Result.success(Unit)
-            } catch (ex: Exception) {
-                Result.failure(ex)
-            }
+            Result.failure(e)
         }
     }
 
     suspend fun deleteLrc(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            // 1. Complete real DELETE request against the server
             apiService.deleteLrc(songId)
-            // 2. Server confirmed success
-            // 3. Immediately trigger authoritative resync of the song from server
-            val remoteSong = try { apiService.getSongById(songId) } catch (_: Exception) { null }
-            val existing = musicDao.getSongById(songId)
-            if (existing != null) {
-                val updated = (remoteSong?.toEntity() ?: existing).copy(
-                    hasLrc = false,
-                    lyricsText = null,
-                    isFavorite = existing.isFavorite,
-                    addedAt = existing.addedAt
-                )
-                musicDao.insertSong(updated)
-            }
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("MusicRepository", "Server failed to delete LRC for $songId", e)
             Result.failure(e)
         }
     }
 
     suspend fun deleteSong(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            // 1. Complete real DELETE request against the server
             apiService.deleteSong(songId)
-            // 2. Confirm server deletion succeeded
-            // 3. Immediately trigger authoritative full data resync from the real server
-            syncSongs()
-            // Evict song from player / queue immediately
-            onSongDeletedListener?.invoke(songId)
+            musicDao.deleteSongById(songId)
             Result.success(Unit)
         } catch (e: Exception) {
-            Log.e("MusicRepository", "Server failed to delete song $songId", e)
             Result.failure(e)
         }
     }
@@ -542,78 +454,87 @@ class MusicRepository(
         }
     }
 
-    suspend fun syncSongs(): Result<Unit> = withContext(Dispatchers.IO) {
+    suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
         try {
-            val remoteSongs = apiService.getSongs()
-            musicDao.reconcileSongs(remoteSongs.map { it.toEntity() })
+            // 1. Fetch songs
+            val remoteSongs = try {
+                apiService.getSongs()
+            } catch (_: Exception) {
+                emptyList()
+            }
 
-            // Authoritative server favorites sync
+            if (remoteSongs.isNotEmpty()) {
+                musicDao.upsertSongs(remoteSongs.map { it.toEntity() })
+            }
+
+            // 2. Fetch favorites from server (Single Source of Truth)
             try {
                 val remoteFavorites = apiService.getFavorites()
                 val favIds = remoteFavorites.map { it.id }
+                if (remoteFavorites.isNotEmpty()) {
+                    musicDao.upsertSongs(remoteFavorites.map { it.toEntity().copy(isFavorite = true) })
+                }
                 musicDao.replaceFavorites(favIds)
             } catch (_: Exception) {}
 
-            syncAlbumsAndArtists(remoteSongs)
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
+            // 3. Sync albums
+            val remoteAlbums = try {
+                apiService.getAlbums()
+            } catch (_: Exception) {
+                emptyList()
+            }
 
-    suspend fun syncPlaylists(): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val remotePlaylists = apiService.getPlaylists()
-            musicDao.reconcilePlaylists(remotePlaylists.map { it.toEntity() })
-
-            for (pl in remotePlaylists) {
-                if (pl.songs.isNotEmpty()) {
-                    musicDao.syncPlaylistSongs(pl.id, pl.songs.map { it.toEntity() })
-                } else {
-                    try {
-                        val plSongs = apiService.getPlaylistSongs(pl.id)
-                        musicDao.syncPlaylistSongs(pl.id, plSongs.map { it.toEntity() })
-                    } catch (_: Exception) {}
+            if (remoteAlbums.isNotEmpty()) {
+                musicDao.insertAlbums(remoteAlbums.map { it.toEntity() })
+            } else if (remoteSongs.isNotEmpty()) {
+                val derived = deriveAlbumsFromSongs(remoteSongs)
+                if (derived.isNotEmpty()) {
+                    musicDao.insertAlbums(derived.map { it.toEntity() })
                 }
             }
-            Result.success(Unit)
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
 
-    private suspend fun syncAlbumsAndArtists(songs: List<Song>) {
-        val remoteAlbums = try {
-            apiService.getAlbums()
-        } catch (_: Exception) {
-            emptyList()
-        }
+            // 4. Sync artists
+            val remoteArtists = try {
+                apiService.getArtists()
+            } catch (_: Exception) {
+                emptyList()
+            }
 
-        if (remoteAlbums.isNotEmpty()) {
-            musicDao.reconcileAlbums(remoteAlbums.map { it.toEntity() })
-        } else {
-            val derived = deriveAlbumsFromSongs(songs)
-            musicDao.reconcileAlbums(derived.map { it.toEntity() })
-        }
+            if (remoteArtists.isNotEmpty()) {
+                musicDao.insertArtists(remoteArtists.map { it.toEntity() })
+            } else if (remoteSongs.isNotEmpty()) {
+                val derived = deriveArtistsFromSongs(remoteSongs)
+                if (derived.isNotEmpty()) {
+                    musicDao.insertArtists(derived.map { it.toEntity() })
+                }
+            }
 
-        val remoteArtists = try {
-            apiService.getArtists()
-        } catch (_: Exception) {
-            emptyList()
-        }
+            // 5. Sync playlists from server (Single Source of Truth)
+            val remotePlaylists = try {
+                apiService.getPlaylists()
+            } catch (_: Exception) {
+                emptyList()
+            }
 
-        if (remoteArtists.isNotEmpty()) {
-            musicDao.reconcileArtists(remoteArtists.map { it.toEntity() })
-        } else {
-            val derived = deriveArtistsFromSongs(songs)
-            musicDao.reconcileArtists(derived.map { it.toEntity() })
-        }
-    }
+            if (remotePlaylists.isNotEmpty()) {
+                val validIds = remotePlaylists.map { it.id }
+                musicDao.deleteStalePlaylists(validIds)
+                for (pl in remotePlaylists) {
+                    val localPl = musicDao.getPlaylistById(pl.id)
+                    val finalCover = pl.coverUrl ?: localPl?.coverUrl
+                    val plToInsert = pl.copy(rawCoverUrl = finalCover)
+                    musicDao.insertPlaylist(plToInsert.toEntity())
+                    if (pl.songs.isNotEmpty()) {
+                        musicDao.syncPlaylistSongs(pl.id, pl.songs.map { it.toEntity() })
+                    } else {
+                        try {
+                            val plSongs = apiService.getPlaylistSongs(pl.id)
+                            musicDao.syncPlaylistSongs(pl.id, plSongs.map { it.toEntity() })
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
 
-    suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            syncSongs()
-            syncPlaylists()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)

@@ -146,7 +146,6 @@ data class Playlist(
     @Json(name = "coverPath") val rawCoverPath: String? = null,
     @Json(name = "cover_path") val rawCoverPathSnake: String? = null,
     @Json(name = "cover") val rawCover: String? = null,
-    @Json(name = "coverImageUrl") val rawCoverImageUrl: String? = null,
     @Json(name = "artwork_url") val rawArtworkUrl: String? = null,
     @Json(name = "songCount") val songCount: Int = 0,
     @Json(name = "createdAt") val createdAt: String? = null,
@@ -160,55 +159,14 @@ data class Playlist(
     @Json(name = "songs") val songs: List<Song> = emptyList()
 ) {
     val coverUrl: String?
-        get() {
-            val bestUrl = rawCoverImageUrl 
-                ?: rawCoverUrl
-                ?: rawCoverUrlSnake
-                ?: rawCoverImage
-                ?: rawCoverImageSnake
-                ?: rawCoverPath
-                ?: rawCoverPathSnake
-                ?: rawCover
-                ?: rawArtworkUrl
-            if (bestUrl?.startsWith("/api") == true) {
-                return "https://yimly.robinhort.link$bestUrl"
-            }
-            return bestUrl
-        }
-
-    /**
-     * Determines whether this playlist is viewable by a given user.
-     * Core Access Control Rules:
-     * - Public playlists (isPublic = true) are viewable by every user.
-     * - Private playlists (isPublic = false) are ONLY viewable by the playlist owner.
-     */
-    fun isViewableBy(
-        userId: String? = null,
-        username: String? = null,
-        isCurrentUserOwner: Boolean = false
-    ): Boolean {
-        // 1. Public playlists are viewable by every user
-        if (this.isPublic) return true
-
-        // 2. Private playlists are ONLY viewable by the playlist owner
-        if (isCurrentUserOwner) return true
-
-        // Check ownership against authenticated user profile
-        if (userId != null && this.userId != null) {
-            return this.userId == userId
-        }
-        if (username != null && this.ownerName != null) {
-            return this.ownerName.equals(username, ignoreCase = true)
-        }
-
-        // If playlist doesn't have an owner ID or name recorded, fall back to local owner flag
-        if (this.userId == null && this.ownerName == null) {
-            return this.isOwner
-        }
-
-        // Non-owner / unauthenticated cannot view private playlist
-        return false
-    }
+        get() = (rawCoverUrl
+            ?: rawCoverUrlSnake
+            ?: rawCoverImage
+            ?: rawCoverImageSnake
+            ?: rawCoverPath
+            ?: rawCoverPathSnake
+            ?: rawCover
+            ?: rawArtworkUrl)
 }
 
 @JsonClass(generateAdapter = true)

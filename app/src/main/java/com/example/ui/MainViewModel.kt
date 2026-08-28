@@ -26,7 +26,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -96,26 +95,8 @@ class MainViewModel(
     val allArtists: StateFlow<List<Artist>> = musicRepository.allArtists
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
-    val allPlaylists: StateFlow<List<Playlist>> = combine(
-        musicRepository.allPlaylists,
-        authState
-    ) { playlists: List<Playlist>, auth: AuthState ->
-        val currentUserId = (auth as? AuthState.Authenticated)?.user?.id
-        val currentUsername = (auth as? AuthState.Authenticated)?.user?.username
-        playlists.filter { playlist ->
-            playlist.isViewableBy(currentUserId, currentUsername)
-        }.map { playlist ->
-            val isUserOwner = when {
-                currentUserId != null && playlist.userId != null -> playlist.userId == currentUserId
-                currentUsername != null && playlist.ownerName != null -> playlist.ownerName.equals(currentUsername, ignoreCase = true)
-                else -> playlist.isOwner
-            }
-            playlist.copy(
-                isOwner = isUserOwner,
-                canEdit = if (isUserOwner) true else playlist.canEdit
-            )
-        }
-    }.stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
+    val allPlaylists: StateFlow<List<Playlist>> = musicRepository.allPlaylists
+        .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     // Playback
     val playbackInfo: StateFlow<PlaybackInfo> = playbackManager.playbackInfo
@@ -291,25 +272,14 @@ class MainViewModel(
     fun updateArtwork(playlistId: String, uri: String) {
         viewModelScope.launch {
             musicRepository.updatePlaylistArtwork(playlistId, uri)
-        }
-    }
-
-    fun deletePlaylistCover(playlistId: String, onComplete: (() -> Unit)? = null) {
-        viewModelScope.launch {
-            try {
-                musicRepository.deletePlaylistCover(playlistId).getOrThrow()
-                _uiMessage.value = "Artwork removed"
-                onComplete?.invoke()
-            } catch (e: Exception) {
-                _uiMessage.value = e.message ?: "Failed to remove artwork"
-            }
+            musicRepository.refreshPlaylistDetail(playlistId)
         }
     }
 
     fun deletePlaylist(playlistId: String, onComplete: (() -> Unit)? = null) {
         viewModelScope.launch {
             try {
-                musicRepository.deletePlaylist(playlistId).getOrThrow()
+                musicRepository.deletePlaylist(playlistId)
                 _uiMessage.value = "Playlist deleted"
                 onComplete?.invoke()
             } catch (e: Exception) {
@@ -410,34 +380,77 @@ class MainViewModel(
         return musicRepository.getLyricsText(songId)
     }
 
-    fun updateLyrics(songId: String, lrcText: String) {
+    fun updateLyrics(songId: String, lrcText: String, onResult: ((Result<Unit>) -> Unit)? = null) {
         viewModelScope.launch {
-            musicRepository.updateLyrics(songId, lrcText)
-            syncLibrary()
+            val res = musicRepository.updateLyrics(songId, lrcText)
+            if (res.isSuccess) {
+                val current = playbackInfo.value.currentSong
+                if (current?.id == songId) {
+                    _currentLyricsData.value = musicRepository.getLyricsForSong(current)
+                }
+                syncLibrary()
+                _uiMessage.value = "Lyrics saved successfully"
+            } else {
+                val ex = res.exceptionOrNull()
+                val msg = if (ex is retrofit2.HttpException && ex.code() == 403) {
+                    "Access denied: Administrator privileges required."
+                } else if (ex is retrofit2.HttpException && ex.code() == 404) {
+                    "Song not found on server."
+                } else {
+                    "Failed to save lyrics: ${ex?.message ?: "Unknown error"}"
+                }
+                _uiMessage.value = msg
+            }
+            onResult?.invoke(res)
         }
     }
 
-    fun deleteLrc(songId: String, onComplete: (() -> Unit)? = null) {
+    fun deleteLrc(songId: String, onResult: ((Result<Unit>) -> Unit)? = null) {
         viewModelScope.launch {
-            try {
-                musicRepository.deleteLrc(songId).getOrThrow()
-                _uiMessage.value = "Lyrics deleted"
-                onComplete?.invoke()
-            } catch (e: Exception) {
-                _uiMessage.value = e.message ?: "Failed to delete lyrics"
+            val res = musicRepository.deleteLrc(songId)
+            if (res.isSuccess) {
+                val current = playbackInfo.value.currentSong
+                if (current?.id == songId) {
+                    _currentLyricsData.value = musicRepository.getLyricsForSong(current)
+                }
+                syncLibrary()
+                _uiMessage.value = "LRC deleted successfully"
+            } else {
+                val ex = res.exceptionOrNull()
+                val msg = if (ex is retrofit2.HttpException && ex.code() == 403) {
+                    "Access denied: Administrator privileges required."
+                } else if (ex is retrofit2.HttpException && ex.code() == 404) {
+                    "Song not found on server."
+                } else {
+                    "Failed to delete LRC: ${ex?.message ?: "Unknown error"}"
+                }
+                _uiMessage.value = msg
             }
+            onResult?.invoke(res)
         }
     }
 
-    fun deleteSong(songId: String, onComplete: (() -> Unit)? = null) {
+    fun deleteSong(songId: String, onResult: ((Result<Unit>) -> Unit)? = null) {
         viewModelScope.launch {
-            try {
-                musicRepository.deleteSong(songId).getOrThrow()
-                _uiMessage.value = "Song deleted"
-                onComplete?.invoke()
-            } catch (e: Exception) {
-                _uiMessage.value = e.message ?: "Failed to delete song"
+            val res = musicRepository.deleteSong(songId)
+            if (res.isSuccess) {
+                if (playbackInfo.value.currentSong?.id == songId) {
+                    playbackManager.pause()
+                }
+                syncLibrary()
+                _uiMessage.value = "Song deleted successfully"
+            } else {
+                val ex = res.exceptionOrNull()
+                val msg = if (ex is retrofit2.HttpException && ex.code() == 403) {
+                    "Access denied: Administrator privileges required."
+                } else if (ex is retrofit2.HttpException && ex.code() == 404) {
+                    "Song not found on server."
+                } else {
+                    "Failed to delete song: ${ex?.message ?: "Unknown error"}"
+                }
+                _uiMessage.value = msg
             }
+            onResult?.invoke(res)
         }
     }
 

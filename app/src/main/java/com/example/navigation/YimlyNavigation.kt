@@ -465,9 +465,6 @@ fun YimlyNavigation(
                                 } else null,
                                 onUpdateArtwork = if (playlist.canEdit) {
                                     { uri -> viewModel.updateArtwork(playlist.id, uri) }
-                                } else null,
-                                onDeleteArtwork = if (playlist.canEdit) {
-                                    { viewModel.deletePlaylistCover(playlist.id) }
                                 } else null
                             )
                         }

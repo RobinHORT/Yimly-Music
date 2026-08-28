@@ -73,10 +73,11 @@ interface YimlyApiService {
     @PUT("api/playlists/{id}")
     suspend fun updatePlaylist(@Path("id") id: String, @Body request: UpdatePlaylistRequest): Playlist
 
+    @retrofit2.http.Multipart
     @POST("api/playlists/{id}/cover")
     suspend fun uploadPlaylistCover(
         @Path("id") id: String,
-        @retrofit2.http.Body cover: okhttp3.RequestBody
+        @retrofit2.http.Part cover: okhttp3.MultipartBody.Part
     ): Playlist
 
     @retrofit2.http.Multipart
@@ -85,9 +86,6 @@ interface YimlyApiService {
         @Path("id") id: String,
         @retrofit2.http.Part artwork: okhttp3.MultipartBody.Part
     ): Playlist
-
-    @DELETE("api/playlists/{id}/cover")
-    suspend fun deletePlaylistCover(@Path("id") id: String): Playlist
 
     @DELETE("api/playlists/{id}")
     suspend fun deletePlaylist(@Path("id") id: String): Map<String, Any>
@@ -129,8 +127,14 @@ interface YimlyApiService {
     @GET("api/songs/{songId}/lyrics")
     suspend fun getLyrics(@Path("songId") songId: String): okhttp3.ResponseBody
 
+    @POST("api/songs/{id}/lrc")
+    suspend fun createLyrics(@Path("id") id: String, @Body body: okhttp3.RequestBody): okhttp3.ResponseBody
+
     @PUT("api/songs/{id}/lrc")
     suspend fun updateLyrics(@Path("id") id: String, @Body body: okhttp3.RequestBody): okhttp3.ResponseBody
+
+    @retrofit2.http.PATCH("api/songs/{id}/lrc")
+    suspend fun patchLyrics(@Path("id") id: String, @Body body: okhttp3.RequestBody): okhttp3.ResponseBody
 
     @PUT("api/songs/{id}/lrc")
     suspend fun updateLyricsJson(@Path("id") id: String, @Body request: Map<String, String>): Map<String, Any>
