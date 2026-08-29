@@ -159,14 +159,35 @@ data class Playlist(
     @Json(name = "songs") val songs: List<Song> = emptyList()
 ) {
     val coverUrl: String?
-        get() = (rawCoverUrl
-            ?: rawCoverUrlSnake
-            ?: rawCoverImage
-            ?: rawCoverImageSnake
-            ?: rawCoverPath
-            ?: rawCoverPathSnake
-            ?: rawCover
-            ?: rawArtworkUrl)
+        get() {
+            val explicit = (rawCoverUrl
+                ?: rawCoverUrlSnake
+                ?: rawCoverImage
+                ?: rawCoverImageSnake
+                ?: rawCoverPath
+                ?: rawCoverPathSnake
+                ?: rawCover
+                ?: rawArtworkUrl)
+            if (!explicit.isNullOrBlank()) {
+                val trimmed = explicit.trim()
+                if (trimmed.startsWith("file://", ignoreCase = true) ||
+                    trimmed.startsWith("content://", ignoreCase = true) ||
+                    trimmed.startsWith("http://", ignoreCase = true) ||
+                    trimmed.startsWith("https://", ignoreCase = true)) {
+                    if (!trimmed.contains("/api/playlists/") || trimmed.contains("/cover")) {
+                        return trimmed
+                    }
+                }
+            }
+            val baseUrl = PreferencesManager.DEFAULT_SERVER_URL.trimEnd('/')
+            val tParam = if (!createdAt.isNullOrBlank()) {
+                val parsed = createdAt.toLongOrNull()
+                if (parsed != null) parsed else createdAt.hashCode().toLong().let { if (it < 0) -it else it }
+            } else {
+                System.currentTimeMillis()
+            }
+            return "$baseUrl/api/playlists/$id/cover?t=$tParam"
+        }
 }
 
 @JsonClass(generateAdapter = true)

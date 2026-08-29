@@ -4,12 +4,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Sensors
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 
@@ -18,7 +16,6 @@ sealed class Screen(val route: String) {
     data object Music : Screen("music")
     data object Search : Screen("search")
     data object Settings : Screen("settings")
-    data object Sessions : Screen("sessions")
     data object Login : Screen("login")
     data object AlbumDetail : Screen("album/{albumId}") {
         fun createRoute(albumId: String) = "album/$albumId"

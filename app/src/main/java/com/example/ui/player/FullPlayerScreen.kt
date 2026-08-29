@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.Song
 import com.example.playback.PlaybackInfo
 import com.example.playback.RepeatMode
 import com.example.ui.components.YimlyMicIcon
@@ -113,6 +114,7 @@ fun FullPlayerScreen(
     onReorderQueue: (Int, Int) -> Unit,
     onClearQueue: () -> Unit,
     onPlayQueueItem: (Int) -> Unit,
+    onAddToPlaylist: (Song) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val song = playbackInfo.currentSong ?: return
@@ -234,6 +236,13 @@ fun FullPlayerScreen(
                             onClick = {
                                 menuExpanded = false
                                 onToggleFavorite()
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Add to Playlist", color = TextPrimaryDark) },
+                            onClick = {
+                                menuExpanded = false
+                                onAddToPlaylist(song)
                             }
                         )
                         DropdownMenuItem(

@@ -62,7 +62,6 @@ import com.example.ui.music.PlaylistDetailScreen
 import com.example.ui.player.FullPlayerScreen
 import com.example.ui.player.MiniPlayer
 import com.example.ui.search.SearchScreen
-import com.example.ui.session.SessionScreen
 import com.example.ui.settings.SettingsScreen
 import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.SurfaceBorderDark
@@ -94,8 +93,6 @@ fun YimlyNavigation(
 
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResult by viewModel.searchResult.collectAsState()
-    val activeSession by viewModel.activeSession.collectAsState()
-    val isHost by viewModel.isHost.collectAsState()
     val serverUrl by viewModel.serverUrl.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val authError by viewModel.authError.collectAsState()
@@ -272,8 +269,7 @@ fun YimlyNavigation(
                             onPlayNext = { song -> viewModel.playNext(song) },
                             onAddToQueue = { song -> viewModel.addToQueue(song) },
                             onAddToNowPlaying = { song -> viewModel.addToQueue(song) },
-                            onAddToPlaylist = { song -> songToAddToPlaylist = song },
-                            onOpenSessions = { navController.navigate(Screen.Sessions.route) }
+                            onAddToPlaylist = { song -> songToAddToPlaylist = song }
                         )
                     }
 
@@ -331,23 +327,6 @@ fun YimlyNavigation(
                             onLogout = { viewModel.logout() },
                             onLoginClick = { navController.navigate(Screen.Login.route) },
                             onSyncLibrary = { viewModel.syncLibrary() }
-                        )
-                    }
-
-                    // 5. Sessions
-                    composable(Screen.Sessions.route) {
-                        SessionScreen(
-                            userProfile = userProfile,
-                            activeSession = activeSession,
-                            isHost = isHost,
-                            allSongs = allSongs,
-                            onHostSession = { hostName -> viewModel.hostSession(hostName) },
-                            onJoinSession = { code, guestName -> viewModel.joinSession(code, guestName) },
-                            onRequestSong = { song, requestedBy -> viewModel.requestSongInSession(song, requestedBy) },
-                            onApproveRequest = { req -> viewModel.approveSessionRequest(req) },
-                            onDismissRequest = { id -> viewModel.dismissSessionRequest(id) },
-                            onToggleAllowGuestRequests = { viewModel.toggleAllowGuestRequests() },
-                            onLeaveSession = { viewModel.leaveSession() }
                         )
                     }
 
@@ -503,7 +482,8 @@ fun YimlyNavigation(
                 onRemoveFromQueue = { idx -> viewModel.removeFromQueue(idx) },
                 onReorderQueue = { from, to -> viewModel.reorderQueue(from, to) },
                 onClearQueue = { viewModel.clearQueue() },
-                onPlayQueueItem = { idx -> viewModel.playQueueItem(idx) }
+                onPlayQueueItem = { idx -> viewModel.playQueueItem(idx) },
+                onAddToPlaylist = { song -> songToAddToPlaylist = song }
             )
         }
 

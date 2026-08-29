@@ -234,15 +234,17 @@ class MusicRepository(
     suspend fun createPlaylist(name: String, description: String?, isPublic: Boolean = false): Playlist = withContext(Dispatchers.IO) {
         val request = CreatePlaylistRequest(name = name, description = description, isPublic = isPublic)
         val remotePlaylist = apiService.createPlaylist(request)
-        musicDao.insertPlaylist(remotePlaylist.toEntity())
-        remotePlaylist
+        val freshPlaylist = remotePlaylist.copy(createdAt = System.currentTimeMillis().toString())
+        musicDao.insertPlaylist(freshPlaylist.toEntity())
+        freshPlaylist
     }
 
     suspend fun updatePlaylist(playlistId: String, name: String, description: String?, isPublic: Boolean? = null): Playlist = withContext(Dispatchers.IO) {
         val request = UpdatePlaylistRequest(name = name, description = description, isPublic = isPublic)
         val updatedPlaylist = apiService.updatePlaylist(playlistId, request)
-        musicDao.insertPlaylist(updatedPlaylist.toEntity())
-        updatedPlaylist
+        val freshPlaylist = updatedPlaylist.copy(createdAt = System.currentTimeMillis().toString())
+        musicDao.insertPlaylist(freshPlaylist.toEntity())
+        freshPlaylist
     }
 
     suspend fun deletePlaylist(playlistId: String) = withContext(Dispatchers.IO) {
@@ -268,9 +270,8 @@ class MusicRepository(
                     cover = localUri
                 )
                 val updatedRemote = apiService.updatePlaylist(playlistId, req)
-                if (!updatedRemote.coverUrl.isNullOrBlank()) {
-                    musicDao.insertPlaylist(updatedRemote.toEntity())
-                }
+                val freshRemote = updatedRemote.copy(createdAt = System.currentTimeMillis().toString())
+                musicDao.insertPlaylist(freshRemote.toEntity())
             } catch (_: Exception) {
                 if (localUri.startsWith("file://") || localUri.startsWith("/")) {
                     try {
@@ -285,13 +286,28 @@ class MusicRepository(
                                 val artworkBody = okhttp3.MultipartBody.Part.createFormData("artwork", file.name, requestFile)
                                 apiService.uploadPlaylistArtwork(playlistId, artworkBody)
                             }
-                            if (!uploaded.coverUrl.isNullOrBlank()) {
-                                musicDao.insertPlaylist(uploaded.toEntity())
-                            }
+                            val freshUploaded = uploaded.copy(createdAt = System.currentTimeMillis().toString())
+                            musicDao.insertPlaylist(freshUploaded.toEntity())
                         }
                     } catch (_: Exception) {}
                 }
             }
+        } else {
+            // Even if localUri is blank (clearing cover), update timestamp
+            try {
+                val localPl = musicDao.getPlaylistById(playlistId)
+                if (localPl != null) {
+                    val req = UpdatePlaylistRequest(
+                        name = localPl.name,
+                        description = localPl.description,
+                        isPublic = localPl.isPublic,
+                        coverUrl = null
+                    )
+                    val updatedRemote = apiService.updatePlaylist(playlistId, req)
+                    val freshRemote = updatedRemote.copy(createdAt = System.currentTimeMillis().toString())
+                    musicDao.insertPlaylist(freshRemote.toEntity())
+                }
+            } catch (_: Exception) {}
         }
     }
 

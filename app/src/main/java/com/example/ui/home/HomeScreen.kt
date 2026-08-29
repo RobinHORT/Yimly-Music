@@ -24,7 +24,6 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -92,7 +91,6 @@ fun HomeScreen(
     onAddToQueue: (Song) -> Unit = {},
     onAddToNowPlaying: (Song) -> Unit = onAddToQueue,
     onAddToPlaylist: (Song) -> Unit = {},
-    onOpenSessions: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val greeting = remember {
@@ -126,35 +124,6 @@ fun HomeScreen(
                         badgeSize = 40.dp,
                         showSubtitle = true
                     )
-
-                    // Live Sessions shortcut chip
-                    Surface(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp))
-                            .clickable(onClick = onOpenSessions)
-                            .testTag("home_sessions_chip"),
-                        color = SurfaceCardDark
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Sensors,
-                                contentDescription = null,
-                                tint = YimlyPink,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = "Live Sessions",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = YimlyPink
-                            )
-                        }
-                    }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -235,7 +204,7 @@ fun HomeScreen(
                             color = TextPrimaryDark
                         )
                         Text(
-                            text = "High Fidelity • Synced Lyrics • Live Sessions",
+                            text = "High Fidelity • Synced Lyrics",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextSecondaryDark
                         )

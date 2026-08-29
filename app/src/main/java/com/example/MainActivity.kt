@@ -23,7 +23,6 @@ class MainActivity : ComponentActivity() {
             musicRepository = app.musicRepository,
             playbackManager = app.playbackManager,
             authRepository = app.authRepository,
-            sessionRepository = app.sessionRepository,
             preferencesManager = app.preferencesManager
         )
     }

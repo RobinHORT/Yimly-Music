@@ -8,7 +8,6 @@ import com.example.data.datastore.PreferencesManager
 import com.example.data.db.YimlyDatabase
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.MusicRepository
-import com.example.data.repository.SessionRepository
 import com.example.playback.PlaybackManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -52,12 +51,7 @@ class YimlyApplication : Application(), ImageLoaderFactory {
         )
     }
 
-    val sessionRepository by lazy {
-        SessionRepository(
-            apiService = networkModule.apiService,
-            musicRepository = musicRepository
-        )
-    }
+
 
     val playbackManager by lazy {
         PlaybackManager(

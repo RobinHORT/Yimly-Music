@@ -7,17 +7,14 @@ import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Album
 import com.example.data.models.Artist
 import com.example.data.models.AuthState
-import com.example.data.models.GuestSongRequest
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.Playlist
 import com.example.data.models.SearchResult
 import com.example.data.models.Song
 import com.example.data.models.UserProfile
-import com.example.data.models.YimlySession
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.MusicRepository
-import com.example.data.repository.SessionRepository
 import com.example.playback.PlaybackInfo
 import com.example.playback.PlaybackManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,7 +37,6 @@ class MainViewModel(
     private val musicRepository: MusicRepository,
     private val playbackManager: PlaybackManager,
     private val authRepository: AuthRepository,
-    private val sessionRepository: SessionRepository,
     private val preferencesManager: PreferencesManager
 ) : ViewModel() {
 
@@ -122,9 +118,7 @@ class MainViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.Lazily, SearchResult())
 
-    // Sessions
-    val activeSession: StateFlow<YimlySession?> = sessionRepository.activeSession
-    val isHost: StateFlow<Boolean> = sessionRepository.isHost
+
 
     init {
         // Observe current playing song and load its lyrics
@@ -483,41 +477,6 @@ class MainViewModel(
         }
     }
 
-    // Session Actions
-    fun hostSession(hostName: String) {
-        viewModelScope.launch {
-            sessionRepository.hostSession(hostName)
-        }
-    }
-
-    fun joinSession(code: String, guestName: String) {
-        viewModelScope.launch {
-            sessionRepository.joinSession(code, guestName)
-        }
-    }
-
-    fun requestSongInSession(song: Song, requestedBy: String) {
-        viewModelScope.launch {
-            sessionRepository.requestSong(song, requestedBy)
-        }
-    }
-
-    fun approveSessionRequest(request: GuestSongRequest) {
-        sessionRepository.approveRequest(request)
-    }
-
-    fun dismissSessionRequest(requestId: String) {
-        sessionRepository.dismissRequest(requestId)
-    }
-
-    fun toggleAllowGuestRequests() {
-        sessionRepository.toggleAllowGuestRequests()
-    }
-
-    fun leaveSession() {
-        sessionRepository.leaveSession()
-    }
-
     override fun onCleared() {
         super.onCleared()
     }
@@ -527,7 +486,6 @@ class MainViewModelFactory(
     private val musicRepository: MusicRepository,
     private val playbackManager: PlaybackManager,
     private val authRepository: AuthRepository,
-    private val sessionRepository: SessionRepository,
     private val preferencesManager: PreferencesManager
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
@@ -537,7 +495,6 @@ class MainViewModelFactory(
                 musicRepository,
                 playbackManager,
                 authRepository,
-                sessionRepository,
                 preferencesManager
             ) as T
         }
