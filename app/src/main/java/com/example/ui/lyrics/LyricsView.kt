@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,12 +20,10 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -79,7 +76,7 @@ fun LyricsView(
     songOffsetMs: Long,
     config: LyricsDisplayConfig,
     onSeekTo: (Long) -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenSettings: () -> Unit = {},
     onOffsetChange: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -161,67 +158,45 @@ fun LyricsView(
                 )
             }
 
-            // Offset Adjuster & Settings Button
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                // Timing Offset Buttons
-                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(SurfaceElevatedDark)
-                            .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 4.dp, vertical = 2.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(
-                            onClick = { onOffsetChange(songOffsetMs - 200L) },
-                            modifier = Modifier.size(28.dp).testTag("offset_minus_btn")
-                        ) {
-                            Icon(Icons.Default.Remove, contentDescription = "-0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
-                        }
-
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { onOffsetChange(0L) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                .testTag("lyrics_sync_label"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text(
-                                text = if (songOffsetMs == 0L) "Sync" else String.format(java.util.Locale.US, "%+.1fs", songOffsetMs / 1000f),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (songOffsetMs != 0L) YimlyPink else TextSecondaryDark
-                            )
-                        }
-
-                        IconButton(
-                            onClick = { onOffsetChange(songOffsetMs + 200L) },
-                            modifier = Modifier.size(28.dp).testTag("offset_plus_btn")
-                        ) {
-                            Icon(Icons.Default.Add, contentDescription = "+0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                IconButton(
-                    onClick = onOpenSettings,
+            // Timing Offset Buttons (− Sync +)
+            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                Row(
                     modifier = Modifier
-                        .size(36.dp)
-                        .clip(CircleShape)
+                        .clip(RoundedCornerShape(20.dp))
                         .background(SurfaceElevatedDark)
-                        .border(1.dp, SurfaceBorderDark, CircleShape)
-                        .testTag("lyrics_settings_btn")
+                        .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp))
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Tune,
-                        contentDescription = "Lyrics Settings",
-                        tint = YimlyPink,
-                        modifier = Modifier.size(18.dp)
-                    )
+                    IconButton(
+                        onClick = { onOffsetChange(songOffsetMs - 200L) },
+                        modifier = Modifier.size(28.dp).testTag("offset_minus_btn")
+                    ) {
+                        Icon(Icons.Default.Remove, contentDescription = "-0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(12.dp))
+                            .clickable { onOffsetChange(0L) }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                            .testTag("lyrics_sync_label"),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = if (songOffsetMs == 0L) "Sync" else String.format(java.util.Locale.US, "%+.1fs", songOffsetMs / 1000f),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (songOffsetMs != 0L) YimlyPink else TextSecondaryDark
+                        )
+                    }
+
+                    IconButton(
+                        onClick = { onOffsetChange(songOffsetMs + 200L) },
+                        modifier = Modifier.size(28.dp).testTag("offset_plus_btn")
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "+0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                    }
                 }
             }
         }

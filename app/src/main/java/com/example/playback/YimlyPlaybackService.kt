@@ -23,42 +23,40 @@ class YimlyPlaybackService : MediaSessionService() {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        startInitialForeground()
+
+        val provider = androidx.media3.session.DefaultMediaNotificationProvider.Builder(this)
+            .setChannelId(CHANNEL_ID)
+            .setChannelName(R.string.playback_notification_channel_name)
+            .build()
+        setMediaNotificationProvider(provider)
+
+        val app = application as? YimlyApplication
+        val session = app?.playbackManager?.mediaSession
+        if (session != null && !sessions.contains(session)) {
+            addSession(session)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        createNotificationChannel()
-        startInitialForeground()
-        return super.onStartCommand(intent, flags, startId)
-    }
-
-    private fun startInitialForeground() {
-        try {
-            val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-                .setContentTitle(getString(R.string.app_name))
-                .setContentText(getString(R.string.playback_notification_channel_name))
-                .setSmallIcon(R.drawable.ic_splash_logo)
-                .setPriority(NotificationCompat.PRIORITY_LOW)
-                .setOngoing(true)
-                .build()
-
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                startForeground(
-                    NOTIFICATION_ID,
-                    notification,
-                    ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-                )
-            } else {
-                startForeground(NOTIFICATION_ID, notification)
-            }
-        } catch (e: Exception) {
-            // Guard against edge-case foreground exceptions
+        val app = application as? YimlyApplication
+        val session = app?.playbackManager?.mediaSession
+        if (session != null && !sessions.contains(session)) {
+            addSession(session)
         }
+        return super.onStartCommand(intent, flags, startId)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
         val app = application as? YimlyApplication
         return app?.playbackManager?.mediaSession
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        val app = application as? YimlyApplication
+        val player = app?.playbackManager?.mediaSession?.player
+        if (player == null || !player.playWhenReady || player.playbackState == androidx.media3.common.Player.STATE_IDLE || player.playbackState == androidx.media3.common.Player.STATE_ENDED) {
+            stopSelf()
+        }
     }
 
     private fun createNotificationChannel() {
@@ -76,6 +74,11 @@ class YimlyPlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        val app = application as? YimlyApplication
+        val session = app?.playbackManager?.mediaSession
+        if (session != null && sessions.contains(session)) {
+            removeSession(session)
+        }
         super.onDestroy()
     }
 }

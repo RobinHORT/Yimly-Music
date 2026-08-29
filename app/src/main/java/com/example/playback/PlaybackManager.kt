@@ -3,6 +3,8 @@ package com.example.playback
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.drawable.BitmapDrawable
 import android.net.Uri
 import android.util.Log
 import androidx.media3.common.AudioAttributes
@@ -16,10 +18,15 @@ import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.session.MediaSession
+import coil.ImageLoader
+import coil.ImageLoaderFactory
+import coil.request.ImageRequest
+import coil.request.SuccessResult
 import com.example.MainActivity
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
 import com.example.data.repository.MusicRepository
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -130,6 +137,7 @@ class PlaybackManager(
             )
             .setHandleAudioBecomingNoisy(true)
             .setWakeMode(C.WAKE_MODE_LOCAL)
+            .setUsePlatformDiagnostics(false)
             .build()
 
         player.addListener(object : Player.Listener {
@@ -201,14 +209,22 @@ class PlaybackManager(
             val sessionActivityPendingIntent = PendingIntent.getActivity(
                 context,
                 0,
-                Intent(context, MainActivity::class.java),
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            _mediaSession = MediaSession.Builder(context, player)
+            val forwardingPlayer = YimlyForwardingPlayer(player, this)
+            val sessionCallback = YimlySessionCallback(this)
+            val sessionId = "yimly_media_session_${System.identityHashCode(this)}_${System.currentTimeMillis()}"
+            _mediaSession = MediaSession.Builder(context, forwardingPlayer)
+                .setId(sessionId)
+                .setCallback(sessionCallback)
                 .setSessionActivity(sessionActivityPendingIntent)
                 .build()
         } catch (e: Exception) {
-            Log.w("PlaybackManager", "Failed to initialize MediaSession: ${e.message}")
+            Log.w("PlaybackManager", "Failed to initialize MediaSession: ${e.message}", e)
+            e.printStackTrace()
         }
     }
 
@@ -269,7 +285,59 @@ class PlaybackManager(
         }
 
         currentIndex = targetIdx
+        updatePlaybackState {
+            it.copy(
+                currentSong = song,
+                queue = currentQueue,
+                currentQueueIndex = currentIndex,
+                currentPositionMs = 0L,
+                durationMs = song.durationMs
+            )
+        }
         playCurrentQueueIndex()
+    }
+
+    private fun getResolvedArtworkUrl(song: Song): String? {
+        val direct = song.explicitArtworkUrl ?: song.artworkPath ?: song.albumArtworkPath
+        if (!direct.isNullOrBlank()) {
+            return if (direct.startsWith("http")) direct else "${cachedServerUrl.trimEnd('/')}${if (direct.startsWith("/")) "" else "/"}$direct"
+        }
+        val defaultArt = song.artworkUrl
+        if (!defaultArt.isNullOrBlank()) {
+            return if (defaultArt.startsWith(PreferencesManager.DEFAULT_SERVER_URL) && cachedServerUrl != PreferencesManager.DEFAULT_SERVER_URL) {
+                val cleanBase = cachedServerUrl.trimEnd('/')
+                val path = defaultArt.removePrefix(PreferencesManager.DEFAULT_SERVER_URL)
+                "$cleanBase$path"
+            } else {
+                defaultArt
+            }
+        }
+        return null
+    }
+
+    private suspend fun loadArtworkBytes(artworkUrl: String?): ByteArray? = withContext(Dispatchers.IO) {
+        if (artworkUrl.isNullOrBlank()) return@withContext null
+        try {
+            val loader = (context.applicationContext as? ImageLoaderFactory)?.newImageLoader()
+                ?: ImageLoader(context)
+            val request = ImageRequest.Builder(context)
+                .data(artworkUrl)
+                .size(512, 512)
+                .allowHardware(false)
+                .build()
+            val result = loader.execute(request)
+            if (result is SuccessResult) {
+                val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
+                if (bitmap != null) {
+                    val stream = ByteArrayOutputStream()
+                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                    return@withContext stream.toByteArray()
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("PlaybackManager", "Failed to load artwork bytes for $artworkUrl: ${e.message}")
+        }
+        null
     }
 
     private fun playCurrentQueueIndex() {
@@ -285,13 +353,23 @@ class PlaybackManager(
             currentNormalAudioUrl = resolved.normalUrl
             currentInstrumentalAudioUrl = resolved.instrumentalUrl
 
+            val resolvedArtworkUrl = getResolvedArtworkUrl(song)
+            val artworkBytes = loadArtworkBytes(resolvedArtworkUrl)
+
             withContext(Dispatchers.Main) {
                 val newUri = Uri.parse(resolved.playableUrl)
                 val mediaMetadata = MediaMetadata.Builder()
                     .setTitle(song.title)
                     .setArtist(song.artist)
                     .setAlbumTitle(song.album)
-                    .setArtworkUri(song.artworkUrl?.let { Uri.parse(it) })
+                    .setArtworkUri(resolvedArtworkUrl?.let { Uri.parse(it) })
+                    .apply {
+                        if (artworkBytes != null) {
+                            setArtworkData(artworkBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                        }
+                        setTrackNumber(currentIndex + 1)
+                        setTotalTrackCount(currentQueue.size)
+                    }
                     .build()
 
                 val requestMetadata = MediaItem.RequestMetadata.Builder()
@@ -358,6 +436,9 @@ class PlaybackManager(
 
             isInstrumentalPreferred = newIsInstrumental
 
+            val resolvedArtworkUrl = getResolvedArtworkUrl(currentSong)
+            val artworkBytes = loadArtworkBytes(resolvedArtworkUrl)
+
             withContext(Dispatchers.Main) {
                 val currentPosition = player.currentPosition.coerceAtLeast(0L)
                 val wasPlaying = player.isPlaying || player.playWhenReady
@@ -367,7 +448,14 @@ class PlaybackManager(
                     .setTitle(currentSong.title)
                     .setArtist(currentSong.artist)
                     .setAlbumTitle(currentSong.album)
-                    .setArtworkUri(currentSong.artworkUrl?.let { Uri.parse(it) })
+                    .setArtworkUri(resolvedArtworkUrl?.let { Uri.parse(it) })
+                    .apply {
+                        if (artworkBytes != null) {
+                            setArtworkData(artworkBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
+                        }
+                        setTrackNumber(currentIndex + 1)
+                        setTotalTrackCount(currentQueue.size)
+                    }
                     .build()
 
                 val currentItem = player.currentMediaItem
@@ -405,7 +493,13 @@ class PlaybackManager(
     }
 
     fun play() {
-        exoPlayer?.play()
+        startPlaybackService()
+        val player = exoPlayer ?: return
+        if (player.currentMediaItem == null && currentQueue.isNotEmpty()) {
+            playCurrentQueueIndex()
+        } else {
+            player.play()
+        }
     }
 
     fun pause() {
@@ -417,7 +511,12 @@ class PlaybackManager(
         if (player.isPlaying) {
             player.pause()
         } else {
-            player.play()
+            startPlaybackService()
+            if (player.currentMediaItem == null && currentQueue.isNotEmpty()) {
+                playCurrentQueueIndex()
+            } else {
+                player.play()
+            }
         }
     }
 
@@ -431,9 +530,27 @@ class PlaybackManager(
 
         if (currentIndex < currentQueue.size - 1) {
             currentIndex++
+            val nextSong = currentQueue[currentIndex]
+            updatePlaybackState {
+                it.copy(
+                    currentSong = nextSong,
+                    currentQueueIndex = currentIndex,
+                    currentPositionMs = 0L,
+                    durationMs = nextSong.durationMs
+                )
+            }
             playCurrentQueueIndex()
-        } else if (_playbackInfo.value.repeatMode == RepeatMode.ALL) {
+        } else if (_playbackInfo.value.repeatMode != RepeatMode.OFF) {
             currentIndex = 0
+            val nextSong = currentQueue[currentIndex]
+            updatePlaybackState {
+                it.copy(
+                    currentSong = nextSong,
+                    currentQueueIndex = currentIndex,
+                    currentPositionMs = 0L,
+                    durationMs = nextSong.durationMs
+                )
+            }
             playCurrentQueueIndex()
         }
     }
@@ -445,6 +562,15 @@ class PlaybackManager(
             updatePlaybackState { it.copy(currentPositionMs = 0L) }
         } else {
             currentIndex = (currentIndex - 1).coerceAtLeast(0)
+            val prevSong = currentQueue[currentIndex]
+            updatePlaybackState {
+                it.copy(
+                    currentSong = prevSong,
+                    currentQueueIndex = currentIndex,
+                    currentPositionMs = 0L,
+                    durationMs = prevSong.durationMs
+                )
+            }
             playCurrentQueueIndex()
         }
     }
@@ -461,11 +587,33 @@ class PlaybackManager(
                 } else {
                     currentIndex++
                 }
+                val nextSong = currentQueue.getOrNull(currentIndex)
+                if (nextSong != null) {
+                    updatePlaybackState {
+                        it.copy(
+                            currentSong = nextSong,
+                            currentQueueIndex = currentIndex,
+                            currentPositionMs = 0L,
+                            durationMs = nextSong.durationMs
+                        )
+                    }
+                }
                 playCurrentQueueIndex()
             }
             RepeatMode.OFF -> {
                 if (currentIndex < currentQueue.size - 1) {
                     currentIndex++
+                    val nextSong = currentQueue.getOrNull(currentIndex)
+                    if (nextSong != null) {
+                        updatePlaybackState {
+                            it.copy(
+                                currentSong = nextSong,
+                                currentQueueIndex = currentIndex,
+                                currentPositionMs = 0L,
+                                durationMs = nextSong.durationMs
+                            )
+                        }
+                    }
                     playCurrentQueueIndex()
                 } else {
                     updatePlaybackState { it.copy(isPlaying = false, currentPositionMs = 0L) }
@@ -491,6 +639,8 @@ class PlaybackManager(
             }
         }
 
+        exoPlayer?.shuffleModeEnabled = newShuffle
+
         updatePlaybackState {
             it.copy(
                 isShuffle = newShuffle,
@@ -500,9 +650,24 @@ class PlaybackManager(
         }
     }
 
+    fun setShuffle(enabled: Boolean) {
+        if (_playbackInfo.value.isShuffle != enabled) {
+            toggleShuffle()
+        }
+    }
+
+    fun setRepeatMode(mode: RepeatMode) {
+        exoPlayer?.repeatMode = when (mode) {
+            RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+            RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+            RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+        }
+        updatePlaybackState { it.copy(repeatMode = mode) }
+    }
+
     fun cycleRepeatMode() {
         val nextMode = _playbackInfo.value.repeatMode.next()
-        updatePlaybackState { it.copy(repeatMode = nextMode) }
+        setRepeatMode(nextMode)
     }
 
     fun addToQueue(song: Song) {
@@ -555,6 +720,15 @@ class PlaybackManager(
     fun playQueueItem(index: Int) {
         if (index in currentQueue.indices) {
             currentIndex = index
+            val targetSong = currentQueue[currentIndex]
+            updatePlaybackState {
+                it.copy(
+                    currentSong = targetSong,
+                    currentQueueIndex = currentIndex,
+                    currentPositionMs = 0L,
+                    durationMs = targetSong.durationMs
+                )
+            }
             playCurrentQueueIndex()
         }
     }
