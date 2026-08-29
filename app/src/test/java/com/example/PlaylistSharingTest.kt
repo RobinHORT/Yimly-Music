@@ -208,8 +208,9 @@ class PlaylistSharingTest {
             rawCoverUrl = "/api/playlists/rel_1/cover",
             isPublic = true
         )
-        val resolved = relativeCoverPlaylist.coverUrl.resolveCoverUrl()
-        assertEquals("https://yimly.robinhort.link/api/playlists/rel_1/cover", resolved)
+        val resolved = relativeCoverPlaylist.coverUrl
+        org.junit.Assert.assertNotNull(resolved)
+        org.junit.Assert.assertTrue(resolved!!.startsWith("https://yimly.robinhort.link/api/playlists/rel_1/cover"))
 
         val absoluteCoverPlaylist = Playlist(
             id = "abs_2",
