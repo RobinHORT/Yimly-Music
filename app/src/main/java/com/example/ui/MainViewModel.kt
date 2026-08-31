@@ -211,6 +211,7 @@ class MainViewModel(
     }
 
     fun toggleInstrumental() {
+        android.util.Log.d("INSTRUMENTAL_DEBUG", "MainViewModel.toggleInstrumental() called")
         playbackManager.toggleInstrumental()
     }
 

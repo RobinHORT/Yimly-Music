@@ -16,11 +16,15 @@ data class Song(
     @Json(name = "artworkPath") val artworkPath: String? = null,
     @Json(name = "albumArtworkPath") val albumArtworkPath: String? = null,
     @Json(name = "mainAudioPath") val mainAudioPath: String? = null,
+    @Json(name = "main_audio_path") val mainAudioPathSnake: String? = null,
     @Json(name = "instrumentalAudioPath") val instrumentalAudioPath: String? = null,
+    @Json(name = "instrumental_audio_path") val instrumentalAudioPathSnake: String? = null,
     @Json(name = "instrumentalPath") val instrumentalPath: String? = null,
+    @Json(name = "instrumental_path") val instrumentalPathSnake: String? = null,
     @Json(name = "instrumental_url") val instrumentalUrl: String? = null,
     @Json(name = "instrumentalAudioUrl") val instrumentalAudioUrl: String? = null,
     @Json(name = "hasInstrumental") val hasInstrumental: Boolean = false,
+    @Json(name = "has_instrumental") val hasInstrumentalSnake: Boolean? = null,
     @Json(name = "is_instrumental") val isInstrumentalField: Boolean? = null,
     @Json(name = "isInstrumental") val isInstrumental: Boolean = false,
     @Json(name = "version") val version: String? = null,
@@ -42,10 +46,19 @@ data class Song(
             return "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/$id/artwork"
         }
 
+    val effectiveMainAudioPath: String?
+        get() = mainAudioPath ?: mainAudioPathSnake
+
+    val effectiveInstrumentalAudioPath: String?
+        get() = instrumentalAudioPath ?: instrumentalAudioPathSnake ?: instrumentalPath ?: instrumentalPathSnake
+
+    val hasInstrumentalEffective: Boolean
+        get() = hasInstrumental || (hasInstrumentalSnake == true) || !effectiveInstrumentalAudioPath.isNullOrBlank() || !instrumentalAudioUrl.isNullOrBlank() || !instrumentalUrl.isNullOrBlank()
+
     val audioUrl: String
         get() {
             if (!explicitAudioUrl.isNullOrBlank()) return explicitAudioUrl
-            return mainAudioPath?.let {
+            return effectiveMainAudioPath?.let {
                 if (it.startsWith("http")) it else "${PreferencesManager.DEFAULT_SERVER_URL}$it"
             } ?: "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/$id/audio?type=main"
         }
@@ -54,11 +67,11 @@ data class Song(
         get() {
             val direct = instrumentalAudioUrl ?: instrumentalUrl
             if (!direct.isNullOrBlank()) return direct
-            val path = instrumentalAudioPath ?: instrumentalPath
+            val path = effectiveInstrumentalAudioPath
             if (!path.isNullOrBlank()) {
                 return if (path.startsWith("http")) path else "${PreferencesManager.DEFAULT_SERVER_URL}$path"
             }
-            if (hasInstrumental) {
+            if (hasInstrumentalEffective) {
                 return "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/$id/audio?type=instrumental"
             }
             return null
@@ -75,16 +88,31 @@ data class Song(
                 lowTitle.endsWith(" instrumental") || lowTitle.contains("- instrumental") ||
                 lowTitle.contains("(inst)") || lowTitle.contains("[inst]") ||
                 lowTitle.contains("(inst.)") || lowTitle.contains("[inst.]") ||
+                lowTitle.contains("- inst") || lowTitle.endsWith(" inst") ||
                 lowTitle.contains("instrumental version") || lowTitle.contains("version instrumental") ||
                 lowTitle.contains("instrumental audio") || lowTitle.contains("instrumental track") ||
+                lowTitle.contains("instrumental mix") ||
                 lowTitle.contains("(karaoke)") || lowTitle.contains("[karaoke]") ||
                 lowTitle.contains("- karaoke") || lowTitle.endsWith(" karaoke") ||
                 lowTitle.contains("(backing track)") || lowTitle.contains("[backing track]") ||
-                lowTitle.contains("- backing track") || lowTitle.endsWith(" backing track")
+                lowTitle.contains("- backing track") || lowTitle.endsWith(" backing track") ||
+                lowTitle.contains("(off vocal)") || lowTitle.contains("[off vocal]") ||
+                lowTitle.contains("- off vocal") || lowTitle.endsWith(" off vocal") ||
+                lowTitle.contains("(vocal off)") || lowTitle.contains("[vocal off]")
             ) {
                 return true
             }
-            if (mainAudioPath?.lowercase()?.contains("instrumental") == true) return true
+            val audioPathLower = (mainAudioPath ?: explicitAudioUrl)?.lowercase() ?: ""
+            if (audioPathLower.contains("instrumental") ||
+                audioPathLower.contains("_inst") ||
+                audioPathLower.contains("-inst") ||
+                audioPathLower.contains("[inst]") ||
+                audioPathLower.contains("(inst)") ||
+                audioPathLower.contains("backing_track") ||
+                audioPathLower.contains("off_vocal")
+            ) {
+                return true
+            }
             return false
         }
 

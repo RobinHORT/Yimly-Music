@@ -55,6 +55,7 @@ class PlaybackManager(
     val playbackInfo: StateFlow<PlaybackInfo> = _playbackInfo.asStateFlow()
 
     private var exoPlayer: ExoPlayer? = null
+    val player: Player? get() = exoPlayer
     private var _mediaSession: MediaSession? = null
     val mediaSession: MediaSession? get() = _mediaSession
     private var progressJob: Job? = null
@@ -111,6 +112,8 @@ class PlaybackManager(
             }
             headers["User-Agent"] = "Yimly-Android-Client/1.0"
 
+            Log.d("INSTRUMENTAL_DEBUG", "ResolvingDataSource: original=${dataSpec.uri} -> resolved=$uri (hasAuth=${!token.isNullOrBlank()})")
+
             dataSpec.buildUpon()
                 .setUri(uri)
                 .setHttpRequestHeaders(headers)
@@ -126,7 +129,11 @@ class PlaybackManager(
         val resolvingDataSourceFactory = ResolvingDataSource.Factory(httpDataSourceFactory, resolver)
         val mediaSourceFactory = DefaultMediaSourceFactory(context).setDataSourceFactory(resolvingDataSourceFactory)
 
-        val player = ExoPlayer.Builder(context)
+        val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context)
+            .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
+            .setEnableAudioTrackPlaybackParams(true)
+
+        val player = ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
             .setAudioAttributes(
                 AudioAttributes.Builder()
@@ -174,32 +181,7 @@ class PlaybackManager(
             }
 
             override fun onPlayerError(error: PlaybackException) {
-                Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
-                if (isInstrumentalPreferred) {
-                    isInstrumentalPreferred = false
-                    val currentSong = _playbackInfo.value.currentSong
-                    if (currentSong != null) {
-                        coroutineScope.launch(Dispatchers.Main) {
-                            val normalUrl = currentNormalAudioUrl ?: currentSong.audioUrl
-                            val newUri = Uri.parse(normalUrl)
-                            val newItem = MediaItem.Builder()
-                                .setMediaId("${currentSong.id}_norm")
-                                .setUri(newUri)
-                                .build()
-                            exoPlayer?.setMediaItem(newItem)
-                            exoPlayer?.prepare()
-                            exoPlayer?.play()
-                            updatePlaybackState {
-                                it.copy(
-                                    isInstrumental = false,
-                                    isBuffering = false
-                                )
-                            }
-                        }
-                        return
-                    }
-                }
-                updatePlaybackState { it.copy(isBuffering = false, isPlaying = false) }
+                handlePlayerError(error)
             }
         })
 
@@ -226,6 +208,37 @@ class PlaybackManager(
             Log.w("PlaybackManager", "Failed to initialize MediaSession: ${e.message}", e)
             e.printStackTrace()
         }
+    }
+
+    internal fun handlePlayerError(error: PlaybackException) {
+        Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
+        if (_playbackInfo.value.isInstrumental) {
+            val currentSong = _playbackInfo.value.currentSong
+            if (currentSong != null) {
+                coroutineScope.launch(Dispatchers.Main) {
+                    val savedPosition = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackInfo.value.currentPositionMs
+                    val normalUrl = currentNormalAudioUrl ?: currentSong.audioUrl
+                    val newUri = Uri.parse(normalUrl)
+                    val newItem = MediaItem.Builder()
+                        .setMediaId("${currentSong.id}_norm")
+                        .setUri(newUri)
+                        .build()
+                    isInstrumentalPreferred = false
+                    exoPlayer?.setMediaItem(newItem, savedPosition)
+                    exoPlayer?.prepare()
+                    exoPlayer?.play()
+                    updatePlaybackState {
+                        it.copy(
+                            isInstrumental = false,
+                            hasInstrumental = false,
+                            isBuffering = false
+                        )
+                    }
+                }
+                return
+            }
+        }
+        updatePlaybackState { it.copy(isBuffering = false, isPlaying = false) }
     }
 
     private fun startPlaybackService() {
@@ -291,7 +304,9 @@ class PlaybackManager(
                 queue = currentQueue,
                 currentQueueIndex = currentIndex,
                 currentPositionMs = 0L,
-                durationMs = song.durationMs
+                durationMs = song.durationMs,
+                hasInstrumental = true,
+                isInstrumental = isInstrumentalPreferred
             )
         }
         playCurrentQueueIndex()
@@ -318,26 +333,28 @@ class PlaybackManager(
     private suspend fun loadArtworkBytes(artworkUrl: String?): ByteArray? = withContext(Dispatchers.IO) {
         if (artworkUrl.isNullOrBlank()) return@withContext null
         try {
-            val loader = (context.applicationContext as? ImageLoaderFactory)?.newImageLoader()
-                ?: ImageLoader(context)
-            val request = ImageRequest.Builder(context)
-                .data(artworkUrl)
-                .size(512, 512)
-                .allowHardware(false)
-                .build()
-            val result = loader.execute(request)
-            if (result is SuccessResult) {
-                val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
-                if (bitmap != null) {
-                    val stream = ByteArrayOutputStream()
-                    bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
-                    return@withContext stream.toByteArray()
-                }
+            kotlinx.coroutines.withTimeoutOrNull(600L) {
+                val loader = (context.applicationContext as? ImageLoaderFactory)?.newImageLoader()
+                    ?: ImageLoader(context)
+                val request = ImageRequest.Builder(context)
+                    .data(artworkUrl)
+                    .size(512, 512)
+                    .allowHardware(false)
+                    .build()
+                val result = loader.execute(request)
+                if (result is SuccessResult) {
+                    val bitmap = (result.drawable as? BitmapDrawable)?.bitmap
+                    if (bitmap != null) {
+                        val stream = ByteArrayOutputStream()
+                        bitmap.compress(Bitmap.CompressFormat.JPEG, 85, stream)
+                        stream.toByteArray()
+                    } else null
+                } else null
             }
         } catch (e: Exception) {
             Log.w("PlaybackManager", "Failed to load artwork bytes for $artworkUrl: ${e.message}")
+            null
         }
-        null
     }
 
     private fun playCurrentQueueIndex() {
@@ -354,7 +371,6 @@ class PlaybackManager(
             currentInstrumentalAudioUrl = resolved.instrumentalUrl
 
             val resolvedArtworkUrl = getResolvedArtworkUrl(song)
-            val artworkBytes = loadArtworkBytes(resolvedArtworkUrl)
 
             withContext(Dispatchers.Main) {
                 val newUri = Uri.parse(resolved.playableUrl)
@@ -363,13 +379,8 @@ class PlaybackManager(
                     .setArtist(song.artist)
                     .setAlbumTitle(song.album)
                     .setArtworkUri(resolvedArtworkUrl?.let { Uri.parse(it) })
-                    .apply {
-                        if (artworkBytes != null) {
-                            setArtworkData(artworkBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-                        }
-                        setTrackNumber(currentIndex + 1)
-                        setTotalTrackCount(currentQueue.size)
-                    }
+                    .setTrackNumber(currentIndex + 1)
+                    .setTotalTrackCount(currentQueue.size)
                     .build()
 
                 val requestMetadata = MediaItem.RequestMetadata.Builder()
@@ -411,33 +422,45 @@ class PlaybackManager(
     }
 
     fun toggleInstrumental() {
-        val currentSong = _playbackInfo.value.currentSong ?: return
-        val player = exoPlayer ?: return
-        val newIsInstrumental = !_playbackInfo.value.isInstrumental
+        val currentSong = _playbackInfo.value.currentSong ?: run {
+            Log.w("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_TOGGLE_CALLED - failed: currentSong is null")
+            return
+        }
+        val player = exoPlayer ?: run {
+            Log.w("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_TOGGLE_CALLED - failed: exoPlayer is null")
+            return
+        }
 
-        coroutineScope.launch {
+        val beforeSongId = currentSong.id
+        val beforeTitle = currentSong.title
+        val beforePref = isInstrumentalPreferred
+        val beforeUri = player.currentMediaItem?.requestMetadata?.mediaUri
+            ?: player.currentMediaItem?.localConfiguration?.uri
+            ?: currentNormalAudioUrl
+            ?: currentSong.audioUrl
+        val beforePosition = player.currentPosition
+
+        Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_TOGGLE_CALLED")
+        Log.d("INSTRUMENTAL_DEBUG", "=== BEFORE TAP ===")
+        Log.d("INSTRUMENTAL_DEBUG", "song ID: $beforeSongId")
+        Log.d("INSTRUMENTAL_DEBUG", "title: $beforeTitle")
+        Log.d("INSTRUMENTAL_DEBUG", "isInstrumentalPreferred: $beforePref")
+        Log.d("INSTRUMENTAL_DEBUG", "current ExoPlayer MediaItem URI: $beforeUri")
+        Log.d("INSTRUMENTAL_DEBUG", "current playback position: $beforePosition")
+
+        val newIsInstrumental = !isInstrumentalPreferred
+        isInstrumentalPreferred = newIsInstrumental
+        Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_NEW_STATE isInstrumentalPreferred: $newIsInstrumental")
+
+        instrumentalResolutionJob?.cancel()
+        instrumentalResolutionJob = coroutineScope.launch {
             val resolved = musicRepository.resolvePlayableTrack(currentSong, newIsInstrumental)
-
-            if (newIsInstrumental && !resolved.hasInstrumental) {
-                isInstrumentalPreferred = false
-                withContext(Dispatchers.Main) {
-                    updatePlaybackState {
-                        it.copy(
-                            isInstrumental = false,
-                            hasInstrumental = false
-                        )
-                    }
-                }
-                return@launch
-            }
+            Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_RESOLVED_URL = ${resolved.playableUrl}")
 
             currentNormalAudioUrl = resolved.normalUrl
             currentInstrumentalAudioUrl = resolved.instrumentalUrl
 
-            isInstrumentalPreferred = newIsInstrumental
-
             val resolvedArtworkUrl = getResolvedArtworkUrl(currentSong)
-            val artworkBytes = loadArtworkBytes(resolvedArtworkUrl)
 
             withContext(Dispatchers.Main) {
                 val currentPosition = player.currentPosition.coerceAtLeast(0L)
@@ -449,30 +472,24 @@ class PlaybackManager(
                     .setArtist(currentSong.artist)
                     .setAlbumTitle(currentSong.album)
                     .setArtworkUri(resolvedArtworkUrl?.let { Uri.parse(it) })
-                    .apply {
-                        if (artworkBytes != null) {
-                            setArtworkData(artworkBytes, MediaMetadata.PICTURE_TYPE_FRONT_COVER)
-                        }
-                        setTrackNumber(currentIndex + 1)
-                        setTotalTrackCount(currentQueue.size)
-                    }
+                    .setTrackNumber(currentIndex + 1)
+                    .setTotalTrackCount(currentQueue.size)
                     .build()
 
-                val currentItem = player.currentMediaItem
-                val requestMetadata = (currentItem?.requestMetadata ?: MediaItem.RequestMetadata.EMPTY)
-                    .buildUpon()
+                val requestMetadata = MediaItem.RequestMetadata.Builder()
                     .setMediaUri(newUri)
                     .build()
 
                 val newMediaId = if (resolved.isInstrumentalActive) "${currentSong.id}_inst" else "${currentSong.id}_norm"
 
-                val newItem = (currentItem?.buildUpon() ?: MediaItem.Builder())
+                val newItem = MediaItem.Builder()
                     .setMediaId(newMediaId)
                     .setUri(newUri)
                     .setRequestMetadata(requestMetadata)
                     .setMediaMetadata(mediaMetadata)
                     .build()
 
+                Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_SET_MEDIA_ITEM: mediaId=$newMediaId, uri=$newUri, pos=$currentPosition")
                 player.setMediaItem(newItem, currentPosition)
                 player.prepare()
                 if (wasPlaying) {
@@ -480,6 +497,19 @@ class PlaybackManager(
                 } else {
                     player.pause()
                 }
+
+                val afterUri = player.currentMediaItem?.requestMetadata?.mediaUri
+                    ?: player.currentMediaItem?.localConfiguration?.uri
+                    ?: newUri
+                Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_PLAYER_URI = $afterUri")
+                Log.d("INSTRUMENTAL_DEBUG", "=== AFTER TAP ===")
+                Log.d("INSTRUMENTAL_DEBUG", "song ID: ${currentSong.id}")
+                Log.d("INSTRUMENTAL_DEBUG", "isInstrumentalPreferred: $newIsInstrumental")
+                Log.d("INSTRUMENTAL_DEBUG", "resolved playable URL: ${resolved.playableUrl}")
+                Log.d("INSTRUMENTAL_DEBUG", "new MediaItem URI: $newUri")
+                Log.d("INSTRUMENTAL_DEBUG", "ExoPlayer currentMediaItem URI: $afterUri")
+                Log.d("INSTRUMENTAL_DEBUG", "playback position: ${player.currentPosition}")
+                Log.d("INSTRUMENTAL_DEBUG", "player playback state: ${player.playbackState}")
 
                 updatePlaybackState {
                     it.copy(

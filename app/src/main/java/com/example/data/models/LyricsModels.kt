@@ -4,20 +4,35 @@ import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
 @JsonClass(generateAdapter = true)
+data class LyricWord(
+    @Json(name = "word") val word: String,
+    @Json(name = "start_time_ms") val startTimeMs: Long,
+    @Json(name = "end_time_ms") val endTimeMs: Long
+)
+
+@JsonClass(generateAdapter = true)
 data class LyricLine(
     @Json(name = "time_ms") val timeMs: Long,
     @Json(name = "text") val text: String,
-    @Json(name = "end_time_ms") val endTimeMs: Long? = null
+    @Json(name = "end_time_ms") val endTimeMs: Long? = null,
+    @Json(name = "words") val words: List<LyricWord> = emptyList(),
+    @Json(name = "has_word_timestamps") val hasWordTimestamps: Boolean = false
 )
 
 @JsonClass(generateAdapter = true)
 data class LyricsData(
     @Json(name = "song_id") val songId: String,
     @Json(name = "is_synced") val isSynced: Boolean = true,
+    @Json(name = "has_word_sync") val hasWordSync: Boolean = false,
     @Json(name = "lines") val lines: List<LyricLine> = emptyList(),
     @Json(name = "plain_lyrics") val plainLyrics: String? = null,
     @Json(name = "offset_ms") val offsetMs: Long = 0L
 )
+
+enum class LyricsFormatMode(val displayName: String) {
+    ELRC("eLRC"),
+    LRC("LRC")
+}
 
 enum class LyricFontFamily(val displayName: String) {
     DEFAULT("Default"),
@@ -68,6 +83,9 @@ fun formatLyricText(text: String, textCase: LyricTextCase): String = when (textC
 }
 
 data class LyricsDisplayConfig(
+    // Lyrics Format Mode (eLRC: Word-level sync vs LRC: Line-level sync)
+    val formatMode: LyricsFormatMode = LyricsFormatMode.ELRC,
+
     // Lyrics Display
     val visibleLines: Int = 3,
     val autoScroll: Boolean = true,

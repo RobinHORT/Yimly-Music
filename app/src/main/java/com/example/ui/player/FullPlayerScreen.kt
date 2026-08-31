@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsFormatMode
 import com.example.data.models.Song
 import com.example.playback.PlaybackInfo
 import com.example.playback.RepeatMode
@@ -407,7 +408,11 @@ fun FullPlayerScreen(
                         config = lyricsConfig,
                         onSeekTo = onSeekTo,
                         onOpenSettings = { showLyricsSettings = true },
-                        onOffsetChange = onLyricsOffsetChange
+                        onOffsetChange = onLyricsOffsetChange,
+                        onToggleFormatMode = {
+                            val newMode = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) LyricsFormatMode.LRC else LyricsFormatMode.ELRC
+                            onSaveLyricsConfig(lyricsConfig.copy(formatMode = newMode))
+                        }
                     )
                 } else {
                     // Queue View
@@ -423,7 +428,7 @@ fun FullPlayerScreen(
                 }
             }
 
-            // 3. Track Details & Action Controls (Title, Artist, Heart, Instrumental)
+            // 3. Track Details & Action Controls (Title, Artist, Heart, Instrumental, Lyrics Format)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -466,62 +471,72 @@ fun FullPlayerScreen(
                         )
                     }
 
-                    if (playbackInfo.hasInstrumental) {
-                        Surface(
-                            onClick = onToggleInstrumental,
-                            shape = RoundedCornerShape(16.dp),
-                            color = if (playbackInfo.isInstrumental) YimlyPink.copy(alpha = 0.2f) else SurfaceCardDark,
-                            border = BorderStroke(
-                                1.dp,
-                                if (playbackInfo.isInstrumental) YimlyPink else SurfaceBorderDark
-                            ),
-                            modifier = Modifier
-                                .height(38.dp)
-                                .testTag("instrumental_toggle_btn")
+                    // Lyrics Format Toggle Button (eLRC <-> LRC)
+                    Surface(
+                        onClick = {
+                            val newMode = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) LyricsFormatMode.LRC else LyricsFormatMode.ELRC
+                            onSaveLyricsConfig(lyricsConfig.copy(formatMode = newMode))
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) YimlyPink.copy(alpha = 0.2f) else SurfaceCardDark,
+                        border = BorderStroke(
+                            1.dp,
+                            if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) YimlyPink else SurfaceBorderDark
+                        ),
+                        modifier = Modifier
+                            .height(38.dp)
+                            .testTag("lyrics_format_toggle_btn")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                YimlyMicIcon(
-                                    tint = if (playbackInfo.isInstrumental) YimlyPink else TextSecondaryDark,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = if (playbackInfo.isInstrumental) "INST ON" else "INST",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (playbackInfo.isInstrumental) YimlyPink else TextSecondaryDark
-                                )
-                            }
+                            Icon(
+                                imageVector = Icons.Default.FormatQuote,
+                                contentDescription = "Lyrics Format Mode",
+                                tint = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) YimlyPink else TextSecondaryDark,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = lyricsConfig.formatMode.displayName,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) YimlyPink else TextSecondaryDark
+                            )
                         }
-                    } else {
-                        // Clearly disabled state when no instrumental exists
-                        Surface(
-                            shape = RoundedCornerShape(16.dp),
-                            color = SurfaceCardDark.copy(alpha = 0.4f),
-                            border = BorderStroke(1.dp, SurfaceBorderDark.copy(alpha = 0.4f)),
-                            modifier = Modifier
-                                .height(38.dp)
-                                .testTag("instrumental_toggle_btn_disabled")
+                    }
+
+                    Surface(
+                        onClick = {
+                            android.util.Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_UI_CLICK")
+                            onToggleInstrumental()
+                        },
+                        shape = RoundedCornerShape(16.dp),
+                        color = if (playbackInfo.isInstrumental) YimlyPink.copy(alpha = 0.2f) else SurfaceCardDark,
+                        border = BorderStroke(
+                            1.dp,
+                            if (playbackInfo.isInstrumental) YimlyPink else SurfaceBorderDark
+                        ),
+                        modifier = Modifier
+                            .height(38.dp)
+                            .testTag("instrumental_toggle_btn")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                YimlyMicIcon(
-                                    tint = TextSecondaryDark.copy(alpha = 0.38f),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Text(
-                                    text = "INST",
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.Normal,
-                                    color = TextSecondaryDark.copy(alpha = 0.38f)
-                                )
-                            }
+                            YimlyMicIcon(
+                                tint = if (playbackInfo.isInstrumental) YimlyPink else TextSecondaryDark,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Text(
+                                text = if (playbackInfo.isInstrumental) "INST ON" else "INST",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold,
+                                color = if (playbackInfo.isInstrumental) YimlyPink else TextSecondaryDark
+                            )
                         }
                     }
                 }

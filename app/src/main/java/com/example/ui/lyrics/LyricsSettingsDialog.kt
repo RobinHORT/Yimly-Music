@@ -57,6 +57,7 @@ import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsFormatMode
 import com.example.ui.theme.SurfaceBorderDark
 import com.example.ui.theme.SurfaceCardDark
 import com.example.ui.theme.SurfaceElevatedDark
@@ -82,6 +83,7 @@ fun LyricsSettingsDialog(
     onSaveConfig: (LyricsDisplayConfig) -> Unit
 ) {
     // 1. Lyrics Display state
+    var formatMode by remember { mutableStateOf(initialConfig.formatMode) }
     var visibleLines by remember { mutableIntStateOf(initialConfig.visibleLines) }
     var autoScroll by remember { mutableStateOf(initialConfig.autoScroll) }
     var highlightCurrentLine by remember { mutableStateOf(initialConfig.highlightCurrentLine) }
@@ -141,6 +143,39 @@ fun LyricsSettingsDialog(
                     fontWeight = FontWeight.Bold,
                     color = TextPrimaryDark
                 )
+
+                // Lyrics Format Mode (eLRC vs LRC)
+                Column {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text("Format Mode", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
+                        Text(
+                            if (formatMode == LyricsFormatMode.ELRC) "Word-level (eLRC)" else "Line-level (LRC)",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = YimlyPink
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        LyricsFormatMode.values().forEach { mode ->
+                            FilterChip(
+                                selected = formatMode == mode,
+                                onClick = { formatMode = mode },
+                                label = { Text(if (mode == LyricsFormatMode.ELRC) "eLRC (Word Sync)" else "LRC (Line Sync)", fontSize = 12.sp) },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = YimlyPink,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = SurfaceCardDark,
+                                    labelColor = TextSecondaryDark
+                                )
+                            )
+                        }
+                    }
+                }
 
                 // Visible Lines
                 Column {
@@ -568,6 +603,7 @@ fun LyricsSettingsDialog(
                     Button(
                         onClick = {
                             val updated = initialConfig.copy(
+                                formatMode = formatMode,
                                 visibleLines = visibleLines,
                                 autoScroll = autoScroll,
                                 highlightCurrentLine = highlightCurrentLine,

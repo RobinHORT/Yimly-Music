@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,6 +22,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -30,6 +30,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
@@ -48,17 +49,20 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.models.LyricAlignment
-import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricLine
-import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsFormatMode
 import com.example.data.models.formatLyricText
 import com.example.lyrics.LyricsParser
 import com.example.ui.theme.SurfaceBorderDark
@@ -78,6 +82,7 @@ fun LyricsView(
     onSeekTo: (Long) -> Unit,
     onOpenSettings: () -> Unit = {},
     onOffsetChange: (Long) -> Unit,
+    onToggleFormatMode: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     var viewMode by remember { mutableStateOf(0) } // 0 = Focus Mode, 1 = Full Synced List
@@ -115,7 +120,7 @@ fun LyricsView(
             .padding(16.dp)
             .testTag("lyrics_view")
     ) {
-        // Controls Bar (Offset +/- / Settings / Mode toggle)
+        // Controls Bar (Offset +/- / Mode Switcher / Format Indicator)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -123,11 +128,11 @@ fun LyricsView(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Mode Switcher Tabs
+            // Mode Switcher Tabs (Focus | Full View)
             TabRow(
                 selectedTabIndex = viewMode,
                 modifier = Modifier
-                    .width(200.dp)
+                    .width(180.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .border(1.dp, SurfaceBorderDark, RoundedCornerShape(10.dp)),
                 containerColor = SurfaceCardDark,
@@ -158,44 +163,83 @@ fun LyricsView(
                 )
             }
 
-            // Timing Offset Buttons (− Sync +)
-            CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(20.dp))
-                        .background(SurfaceElevatedDark)
-                        .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 4.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(
-                        onClick = { onOffsetChange(songOffsetMs - 200L) },
-                        modifier = Modifier.size(28.dp).testTag("offset_minus_btn")
+            // Right side: Format pill & Timing Offset
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Format Mode indicator / toggle pill in lyrics view
+                if (onToggleFormatMode != null) {
+                    Surface(
+                        onClick = onToggleFormatMode,
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (config.formatMode == LyricsFormatMode.ELRC) YimlyPink.copy(alpha = 0.2f) else SurfaceElevatedDark,
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (config.formatMode == LyricsFormatMode.ELRC) YimlyPink else SurfaceBorderDark
+                        ),
+                        modifier = Modifier.testTag("lyrics_view_format_mode_btn")
                     ) {
-                        Icon(Icons.Default.Remove, contentDescription = "-0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                        Row(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.FormatQuote,
+                                contentDescription = null,
+                                tint = if (config.formatMode == LyricsFormatMode.ELRC) YimlyPink else TextSecondaryDark,
+                                modifier = Modifier.size(12.dp)
+                            )
+                            Text(
+                                text = config.formatMode.displayName,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (config.formatMode == LyricsFormatMode.ELRC) YimlyPink else TextSecondaryDark
+                            )
+                        }
                     }
+                }
 
-                    Box(
+                // Timing Offset Buttons (− Sync +)
+                CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides Dp.Unspecified) {
+                    Row(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .clickable { onOffsetChange(0L) }
-                            .padding(horizontal = 8.dp, vertical = 4.dp)
-                            .testTag("lyrics_sync_label"),
-                        contentAlignment = Alignment.Center
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(SurfaceElevatedDark)
+                            .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp))
+                            .padding(horizontal = 4.dp, vertical = 2.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = if (songOffsetMs == 0L) "Sync" else String.format(java.util.Locale.US, "%+.1fs", songOffsetMs / 1000f),
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = if (songOffsetMs != 0L) YimlyPink else TextSecondaryDark
-                        )
-                    }
+                        IconButton(
+                            onClick = { onOffsetChange(songOffsetMs - 200L) },
+                            modifier = Modifier.size(28.dp).testTag("offset_minus_btn")
+                        ) {
+                            Icon(Icons.Default.Remove, contentDescription = "-0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                        }
 
-                    IconButton(
-                        onClick = { onOffsetChange(songOffsetMs + 200L) },
-                        modifier = Modifier.size(28.dp).testTag("offset_plus_btn")
-                    ) {
-                        Icon(Icons.Default.Add, contentDescription = "+0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .clickable { onOffsetChange(0L) }
+                                .padding(horizontal = 6.dp, vertical = 4.dp)
+                                .testTag("lyrics_sync_label"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = if (songOffsetMs == 0L) "Sync" else String.format(java.util.Locale.US, "%+.1fs", songOffsetMs / 1000f),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (songOffsetMs != 0L) YimlyPink else TextSecondaryDark
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { onOffsetChange(songOffsetMs + 200L) },
+                            modifier = Modifier.size(28.dp).testTag("offset_plus_btn")
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "+0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                        }
                     }
                 }
             }
@@ -260,7 +304,7 @@ fun LyricsView(
                         )
                     }
 
-                    // CURRENT LINE (Independently Styled with Current Line Size & Color)
+                    // CURRENT LINE (Independently Styled with Word-Level or Line-Level synchronization)
                     if (config.highlightCurrentLine) {
                         Card(
                             modifier = Modifier
@@ -285,15 +329,28 @@ fun LyricsView(
                                     LyricAlignment.END -> Alignment.CenterEnd
                                 }
                             ) {
-                                Text(
-                                    text = formatLyricText(currentLine?.text ?: "♪ Music playing ♪", config.textCase),
-                                    fontSize = config.currentLineFontSizeSp.sp,
-                                    fontFamily = composeFontFamily,
-                                    fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
-                                    color = currentLineColor,
-                                    textAlign = textAlign,
-                                    lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
-                                )
+                                if (currentLine != null) {
+                                    SynchronizedLyricContent(
+                                        line = currentLine,
+                                        isCurrent = true,
+                                        currentPositionMs = currentPositionMs,
+                                        songOffsetMs = songOffsetMs,
+                                        config = config,
+                                        currentLineColor = currentLineColor,
+                                        composeFontFamily = composeFontFamily,
+                                        textAlign = textAlign
+                                    )
+                                } else {
+                                    Text(
+                                        text = formatLyricText("♪ Music playing ♪", config.textCase),
+                                        fontSize = config.currentLineFontSizeSp.sp,
+                                        fontFamily = composeFontFamily,
+                                        fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+                                        color = currentLineColor,
+                                        textAlign = textAlign,
+                                        lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -311,15 +368,28 @@ fun LyricsView(
                                 LyricAlignment.END -> Alignment.CenterEnd
                             }
                         ) {
-                            Text(
-                                text = formatLyricText(currentLine?.text ?: "♪ Music playing ♪", config.textCase),
-                                fontSize = config.currentLineFontSizeSp.sp,
-                                fontFamily = composeFontFamily,
-                                fontWeight = if (config.fontWeightBold) FontWeight.Bold else FontWeight.Normal,
-                                color = TextPrimaryDark,
-                                textAlign = textAlign,
-                                lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
-                            )
+                            if (currentLine != null) {
+                                SynchronizedLyricContent(
+                                    line = currentLine,
+                                    isCurrent = true,
+                                    currentPositionMs = currentPositionMs,
+                                    songOffsetMs = songOffsetMs,
+                                    config = config,
+                                    currentLineColor = TextPrimaryDark,
+                                    composeFontFamily = composeFontFamily,
+                                    textAlign = textAlign
+                                )
+                            } else {
+                                Text(
+                                    text = formatLyricText("♪ Music playing ♪", config.textCase),
+                                    fontSize = config.currentLineFontSizeSp.sp,
+                                    fontFamily = composeFontFamily,
+                                    fontWeight = if (config.fontWeightBold) FontWeight.Bold else FontWeight.Normal,
+                                    color = TextPrimaryDark,
+                                    textAlign = textAlign,
+                                    lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
+                                )
+                            }
                         }
                     }
 
@@ -390,18 +460,121 @@ fun LyricsView(
                             LyricAlignment.END -> Alignment.CenterEnd
                         }
                     ) {
-                        Text(
-                            text = formatLyricText(line.text, config.textCase),
-                            fontSize = animSize.sp,
-                            fontFamily = composeFontFamily,
-                            fontWeight = if (isCurrent && config.fontWeightBold) FontWeight.Bold else FontWeight.Normal,
-                            color = animColor,
-                            modifier = Modifier.alpha(animAlpha),
-                            textAlign = textAlign
-                        )
+                        if (isCurrent && config.formatMode == LyricsFormatMode.ELRC && line.words.isNotEmpty()) {
+                            SynchronizedLyricContent(
+                                line = line,
+                                isCurrent = true,
+                                currentPositionMs = currentPositionMs,
+                                songOffsetMs = songOffsetMs,
+                                config = config,
+                                currentLineColor = animColor,
+                                composeFontFamily = composeFontFamily,
+                                textAlign = textAlign
+                            )
+                        } else {
+                            Text(
+                                text = formatLyricText(line.text, config.textCase),
+                                fontSize = animSize.sp,
+                                fontFamily = composeFontFamily,
+                                fontWeight = if (isCurrent && config.fontWeightBold) FontWeight.Bold else FontWeight.Normal,
+                                color = animColor,
+                                modifier = Modifier.alpha(animAlpha),
+                                textAlign = textAlign
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Renders a lyric line with word-by-word real-time highlight synchronization when in eLRC mode,
+ * or uniform whole-line highlight when in LRC mode.
+ */
+@Composable
+fun SynchronizedLyricContent(
+    line: LyricLine,
+    isCurrent: Boolean,
+    currentPositionMs: Long,
+    songOffsetMs: Long,
+    config: LyricsDisplayConfig,
+    currentLineColor: Color,
+    composeFontFamily: FontFamily,
+    textAlign: TextAlign,
+    modifier: Modifier = Modifier
+) {
+    val adjustedPos = currentPositionMs + songOffsetMs
+
+    if (config.formatMode == LyricsFormatMode.ELRC && line.words.isNotEmpty()) {
+        // Word-level real-time synchronization (eLRC)
+        val annotatedString = buildAnnotatedString {
+            line.words.forEachIndexed { index, word ->
+                val wordText = formatLyricText(word.word, config.textCase)
+                val suffix = if (index < line.words.size - 1) " " else ""
+
+                when {
+                    adjustedPos >= word.endTimeMs -> {
+                        // Word already sung: vibrant filled active color
+                        withStyle(
+                            SpanStyle(
+                                color = currentLineColor,
+                                fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold
+                            )
+                        ) {
+                            append(wordText + suffix)
+                        }
+                    }
+                    adjustedPos >= word.startTimeMs && adjustedPos < word.endTimeMs -> {
+                        // Actively singing word RIGHT NOW: glowing prominent active highlight
+                        withStyle(
+                            SpanStyle(
+                                color = Color.White,
+                                background = currentLineColor.copy(alpha = 0.85f),
+                                fontWeight = FontWeight.Black
+                            )
+                        ) {
+                            append(wordText)
+                        }
+                        if (suffix.isNotEmpty()) {
+                            append(suffix)
+                        }
+                    }
+                    else -> {
+                        // Upcoming word in line: softer dimmed tone
+                        withStyle(
+                            SpanStyle(
+                                color = currentLineColor.copy(alpha = 0.40f),
+                                fontWeight = FontWeight.Normal
+                            )
+                        ) {
+                            append(wordText + suffix)
+                        }
+                    }
+                }
+            }
+        }
+
+        Text(
+            text = annotatedString,
+            fontSize = config.currentLineFontSizeSp.sp,
+            fontFamily = composeFontFamily,
+            textAlign = textAlign,
+            lineHeight = (config.currentLineFontSizeSp * 1.35f).sp,
+            modifier = modifier
+        )
+    } else {
+        // Standard line-level synchronization (LRC)
+        Text(
+            text = formatLyricText(line.text, config.textCase),
+            fontSize = config.currentLineFontSizeSp.sp,
+            fontFamily = composeFontFamily,
+            fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+            color = currentLineColor,
+            textAlign = textAlign,
+            lineHeight = (config.currentLineFontSizeSp * 1.3f).sp,
+            modifier = modifier
+        )
     }
 }

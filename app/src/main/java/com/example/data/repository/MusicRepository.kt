@@ -157,43 +157,32 @@ class MusicRepository(
     }
 
     suspend fun resolvePlayableTrack(song: Song, wantInstrumental: Boolean): ResolvedTrack = withContext(Dispatchers.IO) {
-        val allSongsList = rawAllSongs.firstOrNull() ?: emptyList()
-
+        val baseUrl = PreferencesManager.DEFAULT_SERVER_URL.trimEnd('/')
         val isDirectInst = song.isInstrumentalTrack
-        val matchingNormal = if (isDirectInst) findMatchingNormalSong(song, allSongsList) else null
-        val matchingInst = if (!isDirectInst) findMatchingInstrumental(song, allSongsList) else null
 
         val normalUrl = if (isDirectInst) {
-            matchingNormal?.audioUrl ?: "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/${song.id}/audio?type=main"
+            "$baseUrl/api/songs/${song.id}/audio?type=main"
         } else {
             song.audioUrl
         }
 
-        val instUrl: String = if (isDirectInst) {
-            song.audioUrl
-        } else if (!song.directInstrumentalAudioUrl.isNullOrBlank()) {
-            song.directInstrumentalAudioUrl!!
-        } else if (matchingInst != null) {
-            matchingInst.audioUrl
-        } else if (!song.instrumentalSongId.isNullOrBlank()) {
-            allSongsList.find { it.id == song.instrumentalSongId }?.audioUrl
-                ?: "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/${song.id}/audio?type=instrumental"
+        val directInstUrl = song.directInstrumentalAudioUrl
+        val instUrl = if (!directInstUrl.isNullOrBlank()) {
+            directInstUrl
         } else {
-            "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/${song.id}/audio?type=instrumental"
+            "$baseUrl/api/songs/${song.id}/audio?type=instrumental"
         }
 
-        val hasInst = song.hasInstrumental || matchingInst != null || isDirectInst || !song.directInstrumentalAudioUrl.isNullOrBlank() || !song.instrumentalSongId.isNullOrBlank() || true
-
-        val playableUrl = if (wantInstrumental && hasInst) instUrl else normalUrl
-        Log.d("MusicRepository", "resolvePlayableTrack: title='${song.title}', wantInst=$wantInstrumental, hasInst=$hasInst, playableUrl=$playableUrl")
+        val playableUrl = if (wantInstrumental) instUrl else normalUrl
+        Log.d("MusicRepository", "resolvePlayableTrack: title='${song.title}', wantInst=$wantInstrumental, playableUrl=$playableUrl")
 
         ResolvedTrack(
             song = song,
             normalUrl = normalUrl,
             instrumentalUrl = instUrl,
             playableUrl = playableUrl,
-            hasInstrumental = hasInst,
-            isInstrumentalActive = wantInstrumental && hasInst
+            hasInstrumental = true,
+            isInstrumentalActive = wantInstrumental
         )
     }
 
@@ -541,27 +530,32 @@ class MusicRepository(
     companion object {
         fun parseArtists(rawArtist: String): Set<String> {
             if (rawArtist.isBlank()) return emptySet()
-            return rawArtist.split(';')
+            return rawArtist
+                .split(Regex("(?i)[;,/&]|\\b(?:feat\\.?|ft\\.?|featuring|vs\\.?|with)\\b"))
                 .map { it.trim().lowercase() }
                 .filter { it.isNotBlank() }
                 .toSet()
         }
 
         fun cleanSongTitle(title: String): String {
+            if (title.isBlank()) return ""
             var cleaned = title
+            // Strip file extension if present
+            cleaned = cleaned.replace(Regex("(?i)\\.(?:mp3|flac|wav|m4a|aac|ogg|opus|wma)$"), "")
+
             // 1. Remove bracketed / parenthesized instrumental or karaoke tags
             cleaned = cleaned.replace(
-                Regex("(?i)\\s*[\\[\\(](?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental|karaoke\\s+version|karaoke|backing\\s+track|inst\\.|inst)[\\]\\)]"),
+                Regex("(?i)\\s*[\\[\\(](?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental\\s+mix|instrumental|karaoke\\s+version|karaoke|backing\\s+track|off\\s+vocal|vocal\\s+off|inst\\.|inst)[\\]\\)]"),
                 ""
             )
             // 2. Remove dash separated instrumental or karaoke tags
             cleaned = cleaned.replace(
-                Regex("(?i)\\s*-\\s*(?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental|karaoke\\s+version|karaoke|backing\\s+track|inst\\.|inst)"),
+                Regex("(?i)\\s*-\\s*(?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental\\s+mix|instrumental|karaoke\\s+version|karaoke|backing\\s+track|off\\s+vocal|vocal\\s+off|inst\\.|inst)"),
                 ""
             )
             // 3. Remove trailing instrumental tags
             cleaned = cleaned.replace(
-                Regex("(?i)\\s+(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental|karaoke\\s+version|karaoke|backing\\s+track|inst\\.|inst)$"),
+                Regex("(?i)\\s+(?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental\\s+mix|instrumental|karaoke\\s+version|karaoke|backing\\s+track|off\\s+vocal|vocal\\s+off|inst\\.|inst)$"),
                 ""
             )
             return cleaned.replace(Regex("\\s+"), " ").trim().lowercase()
@@ -578,40 +572,88 @@ class MusicRepository(
             return cleaned
         }
 
+        fun extractBaseFilename(path: String?): String {
+            if (path.isNullOrBlank()) return ""
+            val name = path.substringAfterLast('/').substringAfterLast('\\')
+            return cleanSongTitle(name)
+        }
+
+        fun isTitleMatching(title1: String, title2: String): Boolean {
+            val t1 = cleanSongTitle(title1)
+            val t2 = cleanSongTitle(title2)
+            if (t1.isBlank() || t2.isBlank()) return false
+            if (t1 == t2) return true
+
+            val sub1 = t1.substringAfterLast(" - ").trim()
+            val sub2 = t2.substringAfterLast(" - ").trim()
+            if (sub1.isNotBlank() && (sub1 == t2 || sub1 == sub2)) return true
+            if (sub2.isNotBlank() && (sub2 == t1 || sub2 == sub1)) return true
+
+            return false
+        }
+
         fun isArtistsMatching(mainArtists: Set<String>, candArtists: Set<String>): Boolean {
             if (mainArtists.isEmpty() || candArtists.isEmpty()) return true
             if (mainArtists == candArtists) return true
-            return mainArtists.intersect(candArtists).isNotEmpty()
+            if (mainArtists.intersect(candArtists).isNotEmpty()) return true
+            return mainArtists.any { m ->
+                candArtists.any { c ->
+                    m == c || (m.length > 3 && c.contains(m)) || (c.length > 3 && m.contains(c))
+                }
+            }
         }
 
         fun isAlbumsMatching(mainAlbum: String, candAlbum: String): Boolean {
             val cleanMain = cleanAlbumTitle(mainAlbum)
             val cleanCand = cleanAlbumTitle(candAlbum)
             if (cleanMain.isBlank() || cleanCand.isBlank()) return true
-            if (cleanMain == "singles" || cleanCand == "singles") return true
-            return cleanMain == cleanCand
+            if (cleanMain == "singles" || cleanCand == "singles" || cleanMain == "unknown" || cleanCand == "unknown") return true
+            if (cleanCand.contains("instrumental") || cleanCand == "instrumentals") return true
+            if (cleanMain == cleanCand) return true
+            if (cleanMain.contains(cleanCand) || cleanCand.contains(cleanMain)) return true
+            return true
         }
 
         fun findMatchingInstrumental(mainSong: Song, allSongsList: List<Song>): Song? {
+            if (allSongsList.isEmpty()) return null
+
+            // 1. Explicit ID link
             if (!mainSong.instrumentalSongId.isNullOrBlank()) {
                 val found = allSongsList.find { it.id == mainSong.instrumentalSongId }
                 if (found != null) return found
             }
+            val reverseFound = allSongsList.find { it.instrumentalSongId == mainSong.id && it.isInstrumentalTrack }
+            if (reverseFound != null) return reverseFound
 
             val cleanMainTitle = cleanSongTitle(mainSong.title)
-            if (cleanMainTitle.isBlank()) return null
             val mainArtists = parseArtists(mainSong.artist)
+            val mainBaseFile = extractBaseFilename(mainSong.mainAudioPath ?: mainSong.explicitAudioUrl)
+
+            // 2. Exact match by audio filename stem (e.g. "Song.mp3" vs "Song [Instrumental].mp3")
+            if (mainBaseFile.isNotBlank()) {
+                val fileMatch = allSongsList.firstOrNull { candidate ->
+                    if (candidate.id == mainSong.id) return@firstOrNull false
+                    if (!candidate.isInstrumentalTrack) return@firstOrNull false
+                    val candBaseFile = extractBaseFilename(candidate.mainAudioPath ?: candidate.explicitAudioUrl)
+                    candBaseFile.isNotBlank() && (candBaseFile == mainBaseFile || isTitleMatching(mainBaseFile, candBaseFile))
+                }
+                if (fileMatch != null) return fileMatch
+            }
+
+            // 3. Match by Title & Artist
+            if (cleanMainTitle.isBlank()) return null
 
             return allSongsList.firstOrNull { candidate ->
                 if (candidate.id == mainSong.id) return@firstOrNull false
                 if (!candidate.isInstrumentalTrack) return@firstOrNull false
 
-                val cleanCandTitle = cleanSongTitle(candidate.title)
-                if (cleanCandTitle != cleanMainTitle) return@firstOrNull false
-
                 val candArtists = parseArtists(candidate.artist)
                 val artistsMatch = isArtistsMatching(mainArtists, candArtists)
                 if (!artistsMatch) return@firstOrNull false
+
+                val cleanCandTitle = cleanSongTitle(candidate.title)
+                val titlesMatch = isTitleMatching(cleanMainTitle, cleanCandTitle)
+                if (!titlesMatch) return@firstOrNull false
 
                 val albumsMatch = isAlbumsMatching(mainSong.album, candidate.album)
                 albumsMatch
@@ -619,20 +661,45 @@ class MusicRepository(
         }
 
         fun findMatchingNormalSong(instrumentalSong: Song, allSongsList: List<Song>): Song? {
+            if (allSongsList.isEmpty()) return null
+
+            // 1. Explicit ID link
+            if (!instrumentalSong.instrumentalSongId.isNullOrBlank()) {
+                val found = allSongsList.find { it.id == instrumentalSong.instrumentalSongId }
+                if (found != null && !found.isInstrumentalTrack) return found
+            }
+            val reverseFound = allSongsList.find { it.instrumentalSongId == instrumentalSong.id && !it.isInstrumentalTrack }
+            if (reverseFound != null) return reverseFound
+
             val cleanInstTitle = cleanSongTitle(instrumentalSong.title)
-            if (cleanInstTitle.isBlank()) return null
             val instArtists = parseArtists(instrumentalSong.artist)
+            val instBaseFile = extractBaseFilename(instrumentalSong.mainAudioPath ?: instrumentalSong.explicitAudioUrl)
+
+            // 2. Exact match by audio filename stem
+            if (instBaseFile.isNotBlank()) {
+                val fileMatch = allSongsList.firstOrNull { candidate ->
+                    if (candidate.id == instrumentalSong.id) return@firstOrNull false
+                    if (candidate.isInstrumentalTrack) return@firstOrNull false
+                    val candBaseFile = extractBaseFilename(candidate.mainAudioPath ?: candidate.explicitAudioUrl)
+                    candBaseFile.isNotBlank() && (candBaseFile == instBaseFile || isTitleMatching(instBaseFile, candBaseFile))
+                }
+                if (fileMatch != null) return fileMatch
+            }
+
+            // 3. Match by Title & Artist
+            if (cleanInstTitle.isBlank()) return null
 
             return allSongsList.firstOrNull { candidate ->
                 if (candidate.id == instrumentalSong.id) return@firstOrNull false
                 if (candidate.isInstrumentalTrack) return@firstOrNull false
 
-                val cleanCandTitle = cleanSongTitle(candidate.title)
-                if (cleanCandTitle != cleanInstTitle) return@firstOrNull false
-
                 val candArtists = parseArtists(candidate.artist)
                 val artistsMatch = isArtistsMatching(instArtists, candArtists)
                 if (!artistsMatch) return@firstOrNull false
+
+                val cleanCandTitle = cleanSongTitle(candidate.title)
+                val titlesMatch = isTitleMatching(cleanInstTitle, cleanCandTitle)
+                if (!titlesMatch) return@firstOrNull false
 
                 val albumsMatch = isAlbumsMatching(instrumentalSong.album, candidate.album)
                 albumsMatch
