@@ -40,7 +40,8 @@ class YimlyApplication : Application(), ImageLoaderFactory {
         MusicRepository(
             musicDao = database.musicDao(),
             apiService = networkModule.apiService,
-            coroutineScope = applicationScope
+            coroutineScope = applicationScope,
+            context = this
         )
     }
 

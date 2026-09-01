@@ -23,6 +23,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -121,14 +122,19 @@ class MainViewModel(
 
 
     init {
-        // Observe current playing song and load its lyrics
+        // Observe current playing song and formatMode to load appropriate lyrics resource
         viewModelScope.launch {
             var lyricsJob: kotlinx.coroutines.Job? = null
-            playbackInfo.map { it.currentSong }.distinctUntilChanged().collect { song ->
+            combine(
+                playbackInfo.map { it.currentSong }.distinctUntilChanged(),
+                lyricsConfig.map { it.formatMode }.distinctUntilChanged()
+            ) { song, mode ->
+                Pair(song, mode)
+            }.collect { (song, mode) ->
                 lyricsJob?.cancel()
                 if (song != null) {
                     lyricsJob = launch {
-                        _currentLyricsData.value = musicRepository.getLyricsForSong(song)
+                        _currentLyricsData.value = musicRepository.getLyricsForSong(song, mode)
                         val offset = musicRepository.getLyricsOffset(song.id)
                         _currentSongOffset.value = offset ?: song.lyricOffset ?: 0L
                     }
@@ -266,8 +272,13 @@ class MainViewModel(
 
     fun updateArtwork(playlistId: String, uri: String) {
         viewModelScope.launch {
-            musicRepository.updatePlaylistArtwork(playlistId, uri)
-            musicRepository.refreshPlaylistDetail(playlistId)
+            try {
+                musicRepository.updatePlaylistArtwork(playlistId, uri)
+                musicRepository.refreshPlaylistDetail(playlistId)
+                _uiMessage.value = "Artwork updated"
+            } catch (e: Exception) {
+                _uiMessage.value = e.message ?: "Failed to update artwork"
+            }
         }
     }
 
@@ -381,7 +392,7 @@ class MainViewModel(
             if (res.isSuccess) {
                 val current = playbackInfo.value.currentSong
                 if (current?.id == songId) {
-                    _currentLyricsData.value = musicRepository.getLyricsForSong(current)
+                    _currentLyricsData.value = musicRepository.getLyricsForSong(current, lyricsConfig.value.formatMode)
                 }
                 syncLibrary()
                 _uiMessage.value = "Lyrics saved successfully"
@@ -406,7 +417,7 @@ class MainViewModel(
             if (res.isSuccess) {
                 val current = playbackInfo.value.currentSong
                 if (current?.id == songId) {
-                    _currentLyricsData.value = musicRepository.getLyricsForSong(current)
+                    _currentLyricsData.value = musicRepository.getLyricsForSong(current, lyricsConfig.value.formatMode)
                 }
                 syncLibrary()
                 _uiMessage.value = "LRC deleted successfully"

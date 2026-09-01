@@ -12,9 +12,16 @@ object LyricsParser {
     private val INLINE_WORD_TAG_REGEX = Regex("[<\\(](\\d{1,2}):(\\d{1,2})(?:[.:](\\d{1,3}))?[>\\)]")
 
     /**
-     * Parses an LRC or eLRC string into structured LyricsData with word-level and line-level timestamps.
+     * Parses an LRC or eLRC string into structured LyricsData with word-level or line-level timestamps.
+     * When mode is ELRC: real inline word tags are parsed into LyricWord. If none exist, no fake word timestamps are generated.
+     * When mode is LRC: inline word tags are stripped, and line-level timestamps control synchronization.
      */
-    fun parse(rawText: String?, songId: String, songDurationMs: Long = 180000L): LyricsData {
+    fun parse(
+        rawText: String?,
+        songId: String,
+        songDurationMs: Long = 180000L,
+        mode: com.example.data.models.LyricsFormatMode = com.example.data.models.LyricsFormatMode.ELRC
+    ): LyricsData {
         if (rawText.isNullOrBlank()) {
             return LyricsData(
                 songId = songId,
@@ -78,28 +85,44 @@ object LyricsParser {
                 val nextStartMs = sorted.getOrNull(index + 1)?.first ?: (lineStartMs + 5000L)
                 val lineEndMs = if (nextStartMs > lineStartMs) nextStartMs else (lineStartMs + 4000L)
 
-                val (cleanText, words, hasWordTags) = parseWordsFromLine(
-                    rawContent = rawContent,
-                    lineStartMs = lineStartMs,
-                    lineEndMs = lineEndMs,
-                    offsetMs = offsetMs
-                )
-
-                if (cleanText.isNotBlank()) {
-                    finalLines.add(
-                        LyricLine(
-                            timeMs = lineStartMs,
-                            text = cleanText,
-                            endTimeMs = lineEndMs,
-                            words = words,
-                            hasWordTimestamps = hasWordTags
-                        )
+                if (mode == com.example.data.models.LyricsFormatMode.ELRC) {
+                    val (cleanText, words, hasWordTags) = parseWordsFromLine(
+                        rawContent = rawContent,
+                        lineStartMs = lineStartMs,
+                        lineEndMs = lineEndMs,
+                        offsetMs = offsetMs
                     )
+
+                    if (cleanText.isNotBlank()) {
+                        finalLines.add(
+                            LyricLine(
+                                timeMs = lineStartMs,
+                                text = cleanText,
+                                endTimeMs = lineEndMs,
+                                words = words,
+                                hasWordTimestamps = hasWordTags
+                            )
+                        )
+                    }
+                } else {
+                    // LRC mode: Line-level sync only. Clean out any inline word tags.
+                    val cleanText = stripWordTags(rawContent)
+                    if (cleanText.isNotBlank()) {
+                        finalLines.add(
+                            LyricLine(
+                                timeMs = lineStartMs,
+                                text = cleanText,
+                                endTimeMs = lineEndMs,
+                                words = emptyList(),
+                                hasWordTimestamps = false
+                            )
+                        )
+                    }
                 }
             }
 
             if (finalLines.isNotEmpty()) {
-                val hasAnyWordTags = finalLines.any { it.hasWordTimestamps }
+                val hasAnyWordTags = mode == com.example.data.models.LyricsFormatMode.ELRC && finalLines.any { it.hasWordTimestamps }
                 return LyricsData(
                     songId = songId,
                     isSynced = true,
@@ -126,7 +149,6 @@ object LyricsParser {
             )
         }
 
-        // Generate synthetic timestamps for nice progressive highlighting
         val stepMs = if (songDurationMs > 0 && cleanPlainLines.isNotEmpty()) {
             (songDurationMs * 0.85 / cleanPlainLines.size).toLong().coerceAtLeast(3000L)
         } else {
@@ -136,19 +158,19 @@ object LyricsParser {
         val syntheticLines = cleanPlainLines.mapIndexed { index, text ->
             val start = (index * stepMs) + 2000L
             val end = start + stepMs
-            val words = generateDistributedWords(text, start, end)
+            val cleanText = stripWordTags(text)
             LyricLine(
                 timeMs = start,
-                text = text,
+                text = cleanText,
                 endTimeMs = end,
-                words = words,
+                words = emptyList(),
                 hasWordTimestamps = false
             )
         }
 
         return LyricsData(
             songId = songId,
-            isSynced = true,
+            isSynced = false,
             hasWordSync = false,
             lines = syntheticLines,
             plainLyrics = cleanPlainLines.joinToString("\n"),
@@ -156,8 +178,13 @@ object LyricsParser {
         )
     }
 
+    fun stripWordTags(rawContent: String): String {
+        return rawContent.replace(INLINE_WORD_TAG_REGEX, "").replace(Regex("\\s+"), " ").trim()
+    }
+
     /**
-     * Parses word-level timestamps from an eLRC line or generates evenly distributed words for an LRC line.
+     * Parses real word-level timestamps from an eLRC line.
+     * Does NOT generate fake word timestamps if no tags exist.
      */
     fun parseWordsFromLine(
         rawContent: String,
@@ -168,7 +195,6 @@ object LyricsParser {
         val matches = INLINE_WORD_TAG_REGEX.findAll(rawContent).toList()
 
         if (matches.isNotEmpty()) {
-            // Enhanced LRC line with word tags like <00:12.34>Word1 <00:12.80>Word2
             val words = mutableListOf<LyricWord>()
             val parsedTags = mutableListOf<Pair<Long, Int>>() // timestamp, matchIndex
 
@@ -209,29 +235,15 @@ object LyricsParser {
                 }
             }
 
-            val cleanLineText = rawContent.replace(INLINE_WORD_TAG_REGEX, "").replace(Regex("\\s+"), " ").trim()
+            val cleanLineText = stripWordTags(rawContent)
             if (words.isNotEmpty()) {
                 return Triple(cleanLineText, words, true)
             }
         }
 
-        // Standard LRC Line (No inline eLRC tags)
-        val cleanLineText = rawContent.replace(INLINE_WORD_TAG_REGEX, "").replace(Regex("\\s+"), " ").trim()
-        val words = generateDistributedWords(cleanLineText, lineStartMs, lineEndMs)
-        return Triple(cleanLineText, words, false)
-    }
-
-    private fun generateDistributedWords(lineText: String, startMs: Long, endMs: Long): List<LyricWord> {
-        val tokens = lineText.split(Regex("\\s+")).filter { it.isNotBlank() }
-        if (tokens.isEmpty()) return emptyList()
-
-        val totalDuration = (endMs - startMs).coerceAtLeast(1000L)
-        val step = totalDuration / tokens.size
-        return tokens.mapIndexed { idx, token ->
-            val wStart = startMs + (idx * step)
-            val wEnd = if (idx == tokens.size - 1) endMs else (wStart + step)
-            LyricWord(word = token, startTimeMs = wStart, endTimeMs = wEnd)
-        }
+        // Standard LRC Line (No inline eLRC tags): Do NOT fabricate word timestamps
+        val cleanLineText = stripWordTags(rawContent)
+        return Triple(cleanLineText, emptyList(), false)
     }
 
     /**

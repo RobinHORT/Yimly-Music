@@ -34,6 +34,12 @@ data class Song(
     @Json(name = "year") val year: Int? = null,
     @Json(name = "genre") val genre: String? = null,
     @Json(name = "hasLrc") val hasLrc: Boolean = false,
+    @Json(name = "hasElrc") val hasElrc: Boolean? = null,
+    @Json(name = "has_elrc") val hasElrcSnake: Boolean? = null,
+    @Json(name = "lrcPath") val lrcPath: String? = null,
+    @Json(name = "lrc_path") val lrcPathSnake: String? = null,
+    @Json(name = "elrcPath") val elrcPath: String? = null,
+    @Json(name = "elrc_path") val elrcPathSnake: String? = null,
     @Json(name = "hasArtwork") val hasArtwork: Boolean = false,
     @Json(name = "lyrics") val lyricsText: String? = null,
     @Json(name = "is_favorite") val isFavorite: Boolean = false,
@@ -51,6 +57,22 @@ data class Song(
 
     val effectiveInstrumentalAudioPath: String?
         get() = instrumentalAudioPath ?: instrumentalAudioPathSnake ?: instrumentalPath ?: instrumentalPathSnake
+
+    val effectiveLrcPath: String?
+        get() = lrcPath ?: lrcPathSnake
+
+    val effectiveElrcPath: String?
+        get() = elrcPath ?: elrcPathSnake
+
+    val isElrcAvailable: Boolean
+        get() {
+            if (hasElrc == true || hasElrcSnake == true) return true
+            if (com.example.lyrics.LyricsFormatUtils.isElrcFile(effectiveElrcPath) || com.example.lyrics.LyricsFormatUtils.isElrcFile(effectiveLrcPath)) return true
+            return false
+        }
+
+    val isLrcAvailable: Boolean
+        get() = hasLrc || !effectiveLrcPath.isNullOrBlank() || !lyricsText.isNullOrBlank()
 
     val hasInstrumentalEffective: Boolean
         get() = hasInstrumental || (hasInstrumentalSnake == true) || !effectiveInstrumentalAudioPath.isNullOrBlank() || !instrumentalAudioUrl.isNullOrBlank() || !instrumentalUrl.isNullOrBlank()
@@ -171,12 +193,15 @@ data class Playlist(
     @Json(name = "cover_url") val rawCoverUrlSnake: String? = null,
     @Json(name = "coverImage") val rawCoverImage: String? = null,
     @Json(name = "cover_image") val rawCoverImageSnake: String? = null,
+    @Json(name = "coverImageUrl") val rawCoverImageUrl: String? = null,
+    @Json(name = "cover_image_url") val rawCoverImageUrlSnake: String? = null,
     @Json(name = "coverPath") val rawCoverPath: String? = null,
     @Json(name = "cover_path") val rawCoverPathSnake: String? = null,
     @Json(name = "cover") val rawCover: String? = null,
     @Json(name = "artwork_url") val rawArtworkUrl: String? = null,
     @Json(name = "songCount") val songCount: Int = 0,
     @Json(name = "createdAt") val createdAt: String? = null,
+    @Json(name = "updatedAt") val updatedAt: String? = null,
     @Json(name = "isCustom") val isCustom: Boolean = true,
     @Json(name = "userId") val userId: String? = null,
     @Json(name = "ownerName") val ownerName: String? = null,
@@ -192,6 +217,8 @@ data class Playlist(
                 ?: rawCoverUrlSnake
                 ?: rawCoverImage
                 ?: rawCoverImageSnake
+                ?: rawCoverImageUrl
+                ?: rawCoverImageUrlSnake
                 ?: rawCoverPath
                 ?: rawCoverPathSnake
                 ?: rawCover
@@ -208,9 +235,10 @@ data class Playlist(
                 }
             }
             val baseUrl = PreferencesManager.DEFAULT_SERVER_URL.trimEnd('/')
-            val tParam = if (!createdAt.isNullOrBlank()) {
-                val parsed = createdAt.toLongOrNull()
-                if (parsed != null) parsed else createdAt.hashCode().toLong().let { if (it < 0) -it else it }
+            val timestamp = updatedAt ?: createdAt
+            val tParam = if (!timestamp.isNullOrBlank()) {
+                val parsed = timestamp.toLongOrNull()
+                if (parsed != null) parsed else timestamp.hashCode().toLong().let { if (it < 0) -it else it }
             } else {
                 System.currentTimeMillis()
             }

@@ -1,8 +1,10 @@
 package com.example.ui.components
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Canvas
@@ -36,6 +38,34 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 
+private fun decodeSampledBitmap(context: Context, uri: Uri, reqWidth: Int = 1024, reqHeight: Int = 1024): Bitmap? {
+    return try {
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        }
+        if (options.outWidth <= 0 || options.outHeight <= 0) return null
+
+        var inSampleSize = 1
+        val halfHeight: Int = options.outHeight / 2
+        val halfWidth: Int = options.outWidth / 2
+        while (halfHeight / inSampleSize >= reqHeight && halfWidth / inSampleSize >= reqWidth) {
+            inSampleSize *= 2
+        }
+
+        options.inSampleSize = inSampleSize
+        options.inJustDecodeBounds = false
+        options.inPreferredConfig = Bitmap.Config.ARGB_8888
+
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        }
+    } catch (t: Throwable) {
+        Log.e("PlaylistArtworkEditor", "Failed to decode image from $uri", t)
+        null
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PlaylistArtworkEditor(
@@ -51,19 +81,22 @@ fun PlaylistArtworkEditor(
     var offset by remember { mutableStateOf(Offset.Zero) }
     var containerSize by remember { mutableStateOf(IntSize.Zero) }
     var isSaving by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     val launcher = rememberLauncherForActivityResult(contract = ActivityResultContracts.GetContent()) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
         selectedImageUri = uri
-        uri?.let {
-            coroutineScope.launch {
-                val decoded = withContext(Dispatchers.IO) {
-                    context.contentResolver.openInputStream(it)?.use { stream ->
-                        BitmapFactory.decodeStream(stream)
-                    }
-                }
-                bitmap = decoded?.asImageBitmap()
+        errorMessage = null
+        coroutineScope.launch {
+            val decoded = withContext(Dispatchers.IO) {
+                decodeSampledBitmap(context, uri)
+            }
+            if (decoded != null) {
+                bitmap = decoded.asImageBitmap()
                 scale = 1f
                 offset = Offset.Zero
+            } else {
+                errorMessage = "Could not load selected image"
             }
         }
     }
@@ -80,53 +113,63 @@ fun PlaylistArtworkEditor(
                         IconButton(
                             onClick = {
                                 isSaving = true
+                                errorMessage = null
                                 coroutineScope.launch(Dispatchers.IO) {
-                                    val resultBitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
-                                    val canvas = android.graphics.Canvas(resultBitmap)
-                                    canvas.drawColor(android.graphics.Color.BLACK)
-                                    
-                                    val sourceBitmap = bitmap!!.asAndroidBitmap()
-                                    val boxSize = containerSize.width.toFloat()
-                                    if (boxSize > 0) {
-                                        val drawScale = 512f / boxSize
-                                        canvas.scale(drawScale, drawScale)
-                                        
-                                        val imageAspectRatio = sourceBitmap.width.toFloat() / sourceBitmap.height.toFloat()
-                                        val canvasAspectRatio = 1f
-                                        
-                                        var drawWidth = boxSize
-                                        var drawHeight = boxSize
-                                        var startX = 0f
-                                        var startY = 0f
-                                        
-                                        if (imageAspectRatio > canvasAspectRatio) {
-                                            drawHeight = boxSize
-                                            drawWidth = drawHeight * imageAspectRatio
-                                            startX = (boxSize - drawWidth) / 2f
-                                        } else {
-                                            drawWidth = boxSize
-                                            drawHeight = drawWidth / imageAspectRatio
-                                            startY = (boxSize - drawHeight) / 2f
+                                    try {
+                                        val resultBitmap = Bitmap.createBitmap(512, 512, Bitmap.Config.ARGB_8888)
+                                        val canvas = android.graphics.Canvas(resultBitmap)
+                                        canvas.drawColor(android.graphics.Color.BLACK)
+
+                                        val sourceBitmap = bitmap?.asAndroidBitmap()
+                                        val boxSize = containerSize.width.toFloat()
+                                        if (sourceBitmap != null && boxSize > 0) {
+                                            val drawScale = 512f / boxSize
+                                            canvas.scale(drawScale, drawScale)
+
+                                            val imageAspectRatio = sourceBitmap.width.toFloat() / sourceBitmap.height.toFloat()
+                                            val canvasAspectRatio = 1f
+
+                                            var drawWidth = boxSize
+                                            var drawHeight = boxSize
+                                            var startX = 0f
+                                            var startY = 0f
+
+                                            if (imageAspectRatio > canvasAspectRatio) {
+                                                drawHeight = boxSize
+                                                drawWidth = drawHeight * imageAspectRatio
+                                                startX = (boxSize - drawWidth) / 2f
+                                            } else {
+                                                drawWidth = boxSize
+                                                drawHeight = drawWidth / imageAspectRatio
+                                                startY = (boxSize - drawHeight) / 2f
+                                            }
+
+                                            canvas.translate(boxSize / 2f, boxSize / 2f)
+                                            canvas.scale(scale, scale)
+                                            canvas.translate(-boxSize / 2f + offset.x, -boxSize / 2f + offset.y)
+
+                                            val srcRect = android.graphics.Rect(0, 0, sourceBitmap.width, sourceBitmap.height)
+                                            val dstRect = android.graphics.RectF(startX, startY, startX + drawWidth, startY + drawHeight)
+                                            canvas.drawBitmap(sourceBitmap, srcRect, dstRect, null)
                                         }
-                                        
-                                        canvas.translate(boxSize / 2f, boxSize / 2f)
-                                        canvas.scale(scale, scale)
-                                        canvas.translate(-boxSize / 2f + offset.x, -boxSize / 2f + offset.y)
-                                        
-                                        val srcRect = android.graphics.Rect(0, 0, sourceBitmap.width, sourceBitmap.height)
-                                        val dstRect = android.graphics.RectF(startX, startY, startX + drawWidth, startY + drawHeight)
-                                        canvas.drawBitmap(sourceBitmap, srcRect, dstRect, null)
-                                    }
-                                    
-                                    val file = File(context.filesDir, "playlist_cover_${playlistId}_${System.currentTimeMillis()}.jpg")
-                                    FileOutputStream(file).use { out ->
-                                        resultBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
-                                    }
-                                    val uri = file.absolutePath
-                                    
-                                    withContext(Dispatchers.Main) {
-                                        isSaving = false
-                                        onSave("file://$uri")
+
+                                        val file = File(context.cacheDir, "playlist_cover_${playlistId}_${System.currentTimeMillis()}.jpg")
+                                        FileOutputStream(file).use { out ->
+                                            resultBitmap.compress(Bitmap.CompressFormat.JPEG, 90, out)
+                                            out.flush()
+                                        }
+                                        val uri = file.absolutePath
+
+                                        withContext(Dispatchers.Main) {
+                                            isSaving = false
+                                            onSave("file://$uri")
+                                        }
+                                    } catch (t: Throwable) {
+                                        Log.e("PlaylistArtworkEditor", "Failed to save cropped artwork", t)
+                                        withContext(Dispatchers.Main) {
+                                            isSaving = false
+                                            errorMessage = "Failed to process image: ${t.localizedMessage ?: "Unknown error"}"
+                                        }
                                     }
                                 }
                             },
@@ -163,15 +206,15 @@ fun PlaylistArtworkEditor(
                     Canvas(modifier = Modifier.fillMaxSize()) {
                         val canvasWidth = size.width
                         val canvasHeight = size.height
-                        
+
                         val imageAspectRatio = img.width.toFloat() / img.height.toFloat()
                         val viewAspectRatio = canvasWidth / canvasHeight
-                        
+
                         var drawWidth = canvasWidth
                         var drawHeight = canvasHeight
                         var startX = 0f
                         var startY = 0f
-                        
+
                         if (imageAspectRatio > viewAspectRatio) {
                             drawHeight = canvasHeight
                             drawWidth = drawHeight * imageAspectRatio
@@ -181,7 +224,7 @@ fun PlaylistArtworkEditor(
                             drawHeight = drawWidth / imageAspectRatio
                             startY = (canvasHeight - drawHeight) / 2f
                         }
-                        
+
                         withTransform({
                             translate(offset.x, offset.y)
                             scale(scale, scale, pivot = Offset(canvasWidth / 2f, canvasHeight / 2f))
@@ -196,7 +239,7 @@ fun PlaylistArtworkEditor(
                 } ?: run {
                     Text("No image selected", color = Color.White)
                 }
-                
+
                 // Crop overlay guides
                 Box(
                     modifier = Modifier
@@ -226,9 +269,18 @@ fun PlaylistArtworkEditor(
             if (bitmap != null) {
                 Text("Drag to reposition, pinch to zoom", style = MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
             }
+            if (errorMessage != null) {
+                Text(
+                    errorMessage!!,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(top = 8.dp, start = 16.dp, end = 16.dp)
+                )
+            }
             if (isSaving) {
                 CircularProgressIndicator(modifier = Modifier.padding(top = 16.dp))
             }
         }
     }
 }
+

@@ -73,18 +73,10 @@ interface YimlyApiService {
     @PUT("api/playlists/{id}")
     suspend fun updatePlaylist(@Path("id") id: String, @Body request: UpdatePlaylistRequest): Playlist
 
-    @retrofit2.http.Multipart
     @POST("api/playlists/{id}/cover")
     suspend fun uploadPlaylistCover(
         @Path("id") id: String,
-        @retrofit2.http.Part cover: okhttp3.MultipartBody.Part
-    ): Playlist
-
-    @retrofit2.http.Multipart
-    @POST("api/playlists/{id}/artwork")
-    suspend fun uploadPlaylistArtwork(
-        @Path("id") id: String,
-        @retrofit2.http.Part artwork: okhttp3.MultipartBody.Part
+        @Body coverBody: okhttp3.RequestBody
     ): Playlist
 
     @DELETE("api/playlists/{id}")

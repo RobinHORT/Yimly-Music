@@ -11,6 +11,7 @@ import com.example.data.models.Song
 @Entity(
     tableName = "songs",
     indices = [
+        Index("id", unique = true),
         Index("title"),
         Index("artist"),
         Index("album")
@@ -37,6 +38,9 @@ data class SongEntity(
     val year: Int? = null,
     val genre: String? = null,
     val hasLrc: Boolean = false,
+    val hasElrc: Boolean = false,
+    val lrcPath: String? = null,
+    val elrcPath: String? = null,
     val hasArtwork: Boolean = false,
     val lyricsText: String? = null,
     val isFavorite: Boolean = false,
@@ -44,7 +48,7 @@ data class SongEntity(
     val addedAt: Long = System.currentTimeMillis()
 ) {
     fun toSong(): Song = Song(
-        id = id,
+        id = id.trim(),
         title = title,
         artist = artist,
         album = album,
@@ -64,6 +68,9 @@ data class SongEntity(
         year = year,
         genre = genre,
         hasLrc = hasLrc,
+        hasElrc = hasElrc,
+        lrcPath = lrcPath,
+        elrcPath = elrcPath,
         hasArtwork = hasArtwork,
         lyricsText = lyricsText,
         isFavorite = isFavorite,
@@ -73,7 +80,7 @@ data class SongEntity(
 }
 
 fun Song.toEntity(): SongEntity = SongEntity(
-    id = id,
+    id = id.trim(),
     title = title,
     artist = artist,
     album = album,
@@ -92,7 +99,10 @@ fun Song.toEntity(): SongEntity = SongEntity(
     explicitAudioUrl = explicitAudioUrl ?: audioUrl,
     year = year,
     genre = genre,
-    hasLrc = hasLrc,
+    hasLrc = isLrcAvailable,
+    hasElrc = isElrcAvailable,
+    lrcPath = effectiveLrcPath,
+    elrcPath = effectiveElrcPath,
     hasArtwork = hasArtwork,
     lyricsText = lyricsText,
     isFavorite = isFavorite,
@@ -100,7 +110,28 @@ fun Song.toEntity(): SongEntity = SongEntity(
     addedAt = addedAt
 )
 
-@Entity(tableName = "albums")
+@Entity(
+    tableName = "lyric_resources",
+    primaryKeys = ["songId", "format"],
+    indices = [
+        Index("songId"),
+        Index("format")
+    ]
+)
+data class LyricResourceEntity(
+    val songId: String,
+    val format: String, // "LRC" or "ELRC"
+    val rawLyrics: String,
+    val filePath: String? = null,
+    val lastUpdated: Long = System.currentTimeMillis()
+)
+
+@Entity(
+    tableName = "albums",
+    indices = [
+        Index("id", unique = true)
+    ]
+)
 data class AlbumEntity(
     @PrimaryKey val id: String,
     val title: String,
@@ -112,7 +143,7 @@ data class AlbumEntity(
     val description: String?
 ) {
     fun toAlbum(): Album = Album(
-        id = id,
+        id = id.trim(),
         title = title,
         artist = artist,
         explicitArtworkUrl = artworkUrl,
@@ -124,17 +155,22 @@ data class AlbumEntity(
 }
 
 fun Album.toEntity(): AlbumEntity = AlbumEntity(
-    id = id,
+    id = id.trim(),
     title = title,
     artist = artist,
-    artworkUrl = artworkUrl,
+    artworkUrl = explicitArtworkUrl ?: artworkUrl,
     year = year,
     genre = genre,
     songCount = songCount,
     description = description
 )
 
-@Entity(tableName = "artists")
+@Entity(
+    tableName = "artists",
+    indices = [
+        Index("id", unique = true)
+    ]
+)
 data class ArtistEntity(
     @PrimaryKey val id: String,
     val name: String,
@@ -144,7 +180,7 @@ data class ArtistEntity(
     val songCount: Int
 ) {
     fun toArtist(): Artist = Artist(
-        id = id,
+        id = id.trim(),
         name = name,
         explicitAvatarUrl = avatarUrl,
         bio = bio,
@@ -154,15 +190,20 @@ data class ArtistEntity(
 }
 
 fun Artist.toEntity(): ArtistEntity = ArtistEntity(
-    id = id,
+    id = id.trim(),
     name = name,
-    avatarUrl = avatarUrl,
+    avatarUrl = explicitAvatarUrl ?: avatarUrl,
     bio = bio,
     monthlyListeners = monthlyListeners,
     songCount = songCount
 )
 
-@Entity(tableName = "playlists")
+@Entity(
+    tableName = "playlists",
+    indices = [
+        Index("id", unique = true)
+    ]
+)
 data class PlaylistEntity(
     @PrimaryKey val id: String,
     val name: String,

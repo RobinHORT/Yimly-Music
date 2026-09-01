@@ -40,15 +40,19 @@ interface MusicDao {
 
     @Transaction
     suspend fun upsertSongs(songs: List<SongEntity>) {
-        for (song in songs) {
-            val existing = getSongById(song.id)
+        val distinctSongs = songs.distinctBy { it.id.trim() }
+        for (song in distinctSongs) {
+            val cleanId = song.id.trim()
+            val existing = getSongById(cleanId)
             val finalSong = if (existing != null) {
                 song.copy(
+                    id = cleanId,
                     isFavorite = existing.isFavorite || song.isFavorite,
-                    addedAt = existing.addedAt
+                    addedAt = existing.addedAt,
+                    lyricOffset = song.lyricOffset ?: existing.lyricOffset
                 )
             } else {
-                song
+                song.copy(id = cleanId)
             }
             insertSong(finalSong)
         }
@@ -56,14 +60,17 @@ interface MusicDao {
 
     @Transaction
     suspend fun upsertSong(song: SongEntity) {
-        val existing = getSongById(song.id)
+        val cleanId = song.id.trim()
+        val existing = getSongById(cleanId)
         val finalSong = if (existing != null) {
             song.copy(
+                id = cleanId,
                 isFavorite = existing.isFavorite || song.isFavorite,
-                addedAt = existing.addedAt
+                addedAt = existing.addedAt,
+                lyricOffset = song.lyricOffset ?: existing.lyricOffset
             )
         } else {
-            song
+            song.copy(id = cleanId)
         }
         insertSong(finalSong)
     }
@@ -91,6 +98,9 @@ interface MusicDao {
     @Query("DELETE FROM songs WHERE id = :songId")
     suspend fun deleteSongById(songId: String)
 
+    @Query("DELETE FROM songs WHERE id NOT IN (:validIds)")
+    suspend fun deleteStaleSongs(validIds: List<String>)
+
     // Albums
     @Query("SELECT * FROM albums ORDER BY title ASC")
     fun getAllAlbums(): Flow<List<AlbumEntity>>
@@ -101,6 +111,9 @@ interface MusicDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAlbums(albums: List<AlbumEntity>)
 
+    @Query("DELETE FROM albums WHERE id NOT IN (:validIds)")
+    suspend fun deleteStaleAlbums(validIds: List<String>)
+
     // Artists
     @Query("SELECT * FROM artists ORDER BY name ASC")
     fun getAllArtists(): Flow<List<ArtistEntity>>
@@ -110,6 +123,9 @@ interface MusicDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertArtists(artists: List<ArtistEntity>)
+
+    @Query("DELETE FROM artists WHERE id NOT IN (:validIds)")
+    suspend fun deleteStaleArtists(validIds: List<String>)
 
     // Playlists
     @Query("SELECT * FROM playlists ORDER BY createdAt DESC")
@@ -178,4 +194,26 @@ interface MusicDao {
 
     @Query("DELETE FROM play_history")
     suspend fun clearHistory()
+
+    @Query("DELETE FROM playlist_songs WHERE songId NOT IN (SELECT id FROM songs)")
+    suspend fun cleanOrphanPlaylistSongs()
+
+    @Query("DELETE FROM play_history WHERE songId NOT IN (SELECT id FROM songs)")
+    suspend fun cleanOrphanPlayHistory()
+
+    // Lyric Resources (LRC & eLRC independent caches)
+    @Query("SELECT * FROM lyric_resources WHERE songId = :songId AND format = :format LIMIT 1")
+    suspend fun getLyricResource(songId: String, format: String): LyricResourceEntity?
+
+    @Query("SELECT * FROM lyric_resources WHERE songId = :songId")
+    suspend fun getAllLyricResourcesForSong(songId: String): List<LyricResourceEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertLyricResource(resource: LyricResourceEntity)
+
+    @Query("DELETE FROM lyric_resources WHERE songId = :songId AND format = :format")
+    suspend fun deleteLyricResource(songId: String, format: String)
+
+    @Query("DELETE FROM lyric_resources WHERE songId = :songId")
+    suspend fun deleteAllLyricResourcesForSong(songId: String)
 }

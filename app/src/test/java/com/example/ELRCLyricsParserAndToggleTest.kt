@@ -59,7 +59,7 @@ class ELRCLyricsParserAndToggleTest {
     }
 
     @Test
-    fun testParseStandardLRCWithDistributedWords() {
+    fun testParseStandardLRCWithoutFakeWords() {
         val standardLrc = """
             [00:05.00]First line of standard song
             [00:10.00]Second line of standard song
@@ -74,9 +74,7 @@ class ELRCLyricsParserAndToggleTest {
         val line1 = parsed.lines[0]
         assertEquals("First line of standard song", line1.text)
         assertFalse(line1.hasWordTimestamps)
-        assertEquals(5, line1.words.size)
-        assertEquals(5000L, line1.words.first().startTimeMs)
-        assertEquals(10000L, line1.words.last().endTimeMs)
+        assertTrue(line1.words.isEmpty()) // No fabricated fake word timestamps
     }
 
     @Test

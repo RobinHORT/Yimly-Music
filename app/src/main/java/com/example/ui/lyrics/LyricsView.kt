@@ -460,7 +460,7 @@ fun LyricsView(
                             LyricAlignment.END -> Alignment.CenterEnd
                         }
                     ) {
-                        if (isCurrent && config.formatMode == LyricsFormatMode.ELRC && line.words.isNotEmpty()) {
+                        if (isCurrent && config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
                             SynchronizedLyricContent(
                                 line = line,
                                 isCurrent = true,
@@ -507,7 +507,7 @@ fun SynchronizedLyricContent(
 ) {
     val adjustedPos = currentPositionMs + songOffsetMs
 
-    if (config.formatMode == LyricsFormatMode.ELRC && line.words.isNotEmpty()) {
+    if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
         // Word-level real-time synchronization (eLRC)
         val annotatedString = buildAnnotatedString {
             line.words.forEachIndexed { index, word ->

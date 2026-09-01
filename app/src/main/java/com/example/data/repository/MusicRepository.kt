@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.data.api.YimlyApiService
 import com.example.data.datastore.PreferencesManager
+import com.example.data.db.LyricResourceEntity
 import com.example.data.db.MusicDao
 import com.example.data.db.PlayHistoryEntity
 import com.example.data.db.PlaylistEntity
@@ -13,11 +14,13 @@ import com.example.data.models.Artist
 import com.example.data.models.Collaborator
 import com.example.data.models.CreatePlaylistRequest
 import com.example.data.models.LyricsData
+import com.example.data.models.LyricsFormatMode
 import com.example.data.models.Playlist
 import com.example.data.models.SearchResult
 import com.example.data.models.SharePlaylistRequest
 import com.example.data.models.Song
 import com.example.data.models.UpdatePlaylistRequest
+import com.example.lyrics.LyricsFormatUtils
 import com.example.lyrics.LyricsParser
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
@@ -45,7 +48,8 @@ data class ResolvedTrack(
 class MusicRepository(
     private val musicDao: MusicDao,
     private val apiService: YimlyApiService,
-    private val coroutineScope: CoroutineScope
+    private val coroutineScope: CoroutineScope,
+    private val context: android.content.Context? = null
 ) {
 
     init {
@@ -244,21 +248,48 @@ class MusicRepository(
 
     suspend fun updatePlaylistArtwork(playlistId: String, localUri: String?) = withContext(Dispatchers.IO) {
         if (!localUri.isNullOrBlank()) {
-            val filePath = if (localUri.startsWith("file://")) localUri.removePrefix("file://") else localUri
-            val file = java.io.File(filePath)
-            if (file.exists()) {
-                val requestFile = okhttp3.RequestBody.create("image/*".toMediaTypeOrNull(), file)
-                val body = okhttp3.MultipartBody.Part.createFormData("cover", file.name, requestFile)
-                val uploaded = try {
-                    apiService.uploadPlaylistCover(playlistId, body)
-                } catch (_: Exception) {
-                    val artworkBody = okhttp3.MultipartBody.Part.createFormData("artwork", file.name, requestFile)
-                    apiService.uploadPlaylistArtwork(playlistId, artworkBody)
+            val uriString = localUri.trim()
+            var imageBytes: ByteArray? = null
+            var mimeType = "image/jpeg"
+
+            if (uriString.startsWith("content://", ignoreCase = true) && context != null) {
+                try {
+                    val uri = android.net.Uri.parse(uriString)
+                    mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                } catch (e: Exception) {
+                    Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
                 }
+            } else {
+                val filePath = if (uriString.startsWith("file://", ignoreCase = true)) {
+                    uriString.removePrefix("file://")
+                } else {
+                    uriString
+                }
+                val file = java.io.File(filePath)
+                if (file.exists()) {
+                    imageBytes = file.readBytes()
+                    val isPng = file.extension.equals("png", ignoreCase = true)
+                    mimeType = if (isPng) "image/png" else "image/jpeg"
+                } else if (context != null && uriString.startsWith("content://", ignoreCase = true)) {
+                    try {
+                        val uri = android.net.Uri.parse(uriString)
+                        mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                        imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } catch (e: Exception) {
+                        Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
+                    }
+                }
+            }
+
+            if (imageBytes != null && imageBytes.isNotEmpty()) {
+                val mediaType = mimeType.toMediaTypeOrNull() ?: "image/jpeg".toMediaType()
+                val requestBody = okhttp3.RequestBody.create(mediaType, imageBytes)
+                val uploaded = apiService.uploadPlaylistCover(playlistId, requestBody)
                 val freshUploaded = uploaded.copy(createdAt = System.currentTimeMillis().toString())
                 musicDao.insertPlaylist(freshUploaded.toEntity())
             } else {
-                musicDao.updatePlaylistCoverUrl(playlistId, localUri)
+                throw java.io.IOException("Could not read image file or content URI: $localUri")
             }
         } else {
             // Even if localUri is blank (clearing cover), update timestamp
@@ -349,20 +380,87 @@ class MusicRepository(
         )
     }
 
-    suspend fun getLyricsForSong(song: Song): LyricsData = withContext(Dispatchers.IO) {
-        try {
-            val responseBody = apiService.getLyrics(song.id)
-            val lrcText = responseBody.string()
-            if (lrcText.isNotBlank()) {
-                val parsed = LyricsParser.parse(lrcText, song.id, song.durationMs)
-                if (parsed.lines.isNotEmpty()) {
-                    return@withContext parsed
-                }
+    suspend fun getLyricsForSong(
+        song: Song,
+        formatMode: LyricsFormatMode = LyricsFormatMode.ELRC
+    ): LyricsData = withContext(Dispatchers.IO) {
+        val cleanSongId = song.id.trim()
+        val cachedResource = musicDao.getLyricResource(cleanSongId, formatMode.name)
+        if (cachedResource != null && cachedResource.rawLyrics.isNotBlank()) {
+            val parsed = LyricsParser.parse(
+                rawText = cachedResource.rawLyrics,
+                songId = cleanSongId,
+                songDurationMs = song.durationMs,
+                mode = formatMode
+            )
+            if (parsed.lines.isNotEmpty()) {
+                return@withContext parsed
             }
-        } catch (_: Exception) {
-            // Fallback to local parsed lyrics
         }
-        LyricsParser.parse(song.lyricsText ?: "", song.id, song.durationMs)
+
+        // Fetch from API
+        var rawRemote: String? = null
+        try {
+            val responseBody = apiService.getLyrics(cleanSongId)
+            rawRemote = responseBody.string()
+        } catch (_: Exception) {
+            // Fallback
+        }
+
+        val rawTextToUse = if (!rawRemote.isNullOrBlank()) rawRemote else song.lyricsText
+
+        if (!rawTextToUse.isNullOrBlank()) {
+            val hasWordTags = LyricsFormatUtils.hasWordTimingTags(rawTextToUse)
+            val isElrc = hasWordTags || LyricsFormatUtils.isElrcFile(song.effectiveLrcPath)
+
+            // Cache separately for ELRC and LRC without overwriting each other
+            if (isElrc && hasWordTags) {
+                // Real eLRC available
+                musicDao.insertLyricResource(
+                    LyricResourceEntity(
+                        songId = cleanSongId,
+                        format = LyricsFormatMode.ELRC.name,
+                        rawLyrics = rawTextToUse,
+                        filePath = song.effectiveLrcPath
+                    )
+                )
+                // Clean standard LRC without word tags
+                val strippedLrc = LyricsFormatUtils.convertElrcToLrc(rawTextToUse)
+                musicDao.insertLyricResource(
+                    LyricResourceEntity(
+                        songId = cleanSongId,
+                        format = LyricsFormatMode.LRC.name,
+                        rawLyrics = strippedLrc,
+                        filePath = song.effectiveLrcPath
+                    )
+                )
+            } else {
+                // Only standard LRC available
+                musicDao.insertLyricResource(
+                    LyricResourceEntity(
+                        songId = cleanSongId,
+                        format = LyricsFormatMode.LRC.name,
+                        rawLyrics = rawTextToUse,
+                        filePath = song.effectiveLrcPath
+                    )
+                )
+            }
+
+            val parsed = LyricsParser.parse(
+                rawText = rawTextToUse,
+                songId = cleanSongId,
+                songDurationMs = song.durationMs,
+                mode = formatMode
+            )
+            return@withContext parsed
+        }
+
+        LyricsParser.parse(
+            rawText = "",
+            songId = cleanSongId,
+            songDurationMs = song.durationMs,
+            mode = formatMode
+        )
     }
 
     suspend fun getLyricsText(songId: String): String = withContext(Dispatchers.IO) {
@@ -413,6 +511,8 @@ class MusicRepository(
         try {
             apiService.deleteSong(songId)
             musicDao.deleteSongById(songId)
+            musicDao.cleanOrphanPlaylistSongs()
+            musicDao.cleanOrphanPlayHistory()
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -445,37 +545,62 @@ class MusicRepository(
             // 1. Fetch songs
             val remoteSongs = try {
                 apiService.getSongs()
-            } catch (_: Exception) {
-                emptyList()
+            } catch (e: Exception) {
+                // If fetching songs fails due to network error, do not clear local library
+                null
             }
 
-            if (remoteSongs.isNotEmpty()) {
-                musicDao.upsertSongs(remoteSongs.map { it.toEntity() })
-            }
+            if (remoteSongs != null) {
+                val cleanSongs = remoteSongs
+                    .filter { it.id.isNotBlank() }
+                    .distinctBy { it.id.trim() }
 
-            // 2. Fetch favorites from server (Single Source of Truth)
-            try {
-                val remoteFavorites = apiService.getFavorites()
-                val favIds = remoteFavorites.map { it.id }
-                if (remoteFavorites.isNotEmpty()) {
-                    musicDao.upsertSongs(remoteFavorites.map { it.toEntity().copy(isFavorite = true) })
+                if (cleanSongs.isNotEmpty()) {
+                    musicDao.upsertSongs(cleanSongs.map { it.toEntity() })
+                    val validIds = cleanSongs.map { it.id.trim() }
+                    musicDao.deleteStaleSongs(validIds)
+                    musicDao.cleanOrphanPlaylistSongs()
+                    musicDao.cleanOrphanPlayHistory()
+                } else {
+                    // Server explicitly returned empty list
+                    musicDao.deleteStaleSongs(emptyList())
+                    musicDao.cleanOrphanPlaylistSongs()
+                    musicDao.cleanOrphanPlayHistory()
                 }
-                musicDao.replaceFavorites(favIds)
-            } catch (_: Exception) {}
+            }
+
+            // 2. Fetch favorites from server if available
+            val remoteFavorites = try {
+                apiService.getFavorites()
+            } catch (_: Exception) {
+                null
+            }
+
+            if (!remoteFavorites.isNullOrEmpty()) {
+                val favIds = remoteFavorites.map { it.id.trim() }.filter { it.isNotBlank() }
+                if (favIds.isNotEmpty()) {
+                    musicDao.setFavorites(favIds)
+                }
+            }
 
             // 3. Sync albums
             val remoteAlbums = try {
                 apiService.getAlbums()
             } catch (_: Exception) {
-                emptyList()
+                null
             }
 
-            if (remoteAlbums.isNotEmpty()) {
-                musicDao.insertAlbums(remoteAlbums.map { it.toEntity() })
-            } else if (remoteSongs.isNotEmpty()) {
-                val derived = deriveAlbumsFromSongs(remoteSongs)
-                if (derived.isNotEmpty()) {
-                    musicDao.insertAlbums(derived.map { it.toEntity() })
+            if (remoteAlbums != null) {
+                val cleanAlbums = remoteAlbums.filter { it.id.isNotBlank() }.distinctBy { it.id.trim() }
+                if (cleanAlbums.isNotEmpty()) {
+                    musicDao.insertAlbums(cleanAlbums.map { it.toEntity() })
+                    musicDao.deleteStaleAlbums(cleanAlbums.map { it.id.trim() })
+                } else if (remoteSongs != null && remoteSongs.isNotEmpty()) {
+                    val derived = deriveAlbumsFromSongs(remoteSongs)
+                    if (derived.isNotEmpty()) {
+                        musicDao.insertAlbums(derived.map { it.toEntity() })
+                        musicDao.deleteStaleAlbums(derived.map { it.id.trim() })
+                    }
                 }
             }
 
@@ -483,15 +608,20 @@ class MusicRepository(
             val remoteArtists = try {
                 apiService.getArtists()
             } catch (_: Exception) {
-                emptyList()
+                null
             }
 
-            if (remoteArtists.isNotEmpty()) {
-                musicDao.insertArtists(remoteArtists.map { it.toEntity() })
-            } else if (remoteSongs.isNotEmpty()) {
-                val derived = deriveArtistsFromSongs(remoteSongs)
-                if (derived.isNotEmpty()) {
-                    musicDao.insertArtists(derived.map { it.toEntity() })
+            if (remoteArtists != null) {
+                val cleanArtists = remoteArtists.filter { it.id.isNotBlank() }.distinctBy { it.id.trim() }
+                if (cleanArtists.isNotEmpty()) {
+                    musicDao.insertArtists(cleanArtists.map { it.toEntity() })
+                    musicDao.deleteStaleArtists(cleanArtists.map { it.id.trim() })
+                } else if (remoteSongs != null && remoteSongs.isNotEmpty()) {
+                    val derived = deriveArtistsFromSongs(remoteSongs)
+                    if (derived.isNotEmpty()) {
+                        musicDao.insertArtists(derived.map { it.toEntity() })
+                        musicDao.deleteStaleArtists(derived.map { it.id.trim() })
+                    }
                 }
             }
 
@@ -499,23 +629,23 @@ class MusicRepository(
             val remotePlaylists = try {
                 apiService.getPlaylists()
             } catch (_: Exception) {
-                emptyList()
+                null
             }
 
-            if (remotePlaylists.isNotEmpty()) {
-                val validIds = remotePlaylists.map { it.id }
+            if (remotePlaylists != null) {
+                val validIds = remotePlaylists.map { it.id.trim() }.filter { it.isNotBlank() }
                 musicDao.deleteStalePlaylists(validIds)
                 for (pl in remotePlaylists) {
-                    val localPl = musicDao.getPlaylistById(pl.id)
+                    val localPl = musicDao.getPlaylistById(pl.id.trim())
                     val finalCover = pl.coverUrl ?: localPl?.coverUrl
-                    val plToInsert = pl.copy(rawCoverUrl = finalCover)
+                    val plToInsert = pl.copy(id = pl.id.trim(), rawCoverUrl = finalCover)
                     musicDao.insertPlaylist(plToInsert.toEntity())
                     if (pl.songs.isNotEmpty()) {
-                        musicDao.syncPlaylistSongs(pl.id, pl.songs.map { it.toEntity() })
+                        musicDao.syncPlaylistSongs(pl.id.trim(), pl.songs.map { it.toEntity() })
                     } else {
                         try {
-                            val plSongs = apiService.getPlaylistSongs(pl.id)
-                            musicDao.syncPlaylistSongs(pl.id, plSongs.map { it.toEntity() })
+                            val plSongs = apiService.getPlaylistSongs(pl.id.trim())
+                            musicDao.syncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
                         } catch (_: Exception) {}
                     }
                 }
