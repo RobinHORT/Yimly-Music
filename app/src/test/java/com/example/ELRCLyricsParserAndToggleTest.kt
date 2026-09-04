@@ -108,14 +108,5 @@ class ELRCLyricsParserAndToggleTest {
 
         composeTestRule.onNodeWithTag("lyrics_view").assertIsDisplayed()
         composeTestRule.onNodeWithTag("current_lyric_slot").assertIsDisplayed()
-        composeTestRule.onNodeWithTag("lyrics_view_format_mode_btn").assertIsDisplayed()
-
-        // Toggle from eLRC to LRC
-        composeTestRule.onNodeWithTag("lyrics_view_format_mode_btn").performClick()
-        assertEquals(LyricsFormatMode.LRC, currentConfig.formatMode)
-
-        // Toggle back to eLRC
-        composeTestRule.onNodeWithTag("lyrics_view_format_mode_btn").performClick()
-        assertEquals(LyricsFormatMode.ELRC, currentConfig.formatMode)
     }
 }

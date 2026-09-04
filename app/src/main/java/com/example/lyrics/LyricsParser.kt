@@ -195,8 +195,7 @@ object LyricsParser {
         val matches = INLINE_WORD_TAG_REGEX.findAll(rawContent).toList()
 
         if (matches.isNotEmpty()) {
-            val words = mutableListOf<LyricWord>()
-            val parsedTags = mutableListOf<Pair<Long, Int>>() // timestamp, matchIndex
+            val rawTags = mutableListOf<Pair<Long, Int>>() // timestamp, matchIndex
 
             for (match in matches) {
                 val min = match.groupValues.getOrNull(1)?.toLongOrNull() ?: 0L
@@ -209,12 +208,22 @@ object LyricsParser {
                     else -> fracStr.take(3).toLong()
                 }
                 val wordTimeMs = (min * 60 * 1000) + (sec * 1000) + millis + offsetMs
-                parsedTags.add(Pair(wordTimeMs, match.range.last + 1))
+                rawTags.add(Pair(wordTimeMs, match.range.last + 1))
             }
 
-            for (i in parsedTags.indices) {
-                val (wordStartMs, startIndex) = parsedTags[i]
-                val nextTag = parsedTags.getOrNull(i + 1)
+            // Enforce monotonic start times
+            val monotonicTags = mutableListOf<Pair<Long, Int>>()
+            var runningMaxTime = lineStartMs
+            for (tag in rawTags) {
+                val safeStart = maxOf(tag.first, runningMaxTime)
+                monotonicTags.add(Pair(safeStart, tag.second))
+                runningMaxTime = safeStart
+            }
+
+            val words = mutableListOf<LyricWord>()
+            for (i in monotonicTags.indices) {
+                val (wordStartMs, startIndex) = monotonicTags[i]
+                val nextTag = monotonicTags.getOrNull(i + 1)
                 val rawWordSnippet = if (nextTag != null) {
                     val nextMatchStart = matches[i + 1].range.first
                     if (nextMatchStart > startIndex) {
@@ -227,11 +236,26 @@ object LyricsParser {
                 }
 
                 val cleanWord = rawWordSnippet.replace(Regex("[<\\(].*?[>\\)]"), "").trim()
-                val nextStart = nextTag?.first ?: lineEndMs
-                val wordEndMs = if (nextStart > wordStartMs) nextStart else (wordStartMs + 600L)
+                val nextStart = nextTag?.first
+                val wordEndMs = when {
+                    nextStart != null -> {
+                        // Word end is strictly bounded by next word's start time
+                        maxOf(wordStartMs, nextStart)
+                    }
+                    else -> {
+                        // Final word in the line: bounded by lineEndMs if >= wordStartMs, else wordStartMs
+                        if (lineEndMs >= wordStartMs) lineEndMs else wordStartMs
+                    }
+                }
 
                 if (cleanWord.isNotBlank()) {
-                    words.add(LyricWord(word = cleanWord, startTimeMs = wordStartMs, endTimeMs = wordEndMs))
+                    words.add(
+                        LyricWord(
+                            word = cleanWord,
+                            startTimeMs = wordStartMs,
+                            endTimeMs = maxOf(wordStartMs, wordEndMs)
+                        )
+                    )
                 }
             }
 
@@ -252,6 +276,7 @@ object LyricsParser {
      * - previousLine
      * - currentLine
      * - nextLine
+     * Optimized with O(log N) binary search on sorted lyric lines.
      */
     fun findActiveLyricSlots(
         lines: List<LyricLine>,
@@ -268,30 +293,35 @@ object LyricsParser {
         }
 
         val adjustedPos = currentPositionMs + manualOffsetMs
-        var activeIndex = -1
 
-        for (i in lines.indices) {
-            val line = lines[i]
-            if (adjustedPos >= line.timeMs) {
-                val nextLineTime = lines.getOrNull(i + 1)?.timeMs ?: Long.MAX_VALUE
-                if (adjustedPos < nextLineTime) {
-                    activeIndex = i
-                    break
-                }
-                activeIndex = i
-            } else if (i == 0 && adjustedPos < line.timeMs) {
-                // Before first line
-                return LyricSlotState(
-                    currentIndex = -1,
-                    previousLine = null,
-                    currentLine = null,
-                    nextLine = lines.firstOrNull()
-                )
+        // If before the first line
+        if (adjustedPos < lines.first().timeMs) {
+            return LyricSlotState(
+                currentIndex = -1,
+                previousLine = null,
+                currentLine = null,
+                nextLine = lines.firstOrNull()
+            )
+        }
+
+        // Binary search for the active line index: largest index i such that lines[i].timeMs <= adjustedPos
+        val binarySearchIndex = lines.binarySearchBy(adjustedPos) { it.timeMs }
+        val activeIndex = if (binarySearchIndex >= 0) {
+            // Exact match: if multiple lines share identical timeMs, take the last one
+            var lastMatch = binarySearchIndex
+            while (lastMatch + 1 < lines.size && lines[lastMatch + 1].timeMs == adjustedPos) {
+                lastMatch++
             }
+            lastMatch
+        } else {
+            // Insertion point is the first element > adjustedPos.
+            // Inverted index is (-binarySearchIndex - 1). Active line is insertionPoint - 1.
+            val insertionPoint = -binarySearchIndex - 1
+            insertionPoint - 1
         }
 
         val prev = if (activeIndex > 0) lines.getOrNull(activeIndex - 1) else null
-        val current = if (activeIndex >= 0) lines.getOrNull(activeIndex) else null
+        val current = if (activeIndex in lines.indices) lines.getOrNull(activeIndex) else null
         val next = if (activeIndex >= 0) lines.getOrNull(activeIndex + 1) else lines.firstOrNull()
 
         return LyricSlotState(

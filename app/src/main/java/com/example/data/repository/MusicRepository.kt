@@ -411,7 +411,9 @@ class MusicRepository(
 
         if (!rawTextToUse.isNullOrBlank()) {
             val hasWordTags = LyricsFormatUtils.hasWordTimingTags(rawTextToUse)
-            val isElrc = hasWordTags || LyricsFormatUtils.isElrcFile(song.effectiveLrcPath)
+            val isElrc = hasWordTags ||
+                LyricsFormatUtils.isElrcFile(song.effectiveElrcPath) ||
+                LyricsFormatUtils.isElrcFile(song.effectiveLrcPath)
 
             // Cache separately for ELRC and LRC without overwriting each other
             if (isElrc && hasWordTags) {
@@ -421,7 +423,7 @@ class MusicRepository(
                         songId = cleanSongId,
                         format = LyricsFormatMode.ELRC.name,
                         rawLyrics = rawTextToUse,
-                        filePath = song.effectiveLrcPath
+                        filePath = song.effectiveElrcPath ?: song.effectiveLrcPath
                     )
                 )
                 // Clean standard LRC without word tags
@@ -431,7 +433,7 @@ class MusicRepository(
                         songId = cleanSongId,
                         format = LyricsFormatMode.LRC.name,
                         rawLyrics = strippedLrc,
-                        filePath = song.effectiveLrcPath
+                        filePath = song.effectiveLrcPath ?: song.effectiveElrcPath
                     )
                 )
             } else {

@@ -9,6 +9,7 @@ import com.example.data.models.Artist
 import com.example.data.models.AuthState
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsFormatMode
 import com.example.data.models.Playlist
 import com.example.data.models.SearchResult
 import com.example.data.models.Song
@@ -97,6 +98,11 @@ class MainViewModel(
 
     // Playback
     val playbackInfo: StateFlow<PlaybackInfo> = playbackManager.playbackInfo
+    val lyricsPositionMs: StateFlow<Long> = playbackManager.lyricsPositionMs
+
+    fun setLyricsActive(active: Boolean) {
+        playbackManager.setLyricsActive(active)
+    }
 
     // Lyrics State
     private val _currentLyricsData = MutableStateFlow<LyricsData?>(null)
@@ -121,6 +127,9 @@ class MainViewModel(
 
 
 
+    private val songLrcOffsets = mutableMapOf<String, Long>()
+    private val songElrcOffsets = mutableMapOf<String, Long>()
+
     init {
         // Observe current playing song and formatMode to load appropriate lyrics resource
         viewModelScope.launch {
@@ -135,8 +144,12 @@ class MainViewModel(
                 if (song != null) {
                     lyricsJob = launch {
                         _currentLyricsData.value = musicRepository.getLyricsForSong(song, mode)
-                        val offset = musicRepository.getLyricsOffset(song.id)
-                        _currentSongOffset.value = offset ?: song.lyricOffset ?: 0L
+                        if (mode == LyricsFormatMode.ELRC) {
+                            _currentSongOffset.value = songElrcOffsets[song.id] ?: 0L
+                        } else {
+                            val offset = musicRepository.getLyricsOffset(song.id)
+                            _currentSongOffset.value = songLrcOffsets[song.id] ?: (offset ?: song.lyricOffset ?: 0L)
+                        }
                     }
                 } else {
                     _currentLyricsData.value = null
@@ -462,11 +475,18 @@ class MainViewModel(
 
     fun setLyricsOffset(offsetMs: Long) {
         val songId = playbackInfo.value.currentSong?.id ?: return
-        _currentSongOffset.value = offsetMs
-        val isAdmin = userProfile.value?.isAdmin == true || userProfile.value?.role == "admin"
-        if (isAdmin) {
-            viewModelScope.launch {
-                musicRepository.updateLyricsOffset(songId, offsetMs)
+        val mode = lyricsConfig.value.formatMode
+        if (mode == LyricsFormatMode.ELRC) {
+            songElrcOffsets[songId] = offsetMs
+            _currentSongOffset.value = offsetMs
+        } else {
+            songLrcOffsets[songId] = offsetMs
+            _currentSongOffset.value = offsetMs
+            val isAdmin = userProfile.value?.isAdmin == true || userProfile.value?.role == "admin"
+            if (isAdmin) {
+                viewModelScope.launch {
+                    musicRepository.updateLyricsOffset(songId, offsetMs)
+                }
             }
         }
     }

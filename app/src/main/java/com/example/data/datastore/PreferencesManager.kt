@@ -55,6 +55,9 @@ class PreferencesManager(private val context: Context) {
         private val KEY_LYRICS_ANIM_DURATION = intPreferencesKey("lyrics_anim_duration")
         private val KEY_LYRICS_OVERLAY = booleanPreferencesKey("lyrics_overlay")
         private val KEY_LYRICS_MANUAL_OFFSET = longPreferencesKey("lyrics_manual_offset")
+        private val KEY_LYRICS_LRC_OFFSET = longPreferencesKey("lyrics_lrc_offset")
+        private val KEY_LYRICS_ELRC_OFFSET = longPreferencesKey("lyrics_elrc_offset")
+        private val KEY_LYRICS_ELRC_HIGHLIGHT_MODE = stringPreferencesKey("lyrics_elrc_highlight_mode")
 
         const val DEFAULT_SERVER_URL = "https://yimly.robinhort.link"
     }
@@ -145,7 +148,10 @@ class PreferencesManager(private val context: Context) {
             otherLineFontSizeSp = prefs[KEY_LYRICS_OTHER_FONT_SIZE] ?: 15f,
             otherLinesOpacity = prefs[KEY_LYRICS_OTHER_OPACITY] ?: 0.35f,
             lyricsOverlay = prefs[KEY_LYRICS_OVERLAY] ?: false,
-            manualOffsetMs = prefs[KEY_LYRICS_MANUAL_OFFSET] ?: 0L
+            manualOffsetMs = prefs[KEY_LYRICS_MANUAL_OFFSET] ?: 0L,
+            lrcOffsetMs = prefs[KEY_LYRICS_LRC_OFFSET] ?: (prefs[KEY_LYRICS_MANUAL_OFFSET] ?: 0L),
+            elrcOffsetMs = prefs[KEY_LYRICS_ELRC_OFFSET] ?: 0L,
+            elrcHighlightMode = prefs[KEY_LYRICS_ELRC_HIGHLIGHT_MODE] ?: com.example.data.models.ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING
         )
     }
 
@@ -251,6 +257,9 @@ class PreferencesManager(private val context: Context) {
             prefs[KEY_LYRICS_OTHER_OPACITY] = config.otherLinesOpacity
             prefs[KEY_LYRICS_OVERLAY] = config.lyricsOverlay
             prefs[KEY_LYRICS_MANUAL_OFFSET] = config.manualOffsetMs
+            prefs[KEY_LYRICS_LRC_OFFSET] = config.lrcOffsetMs
+            prefs[KEY_LYRICS_ELRC_OFFSET] = config.elrcOffsetMs
+            prefs[KEY_LYRICS_ELRC_HIGHLIGHT_MODE] = config.elrcHighlightMode
         }
     }
 

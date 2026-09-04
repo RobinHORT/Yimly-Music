@@ -107,7 +107,7 @@ fun LyricsSettingsDialog(
 
     // 6. Other state
     var lyricsOverlay by remember { mutableStateOf(initialConfig.lyricsOverlay) }
-    var manualOffset by remember { mutableLongStateOf(initialConfig.manualOffsetMs) }
+    var manualOffset by remember { mutableLongStateOf(initialConfig.effectiveFormatManualOffsetMs) }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -617,7 +617,9 @@ fun LyricsSettingsDialog(
                                 otherLineFontSizeSp = otherSize,
                                 otherLinesOpacity = otherOpacity,
                                 lyricsOverlay = lyricsOverlay,
-                                manualOffsetMs = manualOffset
+                                manualOffsetMs = manualOffset,
+                                lrcOffsetMs = if (formatMode == LyricsFormatMode.LRC) manualOffset else initialConfig.lrcOffsetMs,
+                                elrcOffsetMs = if (formatMode == LyricsFormatMode.ELRC) manualOffset else initialConfig.elrcOffsetMs
                             )
                             onSaveConfig(updated)
                             onDismiss()

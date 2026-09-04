@@ -60,6 +60,12 @@ class PlaybackManager(
     val mediaSession: MediaSession? get() = _mediaSession
     private var progressJob: Job? = null
 
+    // High-frequency position tracking for active lyrics screen
+    private val _lyricsPositionMs = MutableStateFlow(0L)
+    val lyricsPositionMs: StateFlow<Long> = _lyricsPositionMs.asStateFlow()
+    private var lyricsTrackerJob: Job? = null
+    private var isLyricsActive: Boolean = false
+
     private var originalQueue: List<Song> = emptyList()
     private var currentQueue: List<Song> = emptyList()
     private var currentIndex: Int = 0
@@ -131,7 +137,7 @@ class PlaybackManager(
 
         val renderersFactory = androidx.media3.exoplayer.DefaultRenderersFactory(context)
             .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
-            .setEnableAudioTrackPlaybackParams(true)
+            .setEnableDecoderFallback(true)
 
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
@@ -278,6 +284,42 @@ class PlaybackManager(
     private fun stopProgressTracker() {
         progressJob?.cancel()
         progressJob = null
+    }
+
+    fun setLyricsActive(active: Boolean) {
+        if (isLyricsActive == active) return
+        isLyricsActive = active
+        if (active) {
+            val currentPos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackInfo.value.currentPositionMs
+            _lyricsPositionMs.value = currentPos
+            startLyricsTracker()
+        } else {
+            stopLyricsTracker()
+        }
+    }
+
+    private fun startLyricsTracker() {
+        lyricsTrackerJob?.cancel()
+        lyricsTrackerJob = coroutineScope.launch(Dispatchers.Main) {
+            while (isActive) {
+                val pos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackInfo.value.currentPositionMs
+                _lyricsPositionMs.value = pos
+                if (_playbackInfo.value.isPlaying) {
+                    delay(16) // ~60 updates per second for fluid 60 FPS Progressive Sweeping
+                } else {
+                    delay(200) // Lower frequency while paused to save CPU/battery
+                }
+            }
+        }
+    }
+
+    fun getCurrentContinuousPositionMs(): Long {
+        return exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _lyricsPositionMs.value
+    }
+
+    private fun stopLyricsTracker() {
+        lyricsTrackerJob?.cancel()
+        lyricsTrackerJob = null
     }
 
     fun playSong(song: Song, playlist: List<Song> = listOf(song), startIndex: Int = -1) {
@@ -552,6 +594,7 @@ class PlaybackManager(
 
     fun seekTo(positionMs: Long) {
         exoPlayer?.seekTo(positionMs)
+        _lyricsPositionMs.value = positionMs
         updatePlaybackState { it.copy(currentPositionMs = positionMs) }
     }
 
@@ -785,6 +828,7 @@ class PlaybackManager(
 
     fun release() {
         stopProgressTracker()
+        stopLyricsTracker()
         try {
             _mediaSession?.run {
                 player.release()

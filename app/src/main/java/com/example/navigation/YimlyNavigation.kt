@@ -82,6 +82,7 @@ fun YimlyNavigation(
     val currentLyricsData by viewModel.currentLyricsData.collectAsState()
     val currentSongOffset by viewModel.currentSongOffset.collectAsState()
     val lyricsConfig by viewModel.lyricsConfig.collectAsState()
+    val lyricsPositionMs by viewModel.lyricsPositionMs.collectAsState()
 
     val allSongs by viewModel.allSongs.collectAsState()
     val recentlyAdded by viewModel.recentlyAddedSongs.collectAsState()
@@ -466,6 +467,8 @@ fun YimlyNavigation(
                 lyricsData = currentLyricsData,
                 songOffsetMs = currentSongOffset,
                 lyricsConfig = lyricsConfig,
+                lyricsPositionMs = lyricsPositionMs,
+                onSetLyricsActive = { active -> viewModel.setLyricsActive(active) },
                 onCollapse = { isPlayerExpanded = false },
                 onTogglePlayPause = { viewModel.togglePlayPause() },
                 onNext = { viewModel.next() },

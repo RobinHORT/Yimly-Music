@@ -56,6 +56,8 @@ import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -116,6 +118,8 @@ fun FullPlayerScreen(
     onClearQueue: () -> Unit,
     onPlayQueueItem: (Int) -> Unit,
     onAddToPlaylist: (Song) -> Unit = {},
+    lyricsPositionMs: Long = 0L,
+    onSetLyricsActive: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val song = playbackInfo.currentSong ?: return
@@ -123,6 +127,16 @@ fun FullPlayerScreen(
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Player, 1 = Lyrics, 2 = Queue
     var showLyricsSettings by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedTab) {
+        onSetLyricsActive(selectedTab == 1)
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            onSetLyricsActive(false)
+        }
+    }
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPositionMs by remember { mutableFloatStateOf(0f) }
@@ -401,9 +415,17 @@ fun FullPlayerScreen(
                     }
                 } else if (selectedTab == 1) {
                     // Synced Lyrics View
+                    val lyricsPos = if (isUserSeeking) {
+                        seekPositionMs.toLong()
+                    } else if (lyricsPositionMs > 0L) {
+                        lyricsPositionMs
+                    } else {
+                        currentPos
+                    }
                     LyricsView(
                         lyricsData = lyricsData,
-                        currentPositionMs = currentPos,
+                        currentPositionMs = lyricsPos,
+                        isPlaying = playbackInfo.isPlaying,
                         songOffsetMs = songOffsetMs,
                         config = lyricsConfig,
                         onSeekTo = onSeekTo,

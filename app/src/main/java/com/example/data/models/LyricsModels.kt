@@ -82,9 +82,12 @@ fun formatLyricText(text: String, textCase: LyricTextCase): String = when (textC
     LyricTextCase.TITLE_CASE -> toTitleCase(text)
 }
 
+const val ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING = "progressive_sweeping"
+
 data class LyricsDisplayConfig(
     // Lyrics Format Mode (eLRC: Word-level sync vs LRC: Line-level sync)
     val formatMode: LyricsFormatMode = LyricsFormatMode.ELRC,
+    val elrcHighlightMode: String = ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING,
 
     // Lyrics Display
     val visibleLines: Int = 3,
@@ -111,5 +114,13 @@ data class LyricsDisplayConfig(
 
     // Other
     val lyricsOverlay: Boolean = false,
-    val manualOffsetMs: Long = 0L
-)
+    val manualOffsetMs: Long = 0L,
+    val lrcOffsetMs: Long = 0L,
+    val elrcOffsetMs: Long = 0L
+) {
+    val effectiveFormatManualOffsetMs: Long
+        get() = when (formatMode) {
+            LyricsFormatMode.ELRC -> if (elrcOffsetMs != 0L) elrcOffsetMs else manualOffsetMs
+            LyricsFormatMode.LRC -> if (lrcOffsetMs != 0L) lrcOffsetMs else manualOffsetMs
+        }
+}
