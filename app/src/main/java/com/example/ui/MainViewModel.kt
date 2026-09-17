@@ -120,7 +120,7 @@ class MainViewModel(
             if (q.isBlank()) {
                 flowOf(SearchResult())
             } else {
-                flowOf(musicRepository.search(q))
+                musicRepository.searchFlow(q)
             }
         }
         .stateIn(viewModelScope, SharingStarted.Lazily, SearchResult())
@@ -473,6 +473,8 @@ class MainViewModel(
         }
     }
 
+    private var offsetUpdateJob: kotlinx.coroutines.Job? = null
+
     fun setLyricsOffset(offsetMs: Long) {
         val songId = playbackInfo.value.currentSong?.id ?: return
         val mode = lyricsConfig.value.formatMode
@@ -484,7 +486,8 @@ class MainViewModel(
             _currentSongOffset.value = offsetMs
             val isAdmin = userProfile.value?.isAdmin == true || userProfile.value?.role == "admin"
             if (isAdmin) {
-                viewModelScope.launch {
+                offsetUpdateJob?.cancel()
+                offsetUpdateJob = viewModelScope.launch {
                     musicRepository.updateLyricsOffset(songId, offsetMs)
                 }
             }

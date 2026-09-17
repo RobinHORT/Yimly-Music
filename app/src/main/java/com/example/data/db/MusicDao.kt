@@ -32,6 +32,9 @@ interface MusicDao {
     @Query("SELECT * FROM songs WHERE LOWER(artist) LIKE '%' || LOWER(TRIM(:artistName)) || '%' ORDER BY title ASC")
     fun getSongsByArtist(artistName: String): Flow<List<SongEntity>>
 
+    @Query("SELECT * FROM songs WHERE LOWER(title) LIKE '%' || LOWER(:query) || '%' OR LOWER(artist) LIKE '%' || LOWER(:query) || '%' OR LOWER(album) LIKE '%' || LOWER(:query) || '%' ORDER BY title ASC")
+    suspend fun searchSongs(query: String): List<SongEntity>
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertSongs(songs: List<SongEntity>)
 

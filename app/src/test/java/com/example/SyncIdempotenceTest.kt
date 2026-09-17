@@ -283,7 +283,7 @@ class SyncIdempotenceTest {
             return mapOf("success" to true)
         }
 
-        override suspend fun getSongs(query: String?): List<Song> {
+        override suspend fun getSongs(query: String?, page: Int?, limit: Int?): List<Song> {
             if (shouldFail) throw IOException("Network unreachable")
             return songs
         }

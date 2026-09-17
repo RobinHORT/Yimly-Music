@@ -45,8 +45,8 @@ import androidx.media3.common.util.UnstableApi
 
 @OptIn(UnstableApi::class)
 class PlaybackManager(
-    private val context: Context,
-    private val musicRepository: MusicRepository,
+    internal val context: Context,
+    internal val musicRepository: MusicRepository,
     private val preferencesManager: PreferencesManager,
     private val coroutineScope: CoroutineScope
 ) {
@@ -56,8 +56,8 @@ class PlaybackManager(
 
     private var exoPlayer: ExoPlayer? = null
     val player: Player? get() = exoPlayer
-    private var _mediaSession: MediaSession? = null
-    val mediaSession: MediaSession? get() = _mediaSession
+    private var _mediaSession: androidx.media3.session.MediaLibraryService.MediaLibrarySession? = null
+    val mediaSession: androidx.media3.session.MediaLibraryService.MediaLibrarySession? get() = _mediaSession
     private var progressJob: Job? = null
 
     // High-frequency position tracking for active lyrics screen
@@ -78,7 +78,16 @@ class PlaybackManager(
     private var cachedToken: String? = null
     private var cachedServerUrl: String = PreferencesManager.DEFAULT_SERVER_URL
 
+    private var isWaitingForNetworkRecovery = false
+    private var savedPlaybackPositionMs = 0L
+    private var isNetworkMonitoringRegistered = false
+    private var connectivityManager: android.net.ConnectivityManager? = null
+    private var networkCallback: android.net.ConnectivityManager.NetworkCallback? = null
+    private var recoveryAttemptCount = 0
+    private var recoveryJob: Job? = null
+
     init {
+        connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
         coroutineScope.launch {
             preferencesManager.authTokenFlow.collect { token ->
                 cachedToken = token
@@ -139,8 +148,19 @@ class PlaybackManager(
             .setExtensionRendererMode(androidx.media3.exoplayer.DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF)
             .setEnableDecoderFallback(true)
 
+        val loadControl = androidx.media3.exoplayer.DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 60000,
+                /* maxBufferMs = */ 120000,
+                /* bufferForPlaybackMs = */ 3000,
+                /* bufferForPlaybackAfterRebufferMs = */ 5000
+            )
+            .setPrioritizeTimeOverSizeThresholds(true)
+            .build()
+
         val player = ExoPlayer.Builder(context, renderersFactory)
             .setMediaSourceFactory(mediaSourceFactory)
+            .setLoadControl(loadControl)
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -205,19 +225,48 @@ class PlaybackManager(
             val forwardingPlayer = YimlyForwardingPlayer(player, this)
             val sessionCallback = YimlySessionCallback(this)
             val sessionId = "yimly_media_session_${System.identityHashCode(this)}_${System.currentTimeMillis()}"
-            _mediaSession = MediaSession.Builder(context, forwardingPlayer)
+            _mediaSession = androidx.media3.session.MediaLibraryService.MediaLibrarySession.Builder(context, forwardingPlayer, sessionCallback)
                 .setId(sessionId)
-                .setCallback(sessionCallback)
                 .setSessionActivity(sessionActivityPendingIntent)
                 .build()
         } catch (e: Exception) {
             Log.w("PlaybackManager", "Failed to initialize MediaSession: ${e.message}", e)
             e.printStackTrace()
         }
+        registerNetworkMonitoring()
     }
 
     internal fun handlePlayerError(error: PlaybackException) {
         Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
+        
+        val currentPos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackInfo.value.currentPositionMs
+        savedPlaybackPositionMs = currentPos
+
+        val isInstrumentalMissingError = _playbackInfo.value.isInstrumental && (
+                error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+                error.message?.contains("404") == true ||
+                error.message?.contains("Not Found") == true
+        )
+
+        val isNetworkError = !isInstrumentalMissingError && (
+                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_UNSPECIFIED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND ||
+                error.message?.contains("Unable to connect") == true ||
+                error.message?.contains("404") == true ||
+                error.message?.contains("500") == true
+        )
+
+        if (isNetworkError) {
+            Log.i("PlaybackManager", "Network/Server error detected. Initiating background recovery. Saved position: $savedPlaybackPositionMs")
+            isWaitingForNetworkRecovery = true
+            updatePlaybackState { it.copy(isBuffering = true, isPlaying = true) }
+            performRecoveryAttempt()
+            return
+        }
+
         if (_playbackInfo.value.isInstrumental) {
             val currentSong = _playbackInfo.value.currentSong
             if (currentSong != null) {
@@ -268,7 +317,11 @@ class PlaybackManager(
         progressJob?.cancel()
         progressJob = coroutineScope.launch(Dispatchers.Main) {
             while (isActive) {
-                val pos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                val pos = if (isWaitingForNetworkRecovery) {
+                    savedPlaybackPositionMs
+                } else {
+                    exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
+                }
                 val dur = exoPlayer?.duration?.takeIf { it > 0 } ?: (_playbackInfo.value.currentSong?.durationMs ?: 0L)
                 updatePlaybackState {
                     it.copy(
@@ -302,7 +355,11 @@ class PlaybackManager(
         lyricsTrackerJob?.cancel()
         lyricsTrackerJob = coroutineScope.launch(Dispatchers.Main) {
             while (isActive) {
-                val pos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackInfo.value.currentPositionMs
+                val pos = if (isWaitingForNetworkRecovery) {
+                    savedPlaybackPositionMs
+                } else {
+                    exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackInfo.value.currentPositionMs
+                }
                 _lyricsPositionMs.value = pos
                 if (_playbackInfo.value.isPlaying) {
                     delay(16) // ~60 updates per second for fluid 60 FPS Progressive Sweeping
@@ -323,6 +380,9 @@ class PlaybackManager(
     }
 
     fun playSong(song: Song, playlist: List<Song> = listOf(song), startIndex: Int = -1) {
+        isWaitingForNetworkRecovery = false
+        recoveryJob?.cancel()
+        recoveryAttemptCount = 0
         originalQueue = playlist
         val isShuffle = _playbackInfo.value.isShuffle
 
@@ -354,7 +414,7 @@ class PlaybackManager(
         playCurrentQueueIndex()
     }
 
-    private fun getResolvedArtworkUrl(song: Song): String? {
+    internal fun getResolvedArtworkUrl(song: Song): String? {
         val direct = song.explicitArtworkUrl ?: song.artworkPath ?: song.albumArtworkPath
         if (!direct.isNullOrBlank()) {
             return if (direct.startsWith("http")) direct else "${cachedServerUrl.trimEnd('/')}${if (direct.startsWith("/")) "" else "/"}$direct"
@@ -401,6 +461,10 @@ class PlaybackManager(
 
     private fun playCurrentQueueIndex() {
         if (currentQueue.isEmpty() || currentIndex !in currentQueue.indices) return
+
+        isWaitingForNetworkRecovery = false
+        recoveryJob?.cancel()
+        recoveryAttemptCount = 0
 
         val song = currentQueue[currentIndex]
         val player = exoPlayer ?: return
@@ -460,6 +524,40 @@ class PlaybackManager(
 
         coroutineScope.launch {
             musicRepository.recordPlayHistory(song.id)
+        }
+    }
+
+    fun playSongFromAuto(songId: String, type: String, playlistId: String?) {
+        coroutineScope.launch(Dispatchers.IO) {
+            val song = musicRepository.getSongById(songId) ?: return@launch
+            
+            val playlistSongs = when (type) {
+                "playlist_song" -> {
+                    if (playlistId != null) {
+                        musicRepository.getSongsForPlaylist(playlistId).firstOrNull() ?: listOf(song)
+                    } else {
+                        listOf(song)
+                    }
+                }
+                "favorite_song" -> {
+                    musicRepository.favoriteSongs.firstOrNull() ?: listOf(song)
+                }
+                "recent_song" -> {
+                    musicRepository.recentlyPlayedSongs.firstOrNull() ?: listOf(song)
+                }
+                "all_song" -> {
+                    musicRepository.allSongs.firstOrNull() ?: listOf(song)
+                }
+                else -> {
+                    listOf(song)
+                }
+            }
+            
+            val startIndex = playlistSongs.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+            
+            withContext(Dispatchers.Main) {
+                playSong(song, playlistSongs, startIndex)
+            }
         }
     }
 
@@ -575,6 +673,8 @@ class PlaybackManager(
     }
 
     fun pause() {
+        isWaitingForNetworkRecovery = false
+        recoveryJob?.cancel()
         exoPlayer?.pause()
     }
 
@@ -827,6 +927,8 @@ class PlaybackManager(
     }
 
     fun release() {
+        unregisterNetworkMonitoring()
+        recoveryJob?.cancel()
         stopProgressTracker()
         stopLyricsTracker()
         try {
@@ -838,5 +940,121 @@ class PlaybackManager(
         } catch (_: Exception) {}
         exoPlayer?.release()
         exoPlayer = null
+    }
+
+    private fun registerNetworkMonitoring() {
+        if (isNetworkMonitoringRegistered) return
+        val cm = connectivityManager ?: return
+        try {
+            val builder = android.net.NetworkRequest.Builder()
+                .addCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            val callback = object : android.net.ConnectivityManager.NetworkCallback() {
+                override fun onAvailable(network: android.net.Network) {
+                    Log.i("PlaybackManager", "Network connection returned. Triggering recovery if needed.")
+                    coroutineScope.launch(Dispatchers.Main) {
+                        handleNetworkReturned()
+                    }
+                }
+            }
+            cm.registerNetworkCallback(builder.build(), callback)
+            networkCallback = callback
+            isNetworkMonitoringRegistered = true
+        } catch (e: Exception) {
+            Log.w("PlaybackManager", "Failed to register network callback: ${e.message}")
+        }
+    }
+
+    private fun unregisterNetworkMonitoring() {
+        if (!isNetworkMonitoringRegistered) return
+        val cm = connectivityManager ?: return
+        val callback = networkCallback ?: return
+        try {
+            cm.unregisterNetworkCallback(callback)
+        } catch (_: Exception) {}
+        networkCallback = null
+        isNetworkMonitoringRegistered = false
+    }
+
+    private fun handleNetworkReturned() {
+        if (isWaitingForNetworkRecovery) {
+            Log.i("PlaybackManager", "Network connection restored. Forcing immediate recovery attempt.")
+            recoveryJob?.cancel()
+            recoveryAttemptCount = 0
+            performRecoveryAttemptImmediate()
+        }
+    }
+
+    private fun performRecoveryAttemptImmediate() {
+        coroutineScope.launch(Dispatchers.Main) {
+            val player = exoPlayer ?: return@launch
+            val currentMediaItem = player.currentMediaItem
+            val song = _playbackInfo.value.currentSong
+            if (song == null || currentMediaItem == null || !isWaitingForNetworkRecovery) return@launch
+
+            try {
+                Log.i("PlaybackManager", "Immediate recovery triggered at position $savedPlaybackPositionMs")
+                player.setMediaItem(currentMediaItem, savedPlaybackPositionMs)
+                player.prepare()
+                player.play()
+                isWaitingForNetworkRecovery = false
+                recoveryAttemptCount = 0
+                updatePlaybackState { it.copy(isBuffering = false) }
+            } catch (e: Exception) {
+                Log.e("PlaybackManager", "Immediate recovery failed, falling back to backoff: ${e.message}")
+                recoveryAttemptCount++
+                performRecoveryAttempt()
+            }
+        }
+    }
+
+    private fun performRecoveryAttempt() {
+        recoveryJob?.cancel()
+        recoveryJob = coroutineScope.launch(Dispatchers.Main) {
+            val currentMediaItem = exoPlayer?.currentMediaItem
+            val song = _playbackInfo.value.currentSong
+            if (song == null || currentMediaItem == null) {
+                isWaitingForNetworkRecovery = false
+                return@launch
+            }
+
+            // Exponential backoff: 2s, 4s, 8s, up to 16s
+            val backoffMs = (Math.pow(2.0, recoveryAttemptCount.toDouble()) * 1000).toLong().coerceAtMost(16000L)
+            Log.i("PlaybackManager", "Retrying playback recovery (attempt #${recoveryAttemptCount + 1}) in ${backoffMs}ms")
+            delay(backoffMs)
+
+            if (!isWaitingForNetworkRecovery) return@launch
+
+            val cm = connectivityManager
+            val isNetworkUp = if (cm != null) {
+                val activeNetwork = cm.activeNetwork
+                val capabilities = cm.getNetworkCapabilities(activeNetwork)
+                capabilities?.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) == true
+            } else {
+                true
+            }
+
+            if (!isNetworkUp) {
+                Log.d("PlaybackManager", "Network is still down. Rescheduling recovery.")
+                recoveryAttemptCount++
+                performRecoveryAttempt()
+                return@launch
+            }
+
+            try {
+                Log.i("PlaybackManager", "Network is up. Re-preparing ExoPlayer at position $savedPlaybackPositionMs")
+                exoPlayer?.let { player ->
+                    player.setMediaItem(currentMediaItem, savedPlaybackPositionMs)
+                    player.prepare()
+                    player.play()
+                }
+                recoveryAttemptCount = 0
+                isWaitingForNetworkRecovery = false
+                updatePlaybackState { it.copy(isBuffering = false) }
+            } catch (e: Exception) {
+                Log.e("PlaybackManager", "Recovery prepare failed: ${e.message}")
+                recoveryAttemptCount++
+                performRecoveryAttempt()
+            }
+        }
     }
 }

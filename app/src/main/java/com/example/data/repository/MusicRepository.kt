@@ -49,12 +49,15 @@ class MusicRepository(
     private val musicDao: MusicDao,
     private val apiService: YimlyApiService,
     private val coroutineScope: CoroutineScope,
-    private val context: android.content.Context? = null
+    private val context: android.content.Context? = null,
+    private val preferencesManager: PreferencesManager? = null
 ) {
 
     init {
-        coroutineScope.launch(Dispatchers.IO) {
-            syncWithBackend()
+        if (preferencesManager != null) {
+            coroutineScope.launch(Dispatchers.IO) {
+                syncWithBackend()
+            }
         }
     }
 
@@ -353,31 +356,38 @@ class MusicRepository(
         } catch (_: Exception) {}
     }
 
-    suspend fun search(query: String): SearchResult = withContext(Dispatchers.IO) {
-        try {
-            val apiRes = apiService.search(query)
-            if (apiRes.songs.isNotEmpty() || apiRes.artists.isNotEmpty() || apiRes.albums.isNotEmpty()) {
-                apiRes
-            } else {
-                fallbackLocalSearch(query)
-            }
-        } catch (_: Exception) {
-            fallbackLocalSearch(query)
+    fun searchFlow(query: String): Flow<SearchResult> {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return kotlinx.coroutines.flow.flowOf(SearchResult())
+
+        return combine(
+            rawAllSongs,
+            allAlbums,
+            allArtists,
+            allPlaylists
+        ) { songs, albums, artists, playlists ->
+            val matchingSongs = songs.filter { SearchUtils.matchesSong(it, cleanQuery) }
+                .sortedBy { it.title.lowercase() }
+            val matchingArtists = artists.filter { SearchUtils.matchesArtist(it, cleanQuery) }
+                .sortedBy { it.name.lowercase() }
+            val matchingAlbums = albums.filter { SearchUtils.matchesAlbum(it, cleanQuery) }
+                .sortedBy { it.title.lowercase() }
+            val matchingPlaylists = playlists.filter { SearchUtils.matchesPlaylist(it, cleanQuery) }
+                .sortedBy { it.name.lowercase() }
+
+            SearchResult(
+                songs = matchingSongs,
+                artists = matchingArtists,
+                albums = matchingAlbums,
+                playlists = matchingPlaylists
+            )
         }
     }
 
-    private suspend fun fallbackLocalSearch(query: String): SearchResult {
-        val allSongsList = allSongs.firstOrNull() ?: emptyList()
-        val allArtistsList = allArtists.firstOrNull() ?: emptyList()
-        val allAlbumsList = allAlbums.firstOrNull() ?: emptyList()
-        val allPlaylistsList = allPlaylists.firstOrNull() ?: emptyList()
+    suspend fun search(query: String): SearchResult = searchFlow(query).firstOrNull() ?: SearchResult()
 
-        return SearchResult(
-            songs = allSongsList.filter { SearchUtils.matchesSong(it, query) },
-            artists = allArtistsList.filter { SearchUtils.matchesArtist(it, query) },
-            albums = allAlbumsList.filter { SearchUtils.matchesAlbum(it, query) },
-            playlists = allPlaylistsList.filter { SearchUtils.matchesPlaylist(it, query) }
-        )
+    private suspend fun fallbackLocalSearch(query: String): SearchResult {
+        return search(query)
     }
 
     suspend fun getLyricsForSong(
@@ -542,15 +552,66 @@ class MusicRepository(
         }
     }
 
-    suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            // 1. Fetch songs
-            val remoteSongs = try {
-                apiService.getSongs()
+    private suspend fun fetchAllRemoteSongs(): Pair<List<Song>?, Boolean> {
+        val accumulatedSongs = mutableListOf<Song>()
+        val seenIds = mutableSetOf<String>()
+        var currentPage = 1
+        val pageSize = 100
+        val maxPages = 1000
+        var isComplete = true
+
+        while (currentPage <= maxPages) {
+            val pageSongs = try {
+                apiService.getSongs(page = currentPage, limit = pageSize)
             } catch (e: Exception) {
-                // If fetching songs fails due to network error, do not clear local library
-                null
+                if (e is retrofit2.HttpException && e.code() == 401) {
+                    Log.w("MusicRepository", "Unauthorized request (HTTP 401) on page $currentPage. Token is likely expired or invalid.")
+                } else {
+                    Log.e("MusicRepository", "Failed to fetch songs page $currentPage: ${e.message}")
+                }
+                if (currentPage == 1) {
+                    return Pair(null, false)
+                } else {
+                    isComplete = false
+                    break
+                }
             }
+
+            if (pageSongs.isEmpty()) {
+                break
+            }
+
+            var newItemsCount = 0
+            for (song in pageSongs) {
+                if (song.id.isNotBlank() && seenIds.add(song.id.trim())) {
+                    accumulatedSongs.add(song)
+                    newItemsCount++
+                }
+            }
+
+            if (newItemsCount == 0) {
+                break
+            }
+
+            if (pageSongs.size < pageSize) {
+                break
+            }
+
+            currentPage++
+        }
+
+        return Pair(accumulatedSongs, isComplete)
+    }
+
+    suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
+        val token = preferencesManager?.authTokenFlow?.firstOrNull()
+        if (preferencesManager != null && token.isNullOrBlank()) {
+            Log.i("MusicRepository", "Skipping backend sync because user is not authenticated.")
+            return@withContext Result.success(Unit)
+        }
+        try {
+            // 1. Fetch songs with pagination
+            val (remoteSongs, isCompleteSync) = fetchAllRemoteSongs()
 
             if (remoteSongs != null) {
                 val cleanSongs = remoteSongs
@@ -559,12 +620,14 @@ class MusicRepository(
 
                 if (cleanSongs.isNotEmpty()) {
                     musicDao.upsertSongs(cleanSongs.map { it.toEntity() })
-                    val validIds = cleanSongs.map { it.id.trim() }
-                    musicDao.deleteStaleSongs(validIds)
-                    musicDao.cleanOrphanPlaylistSongs()
-                    musicDao.cleanOrphanPlayHistory()
-                } else {
-                    // Server explicitly returned empty list
+                    if (isCompleteSync) {
+                        val validIds = cleanSongs.map { it.id.trim() }
+                        musicDao.deleteStaleSongs(validIds)
+                        musicDao.cleanOrphanPlaylistSongs()
+                        musicDao.cleanOrphanPlayHistory()
+                    }
+                } else if (isCompleteSync) {
+                    // Server explicitly returned empty list and sync was complete
                     musicDao.deleteStaleSongs(emptyList())
                     musicDao.cleanOrphanPlaylistSongs()
                     musicDao.cleanOrphanPlayHistory()

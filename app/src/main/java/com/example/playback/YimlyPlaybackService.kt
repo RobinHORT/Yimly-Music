@@ -8,12 +8,13 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import com.example.R
 import com.example.YimlyApplication
 
 @UnstableApi
-class YimlyPlaybackService : MediaSessionService() {
+class YimlyPlaybackService : MediaLibraryService() {
 
     companion object {
         const val CHANNEL_ID = "yimly_playback_channel"
@@ -46,7 +47,7 @@ class YimlyPlaybackService : MediaSessionService() {
         return super.onStartCommand(intent, flags, startId)
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? {
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
         val app = application as? YimlyApplication
         return app?.playbackManager?.mediaSession
     }
