@@ -1,6 +1,7 @@
 package com.example.data.models
 
 import com.example.data.datastore.PreferencesManager
+import com.example.data.datastore.ServerUrlConfig
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
 
@@ -49,7 +50,7 @@ data class Song(
     val artworkUrl: String?
         get() {
             if (!explicitArtworkUrl.isNullOrBlank()) return explicitArtworkUrl
-            return "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/$id/artwork"
+            return "${ServerUrlConfig.activeServerUrl}/api/songs/$id/artwork"
         }
 
     val effectiveMainAudioPath: String?
@@ -81,8 +82,8 @@ data class Song(
         get() {
             if (!explicitAudioUrl.isNullOrBlank()) return explicitAudioUrl
             return effectiveMainAudioPath?.let {
-                if (it.startsWith("http")) it else "${PreferencesManager.DEFAULT_SERVER_URL}$it"
-            } ?: "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/$id/audio?type=main"
+                if (it.startsWith("http")) it else "${ServerUrlConfig.activeServerUrl}$it"
+            } ?: "${ServerUrlConfig.activeServerUrl}/api/songs/$id/audio?type=main"
         }
 
     val directInstrumentalAudioUrl: String?
@@ -91,10 +92,10 @@ data class Song(
             if (!direct.isNullOrBlank()) return direct
             val path = effectiveInstrumentalAudioPath
             if (!path.isNullOrBlank()) {
-                return if (path.startsWith("http")) path else "${PreferencesManager.DEFAULT_SERVER_URL}$path"
+                return if (path.startsWith("http")) path else "${ServerUrlConfig.activeServerUrl}$path"
             }
             if (hasInstrumentalEffective) {
-                return "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/$id/audio?type=instrumental"
+                return "${ServerUrlConfig.activeServerUrl}/api/songs/$id/audio?type=instrumental"
             }
             return null
         }
@@ -163,7 +164,7 @@ data class Album(
     val artworkUrl: String?
         get() {
             if (!explicitArtworkUrl.isNullOrBlank()) return explicitArtworkUrl
-            return "${PreferencesManager.DEFAULT_SERVER_URL}/api/albums/$id/artwork"
+            return "${ServerUrlConfig.activeServerUrl}/api/albums/$id/artwork"
         }
 }
 
@@ -180,7 +181,7 @@ data class Artist(
     val avatarUrl: String?
         get() {
             if (!explicitAvatarUrl.isNullOrBlank()) return explicitAvatarUrl
-            return "${PreferencesManager.DEFAULT_SERVER_URL}/api/artists/$id/artwork"
+            return "${ServerUrlConfig.activeServerUrl}/api/artists/$id/artwork"
         }
 }
 

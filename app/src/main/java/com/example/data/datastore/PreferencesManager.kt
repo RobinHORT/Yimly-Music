@@ -63,7 +63,9 @@ class PreferencesManager(private val context: Context) {
     }
 
     val serverUrlFlow: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[KEY_SERVER_URL] ?: DEFAULT_SERVER_URL
+        val url = preferences[KEY_SERVER_URL] ?: DEFAULT_SERVER_URL
+        ServerUrlConfig.activeServerUrl = url
+        url
     }
 
     val authTokenFlow: Flow<String?> = context.dataStore.data.map { preferences ->
@@ -272,4 +274,9 @@ class PreferencesManager(private val context: Context) {
     }
 
     suspend fun setLyricsManualOffset(offsetMs: Long) = updateLyricsOffset(offsetMs)
+}
+
+object ServerUrlConfig {
+    @Volatile
+    var activeServerUrl: String = PreferencesManager.DEFAULT_SERVER_URL
 }

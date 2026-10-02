@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.data.api.YimlyApiService
 import com.example.data.datastore.PreferencesManager
+import com.example.data.datastore.ServerUrlConfig
 import com.example.data.db.LyricResourceEntity
 import com.example.data.db.MusicDao
 import com.example.data.db.PlayHistoryEntity
@@ -28,6 +29,8 @@ import retrofit2.HttpException
 import android.util.Log
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
@@ -35,6 +38,15 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+
+private data class SyncBatch(
+    val remoteSongs: List<Song>?,
+    val isCompleteSync: Boolean,
+    val remoteFavorites: List<Song>?,
+    val remoteAlbums: List<Album>?,
+    val remoteArtists: List<Artist>?,
+    val remotePlaylists: List<Playlist>?
+)
 
 data class ResolvedTrack(
     val song: Song,
@@ -52,6 +64,28 @@ class MusicRepository(
     private val context: android.content.Context? = null,
     private val preferencesManager: PreferencesManager? = null
 ) {
+
+    private val playlistLastSyncTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun isPlaylistFresh(playlistId: String): Boolean {
+        val lastSync = playlistLastSyncTimes[playlistId.trim()] ?: return false
+        return (System.currentTimeMillis() - lastSync) < PLAYLIST_FRESHNESS_WINDOW_MS
+    }
+
+    fun markPlaylistSynced(playlistId: String, timestamp: Long = System.currentTimeMillis()) {
+        val trimmed = playlistId.trim()
+        if (trimmed.isNotBlank()) {
+            playlistLastSyncTimes[trimmed] = timestamp
+        }
+    }
+
+    fun clearPlaylistSyncCache(playlistId: String? = null) {
+        if (playlistId != null) {
+            playlistLastSyncTimes.remove(playlistId.trim())
+        } else {
+            playlistLastSyncTimes.clear()
+        }
+    }
 
     init {
         if (preferencesManager != null) {
@@ -146,7 +180,7 @@ class MusicRepository(
         if (!direct.isNullOrBlank()) return@withContext direct
 
         if (song.hasInstrumental) {
-            return@withContext "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/${song.id}/audio?type=instrumental"
+            return@withContext "${ServerUrlConfig.activeServerUrl}/api/songs/${song.id}/audio?type=instrumental"
         }
 
         val allSongsList = rawAllSongs.firstOrNull() ?: emptyList()
@@ -160,11 +194,11 @@ class MusicRepository(
             return@withContext matchingInst.audioUrl
         }
 
-        "${PreferencesManager.DEFAULT_SERVER_URL}/api/songs/${song.id}/audio?type=instrumental"
+        "${ServerUrlConfig.activeServerUrl}/api/songs/${song.id}/audio?type=instrumental"
     }
 
     suspend fun resolvePlayableTrack(song: Song, wantInstrumental: Boolean): ResolvedTrack = withContext(Dispatchers.IO) {
-        val baseUrl = PreferencesManager.DEFAULT_SERVER_URL.trimEnd('/')
+        val baseUrl = ServerUrlConfig.activeServerUrl.trimEnd('/')
         val isDirectInst = song.isInstrumentalTrack
 
         val normalUrl = if (isDirectInst) {
@@ -188,7 +222,7 @@ class MusicRepository(
             normalUrl = normalUrl,
             instrumentalUrl = instUrl,
             playableUrl = playableUrl,
-            hasInstrumental = true,
+            hasInstrumental = song.hasInstrumentalEffective,
             isInstrumentalActive = wantInstrumental
         )
     }
@@ -247,6 +281,7 @@ class MusicRepository(
         apiService.deletePlaylist(playlistId)
         musicDao.deletePlaylist(playlistId)
         musicDao.clearPlaylistSongs(playlistId)
+        clearPlaylistSyncCache(playlistId)
     }
 
     suspend fun updatePlaylistArtwork(playlistId: String, localUri: String?) = withContext(Dispatchers.IO) {
@@ -317,13 +352,13 @@ class MusicRepository(
 
     suspend fun addSongToPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
         apiService.addSongToPlaylist(playlistId, AddPlaylistSongRequest(songId = songId))
-        refreshPlaylistDetail(playlistId)
+        refreshPlaylistDetail(playlistId, force = true)
     }
 
     suspend fun removeSongFromPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
         apiService.removeSongFromPlaylist(playlistId, songId)
         musicDao.removeSongFromPlaylist(playlistId, songId)
-        refreshPlaylistDetail(playlistId)
+        refreshPlaylistDetail(playlistId, force = true)
     }
 
     suspend fun sharePlaylist(playlistId: String, username: String, permission: String) = withContext(Dispatchers.IO) {
@@ -342,18 +377,39 @@ class MusicRepository(
         }
     }
 
-    suspend fun refreshPlaylistDetail(playlistId: String) = withContext(Dispatchers.IO) {
+    suspend fun refreshPlaylistDetail(playlistId: String, force: Boolean = false) = withContext(Dispatchers.IO) {
+        val trimmedId = playlistId.trim()
+        if (trimmedId.isBlank()) return@withContext
+
+        if (!force && isPlaylistFresh(trimmedId)) {
+            val localPl = musicDao.getPlaylistById(trimmedId)
+            if (localPl != null) {
+                return@withContext
+            }
+        }
+
         try {
-            val remotePlaylist = apiService.getPlaylistById(playlistId)
-            val songs = if (remotePlaylist.songs.isNotEmpty()) remotePlaylist.songs else try { apiService.getPlaylistSongs(playlistId) } catch (_: Exception) { emptyList() }
-            
+            val remotePlaylist = apiService.getPlaylistById(trimmedId)
+            val songs = if (remotePlaylist.songs.isNotEmpty()) {
+                remotePlaylist.songs
+            } else {
+                apiService.getPlaylistSongs(trimmedId)
+            }
+
             // The getPlaylistById response might not include songCount, so we derive it from the fetched songs array
-            val localPl = musicDao.getPlaylistById(playlistId)
+            val localPl = musicDao.getPlaylistById(trimmedId)
             val finalCover = remotePlaylist.coverUrl ?: localPl?.coverUrl
-            val playlistWithCorrectCount = remotePlaylist.copy(songCount = songs.size, rawCoverUrl = finalCover)
+            val playlistWithCorrectCount = remotePlaylist.copy(
+                id = trimmedId,
+                songCount = songs.size,
+                rawCoverUrl = finalCover
+            )
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
-            musicDao.syncPlaylistSongs(playlistId, songs.map { it.toEntity() })
-        } catch (_: Exception) {}
+            musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
+            markPlaylistSynced(trimmedId)
+        } catch (_: Exception) {
+            // Failed refresh must not destroy valid existing cached playlist data
+        }
     }
 
     fun searchFlow(query: String): Flow<SearchResult> {
@@ -610,9 +666,50 @@ class MusicRepository(
             return@withContext Result.success(Unit)
         }
         try {
-            // 1. Fetch songs with pagination
-            val (remoteSongs, isCompleteSync) = fetchAllRemoteSongs()
+            // Concurrent execution of independent network requests using structured concurrency
+            val (remoteSongs, isCompleteSync, remoteFavorites, remoteAlbums, remoteArtists, remotePlaylists) = coroutineScope {
+                val songsDeferred = async { fetchAllRemoteSongs() }
+                val favoritesDeferred = async {
+                    try {
+                        apiService.getFavorites()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                val albumsDeferred = async {
+                    try {
+                        apiService.getAlbums()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                val artistsDeferred = async {
+                    try {
+                        apiService.getArtists()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                val playlistsDeferred = async {
+                    try {
+                        apiService.getPlaylists()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
 
+                val songsResult = songsDeferred.await()
+                SyncBatch(
+                    remoteSongs = songsResult.first,
+                    isCompleteSync = songsResult.second,
+                    remoteFavorites = favoritesDeferred.await(),
+                    remoteAlbums = albumsDeferred.await(),
+                    remoteArtists = artistsDeferred.await(),
+                    remotePlaylists = playlistsDeferred.await()
+                )
+            }
+
+            // 1. Process and persist songs
             if (remoteSongs != null) {
                 val cleanSongs = remoteSongs
                     .filter { it.id.isNotBlank() }
@@ -634,13 +731,7 @@ class MusicRepository(
                 }
             }
 
-            // 2. Fetch favorites from server if available
-            val remoteFavorites = try {
-                apiService.getFavorites()
-            } catch (_: Exception) {
-                null
-            }
-
+            // 2. Process and persist favorites
             if (!remoteFavorites.isNullOrEmpty()) {
                 val favIds = remoteFavorites.map { it.id.trim() }.filter { it.isNotBlank() }
                 if (favIds.isNotEmpty()) {
@@ -648,13 +739,7 @@ class MusicRepository(
                 }
             }
 
-            // 3. Sync albums
-            val remoteAlbums = try {
-                apiService.getAlbums()
-            } catch (_: Exception) {
-                null
-            }
-
+            // 3. Process and persist albums
             if (remoteAlbums != null) {
                 val cleanAlbums = remoteAlbums.filter { it.id.isNotBlank() }.distinctBy { it.id.trim() }
                 if (cleanAlbums.isNotEmpty()) {
@@ -669,13 +754,7 @@ class MusicRepository(
                 }
             }
 
-            // 4. Sync artists
-            val remoteArtists = try {
-                apiService.getArtists()
-            } catch (_: Exception) {
-                null
-            }
-
+            // 4. Process and persist artists
             if (remoteArtists != null) {
                 val cleanArtists = remoteArtists.filter { it.id.isNotBlank() }.distinctBy { it.id.trim() }
                 if (cleanArtists.isNotEmpty()) {
@@ -690,13 +769,7 @@ class MusicRepository(
                 }
             }
 
-            // 5. Sync playlists from server (Single Source of Truth)
-            val remotePlaylists = try {
-                apiService.getPlaylists()
-            } catch (_: Exception) {
-                null
-            }
-
+            // 5. Process and persist playlists (dependency on getPlaylists strictly preserved)
             if (remotePlaylists != null) {
                 val validIds = remotePlaylists.map { it.id.trim() }.filter { it.isNotBlank() }
                 musicDao.deleteStalePlaylists(validIds)
@@ -707,10 +780,12 @@ class MusicRepository(
                     musicDao.insertPlaylist(plToInsert.toEntity())
                     if (pl.songs.isNotEmpty()) {
                         musicDao.syncPlaylistSongs(pl.id.trim(), pl.songs.map { it.toEntity() })
+                        markPlaylistSynced(pl.id.trim())
                     } else {
                         try {
                             val plSongs = apiService.getPlaylistSongs(pl.id.trim())
                             musicDao.syncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
+                            markPlaylistSynced(pl.id.trim())
                         } catch (_: Exception) {}
                     }
                 }
@@ -722,7 +797,22 @@ class MusicRepository(
         }
     }
 
+    suspend fun clearLocalCache() = withContext(Dispatchers.IO) {
+        try {
+            musicDao.deleteStaleSongs(emptyList())
+            musicDao.deleteStaleAlbums(emptyList())
+            musicDao.deleteStaleArtists(emptyList())
+            musicDao.deleteStalePlaylists(emptyList())
+            musicDao.clearAllFavorites()
+            musicDao.clearHistory()
+        } catch (e: Exception) {
+            Log.e("MusicRepository", "Failed to clear local DB cache on logout: ${e.message}", e)
+        }
+    }
+
     companion object {
+        const val PLAYLIST_FRESHNESS_WINDOW_MS = 5 * 60 * 1000L // 5 minutes
+
         fun parseArtists(rawArtist: String): Set<String> {
             if (rawArtist.isBlank()) return emptySet()
             return rawArtist

@@ -47,18 +47,37 @@ import androidx.media3.common.util.UnstableApi
 class PlaybackManager(
     internal val context: Context,
     internal val musicRepository: MusicRepository,
-    private val preferencesManager: PreferencesManager,
-    private val coroutineScope: CoroutineScope
+    internal val preferencesManager: PreferencesManager,
+    internal val coroutineScope: CoroutineScope
 ) {
 
     private val _playbackInfo = MutableStateFlow(PlaybackInfo())
     val playbackInfo: StateFlow<PlaybackInfo> = _playbackInfo.asStateFlow()
 
+    private val _playbackPositionMs = MutableStateFlow(0L)
+    val playbackPositionMs: StateFlow<Long> = _playbackPositionMs.asStateFlow()
+
     private var exoPlayer: ExoPlayer? = null
     val player: Player? get() = exoPlayer
     private var _mediaSession: androidx.media3.session.MediaLibraryService.MediaLibrarySession? = null
-    val mediaSession: androidx.media3.session.MediaLibraryService.MediaLibrarySession? get() = _mediaSession
+    val mediaSession: androidx.media3.session.MediaLibraryService.MediaLibrarySession?
+        get() {
+            if (_mediaSession == null) {
+                ensurePlayerInitialized()
+            }
+            return _mediaSession
+        }
     private var progressJob: Job? = null
+
+    val isPlayerInitialized: Boolean
+        get() = exoPlayer != null
+
+    @Synchronized
+    internal fun ensurePlayerInitialized(): ExoPlayer {
+        exoPlayer?.let { return it }
+        initPlayer()
+        return exoPlayer ?: throw IllegalStateException("Failed to initialize ExoPlayer")
+    }
 
     // High-frequency position tracking for active lyrics screen
     private val _lyricsPositionMs = MutableStateFlow(0L)
@@ -98,7 +117,6 @@ class PlaybackManager(
                 cachedServerUrl = url ?: PreferencesManager.DEFAULT_SERVER_URL
             }
         }
-        initPlayer()
     }
 
     private fun initPlayer() {
@@ -159,6 +177,7 @@ class PlaybackManager(
             .build()
 
         val player = ExoPlayer.Builder(context, renderersFactory)
+            .setLooper(context.mainLooper)
             .setMediaSourceFactory(mediaSourceFactory)
             .setLoadControl(loadControl)
             .setAudioAttributes(
@@ -172,6 +191,13 @@ class PlaybackManager(
             .setWakeMode(C.WAKE_MODE_LOCAL)
             .setUsePlatformDiagnostics(false)
             .build()
+
+        player.shuffleModeEnabled = _playbackInfo.value.isShuffle
+        player.repeatMode = when (_playbackInfo.value.repeatMode) {
+            RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+            RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+            RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+        }
 
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -323,11 +349,9 @@ class PlaybackManager(
                     exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: 0L
                 }
                 val dur = exoPlayer?.duration?.takeIf { it > 0 } ?: (_playbackInfo.value.currentSong?.durationMs ?: 0L)
-                updatePlaybackState {
-                    it.copy(
-                        currentPositionMs = pos,
-                        durationMs = dur
-                    )
+                _playbackPositionMs.value = pos
+                if (_playbackInfo.value.durationMs != dur && dur > 0) {
+                    updatePlaybackState { it.copy(durationMs = dur) }
                 }
                 delay(250)
             }
@@ -337,13 +361,16 @@ class PlaybackManager(
     private fun stopProgressTracker() {
         progressJob?.cancel()
         progressJob = null
+        val currentPos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackPositionMs.value
+        _playbackPositionMs.value = currentPos
+        updatePlaybackState { it.copy(currentPositionMs = currentPos) }
     }
 
     fun setLyricsActive(active: Boolean) {
         if (isLyricsActive == active) return
         isLyricsActive = active
         if (active) {
-            val currentPos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackInfo.value.currentPositionMs
+            val currentPos = exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackPositionMs.value
             _lyricsPositionMs.value = currentPos
             startLyricsTracker()
         } else {
@@ -358,7 +385,7 @@ class PlaybackManager(
                 val pos = if (isWaitingForNetworkRecovery) {
                     savedPlaybackPositionMs
                 } else {
-                    exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackInfo.value.currentPositionMs
+                    exoPlayer?.currentPosition?.coerceAtLeast(0L) ?: _playbackPositionMs.value
                 }
                 _lyricsPositionMs.value = pos
                 if (_playbackInfo.value.isPlaying) {
@@ -467,7 +494,7 @@ class PlaybackManager(
         recoveryAttemptCount = 0
 
         val song = currentQueue[currentIndex]
-        val player = exoPlayer ?: return
+        val player = ensurePlayerInitialized()
         val wantInstrumental = isInstrumentalPreferred
 
         instrumentalResolutionJob?.cancel()
@@ -566,10 +593,7 @@ class PlaybackManager(
             Log.w("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_TOGGLE_CALLED - failed: currentSong is null")
             return
         }
-        val player = exoPlayer ?: run {
-            Log.w("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_TOGGLE_CALLED - failed: exoPlayer is null")
-            return
-        }
+        val player = ensurePlayerInitialized()
 
         val beforeSongId = currentSong.id
         val beforeTitle = currentSong.title
@@ -664,7 +688,7 @@ class PlaybackManager(
 
     fun play() {
         startPlaybackService()
-        val player = exoPlayer ?: return
+        val player = ensurePlayerInitialized()
         if (player.currentMediaItem == null && currentQueue.isNotEmpty()) {
             playCurrentQueueIndex()
         } else {
@@ -679,21 +703,19 @@ class PlaybackManager(
     }
 
     fun togglePlayPause() {
-        val player = exoPlayer ?: return
-        if (player.isPlaying) {
-            player.pause()
+        val player = exoPlayer
+        if (player?.isPlaying == true) {
+            pause()
         } else {
-            startPlaybackService()
-            if (player.currentMediaItem == null && currentQueue.isNotEmpty()) {
-                playCurrentQueueIndex()
-            } else {
-                player.play()
-            }
+            play()
         }
     }
 
     fun seekTo(positionMs: Long) {
-        exoPlayer?.seekTo(positionMs)
+        if (exoPlayer != null || currentQueue.isNotEmpty()) {
+            ensurePlayerInitialized().seekTo(positionMs)
+        }
+        _playbackPositionMs.value = positionMs
         _lyricsPositionMs.value = positionMs
         updatePlaybackState { it.copy(currentPositionMs = positionMs) }
     }
@@ -729,7 +751,8 @@ class PlaybackManager(
     }
 
     fun previous() {
-        val player = exoPlayer ?: return
+        if (currentQueue.isEmpty()) return
+        val player = ensurePlayerInitialized()
         if (player.currentPosition > 3000L || currentIndex <= 0) {
             player.seekTo(0L)
             updatePlaybackState { it.copy(currentPositionMs = 0L) }
@@ -931,6 +954,8 @@ class PlaybackManager(
         recoveryJob?.cancel()
         stopProgressTracker()
         stopLyricsTracker()
+        _playbackPositionMs.value = 0L
+        _lyricsPositionMs.value = 0L
         try {
             _mediaSession?.run {
                 player.release()

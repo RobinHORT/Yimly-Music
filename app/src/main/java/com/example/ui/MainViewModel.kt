@@ -98,6 +98,7 @@ class MainViewModel(
 
     // Playback
     val playbackInfo: StateFlow<PlaybackInfo> = playbackManager.playbackInfo
+    val playbackPositionMs: StateFlow<Long> = playbackManager.playbackPositionMs
     val lyricsPositionMs: StateFlow<Long> = playbackManager.lyricsPositionMs
 
     fun setLyricsActive(active: Boolean) {
@@ -141,6 +142,7 @@ class MainViewModel(
                 Pair(song, mode)
             }.collect { (song, mode) ->
                 lyricsJob?.cancel()
+                _currentLyricsData.value = null // Clear lyrics immediately to prevent stale state from previous track
                 if (song != null) {
                     lyricsJob = launch {
                         _currentLyricsData.value = musicRepository.getLyricsForSong(song, mode)
@@ -186,6 +188,7 @@ class MainViewModel(
     fun logout() {
         viewModelScope.launch {
             authRepository.logout()
+            musicRepository.clearLocalCache()
         }
     }
 
@@ -287,7 +290,7 @@ class MainViewModel(
         viewModelScope.launch {
             try {
                 musicRepository.updatePlaylistArtwork(playlistId, uri)
-                musicRepository.refreshPlaylistDetail(playlistId)
+                musicRepository.refreshPlaylistDetail(playlistId, force = true)
                 _uiMessage.value = "Artwork updated"
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to update artwork"
@@ -376,10 +379,14 @@ class MainViewModel(
         }
     }
 
-    fun refreshPlaylistDetail(playlistId: String) {
+    fun refreshPlaylistDetail(playlistId: String, force: Boolean = false) {
         viewModelScope.launch {
-            musicRepository.refreshPlaylistDetail(playlistId)
+            musicRepository.refreshPlaylistDetail(playlistId, force)
         }
+    }
+
+    fun forceRefreshPlaylistDetail(playlistId: String) {
+        refreshPlaylistDetail(playlistId, force = true)
     }
 
     fun getSongsForAlbum(albumTitle: String) = musicRepository.getSongsByAlbum(albumTitle)

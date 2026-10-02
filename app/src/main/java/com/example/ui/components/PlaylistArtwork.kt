@@ -14,9 +14,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.example.data.datastore.PreferencesManager
+import com.example.data.datastore.ServerUrlConfig
 import com.example.data.models.Song
 
-fun String?.resolveCoverUrl(baseUrl: String = PreferencesManager.DEFAULT_SERVER_URL): String? {
+fun String?.resolveCoverUrl(baseUrl: String = ServerUrlConfig.activeServerUrl): String? {
     if (this.isNullOrBlank()) return null
     val trimmed = this.trim()
     if (trimmed.startsWith("http://", ignoreCase = true) ||
@@ -55,7 +56,7 @@ fun AutomaticPlaylistArtwork(
     songs: List<Song>,
     modifier: Modifier = Modifier
 ) {
-    val albumCovers = songs.mapNotNull { if (it.hasArtwork) "https://yimly.robinhort.link/api/songs/${it.id}/artwork" else null }.take(4)
+    val albumCovers = songs.mapNotNull { if (it.hasArtwork) "${ServerUrlConfig.activeServerUrl}/api/songs/${it.id}/artwork" else null }.take(4)
 
     Box(modifier = modifier.background(Color.DarkGray), contentAlignment = Alignment.Center) {
         when (albumCovers.size) {

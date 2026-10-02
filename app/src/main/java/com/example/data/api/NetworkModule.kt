@@ -1,5 +1,6 @@
 package com.example.data.api
 
+import com.example.BuildConfig
 import com.example.data.datastore.PreferencesManager
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -11,7 +12,9 @@ import java.util.concurrent.TimeUnit
 
 class NetworkModule(
     private val preferencesManager: PreferencesManager,
-    private val tokenProvider: (() -> String?)? = null
+    private val tokenProvider: (() -> String?)? = null,
+    private val scope: kotlinx.coroutines.CoroutineScope? = null,
+    private val isDebug: Boolean = BuildConfig.DEBUG
 ) {
 
     val moshi: Moshi = Moshi.Builder()
@@ -19,10 +22,14 @@ class NetworkModule(
         .build()
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
-        level = HttpLoggingInterceptor.Level.BODY
+        level = if (isDebug) {
+            HttpLoggingInterceptor.Level.BODY
+        } else {
+            HttpLoggingInterceptor.Level.NONE
+        }
     }
 
-    private val authInterceptor = AuthInterceptor(preferencesManager, tokenProvider)
+    private val authInterceptor = AuthInterceptor(preferencesManager, tokenProvider, scope)
 
     val okHttpClient: OkHttpClient = OkHttpClient.Builder()
         .addInterceptor(authInterceptor)

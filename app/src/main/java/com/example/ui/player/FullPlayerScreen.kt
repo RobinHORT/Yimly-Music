@@ -95,6 +95,9 @@ import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
 import com.example.ui.theme.YimlyPinkGlow
+import androidx.compose.runtime.collectAsState
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 fun FullPlayerScreen(
@@ -120,9 +123,12 @@ fun FullPlayerScreen(
     onAddToPlaylist: (Song) -> Unit = {},
     lyricsPositionMs: Long = 0L,
     onSetLyricsActive: (Boolean) -> Unit = {},
+    playbackPositionFlow: StateFlow<Long>? = null,
     modifier: Modifier = Modifier
 ) {
     val song = playbackInfo.currentSong ?: return
+
+    val currentPositionMs by (playbackPositionFlow ?: remember { MutableStateFlow(playbackInfo.currentPositionMs) }).collectAsState()
 
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Player, 1 = Lyrics, 2 = Queue
     var showLyricsSettings by remember { mutableStateOf(false) }
@@ -141,7 +147,7 @@ fun FullPlayerScreen(
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPositionMs by remember { mutableFloatStateOf(0f) }
 
-    val currentPos = if (isUserSeeking) seekPositionMs.toLong() else playbackInfo.currentPositionMs
+    val currentPos = if (isUserSeeking) seekPositionMs.toLong() else currentPositionMs
     val totalDuration = if (playbackInfo.durationMs > 0) playbackInfo.durationMs else song.durationMs
 
     fun formatTime(ms: Long): String {

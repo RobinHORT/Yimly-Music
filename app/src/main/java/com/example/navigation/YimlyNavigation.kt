@@ -140,6 +140,7 @@ fun YimlyNavigation(
                         if (playbackInfo.currentSong != null) {
                             MiniPlayer(
                                 playbackInfo = playbackInfo,
+                                playbackPositionFlow = viewModel.playbackPositionMs,
                                 onMiniPlayerClick = { isPlayerExpanded = true },
                                 onTogglePlayPause = { viewModel.togglePlayPause() },
                                 onNext = { viewModel.next() },
@@ -468,6 +469,7 @@ fun YimlyNavigation(
                 songOffsetMs = currentSongOffset,
                 lyricsConfig = lyricsConfig,
                 lyricsPositionMs = lyricsPositionMs,
+                playbackPositionFlow = viewModel.playbackPositionMs,
                 onSetLyricsActive = { active -> viewModel.setLyricsActive(active) },
                 onCollapse = { isPlayerExpanded = false },
                 onTogglePlayPause = { viewModel.togglePlayPause() },

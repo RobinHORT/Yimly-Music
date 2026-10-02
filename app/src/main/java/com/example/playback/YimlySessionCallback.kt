@@ -20,7 +20,10 @@ import androidx.media3.session.SessionResult
 import com.example.YimlyApplication
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.SettableFuture
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 @OptIn(UnstableApi::class)
@@ -196,135 +199,143 @@ class YimlySessionCallback(
         pageSize: Int,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
-        val mediaItems = mutableListOf<MediaItem>()
+        val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
+        playbackManager.coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val mediaItems = mutableListOf<MediaItem>()
 
-        when (parentId) {
-            "root" -> {
-                val categories = listOf(
-                    Triple("recently_played", "Recently Played", MediaMetadata.FOLDER_TYPE_MIXED),
-                    Triple("songs", "All Songs", MediaMetadata.FOLDER_TYPE_MIXED),
-                    Triple("playlists", "Playlists", MediaMetadata.FOLDER_TYPE_PLAYLISTS),
-                    Triple("favourites", "Favourites", MediaMetadata.FOLDER_TYPE_MIXED)
-                )
-                for ((id, title, folderType) in categories) {
-                    val metadata = MediaMetadata.Builder()
-                        .setTitle(title)
-                        .setFolderType(folderType)
-                        .setIsBrowsable(true)
-                        .setIsPlayable(false)
-                        .build()
-                    mediaItems.add(
-                        MediaItem.Builder()
-                            .setMediaId(id)
-                            .setMediaMetadata(metadata)
-                            .build()
-                    )
-                }
-            }
-            "recently_played" -> {
-                val songs = runBlocking { playbackManager.musicRepository.recentlyPlayedSongs.firstOrNull() ?: emptyList() }
-                for (song in songs) {
-                    val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                    val metadata = MediaMetadata.Builder()
-                        .setTitle(song.title)
-                        .setArtist(song.artist)
-                        .setAlbumTitle(song.album)
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                        .build()
-                    mediaItems.add(
-                        MediaItem.Builder()
-                            .setMediaId("recent_song|${song.id}")
-                            .setMediaMetadata(metadata)
-                            .build()
-                    )
-                }
-            }
-            "songs" -> {
-                val songs = runBlocking { playbackManager.musicRepository.allSongs.firstOrNull() ?: emptyList() }
-                for (song in songs) {
-                    val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                    val metadata = MediaMetadata.Builder()
-                        .setTitle(song.title)
-                        .setArtist(song.artist)
-                        .setAlbumTitle(song.album)
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                        .build()
-                    mediaItems.add(
-                        MediaItem.Builder()
-                            .setMediaId("all_song|${song.id}")
-                            .setMediaMetadata(metadata)
-                            .build()
-                    )
-                }
-            }
-            "playlists" -> {
-                val playlists = runBlocking { playbackManager.musicRepository.allPlaylists.firstOrNull() ?: emptyList() }
-                for (playlist in playlists) {
-                    val metadata = MediaMetadata.Builder()
-                        .setTitle(playlist.name)
-                        .setFolderType(MediaMetadata.FOLDER_TYPE_PLAYLISTS)
-                        .setIsBrowsable(true)
-                        .setIsPlayable(false)
-                        .build()
-                    mediaItems.add(
-                        MediaItem.Builder()
-                            .setMediaId("playlist|${playlist.id}")
-                            .setMediaMetadata(metadata)
-                            .build()
-                    )
-                }
-            }
-            "favourites" -> {
-                val songs = runBlocking { playbackManager.musicRepository.favoriteSongs.firstOrNull() ?: emptyList() }
-                for (song in songs) {
-                    val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                    val metadata = MediaMetadata.Builder()
-                        .setTitle(song.title)
-                        .setArtist(song.artist)
-                        .setAlbumTitle(song.album)
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                        .build()
-                    mediaItems.add(
-                        MediaItem.Builder()
-                            .setMediaId("favorite_song|${song.id}")
-                            .setMediaMetadata(metadata)
-                            .build()
-                    )
-                }
-            }
-            else -> {
-                if (parentId.startsWith("playlist|")) {
-                    val playlistId = parentId.removePrefix("playlist|")
-                    val songs = runBlocking { playbackManager.musicRepository.getSongsForPlaylist(playlistId).firstOrNull() ?: emptyList() }
-                    for (song in songs) {
-                        val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                        val metadata = MediaMetadata.Builder()
-                            .setTitle(song.title)
-                            .setArtist(song.artist)
-                            .setAlbumTitle(song.album)
-                            .setIsBrowsable(false)
-                            .setIsPlayable(true)
-                            .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                            .build()
-                        mediaItems.add(
-                            MediaItem.Builder()
-                                .setMediaId("playlist_song|${playlistId}|${song.id}")
-                                .setMediaMetadata(metadata)
-                                .build()
+                when (parentId) {
+                    "root" -> {
+                        val categories = listOf(
+                            Triple("recently_played", "Recently Played", MediaMetadata.FOLDER_TYPE_MIXED),
+                            Triple("songs", "All Songs", MediaMetadata.FOLDER_TYPE_MIXED),
+                            Triple("playlists", "Playlists", MediaMetadata.FOLDER_TYPE_PLAYLISTS),
+                            Triple("favourites", "Favourites", MediaMetadata.FOLDER_TYPE_MIXED)
                         )
+                        for ((id, title, folderType) in categories) {
+                            val metadata = MediaMetadata.Builder()
+                                .setTitle(title)
+                                .setFolderType(folderType)
+                                .setIsBrowsable(true)
+                                .setIsPlayable(false)
+                                .build()
+                            mediaItems.add(
+                                MediaItem.Builder()
+                                    .setMediaId(id)
+                                    .setMediaMetadata(metadata)
+                                    .build()
+                            )
+                        }
+                    }
+                    "recently_played" -> {
+                        val songs = playbackManager.musicRepository.recentlyPlayedSongs.firstOrNull() ?: emptyList()
+                        for (song in songs) {
+                            val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
+                            val metadata = MediaMetadata.Builder()
+                                .setTitle(song.title)
+                                .setArtist(song.artist)
+                                .setAlbumTitle(song.album)
+                                .setIsBrowsable(false)
+                                .setIsPlayable(true)
+                                .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
+                                .build()
+                            mediaItems.add(
+                                MediaItem.Builder()
+                                    .setMediaId("recent_song|${song.id}")
+                                    .setMediaMetadata(metadata)
+                                    .build()
+                            )
+                        }
+                    }
+                    "songs" -> {
+                        val songs = playbackManager.musicRepository.allSongs.firstOrNull() ?: emptyList()
+                        for (song in songs) {
+                            val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
+                            val metadata = MediaMetadata.Builder()
+                                .setTitle(song.title)
+                                .setArtist(song.artist)
+                                .setAlbumTitle(song.album)
+                                .setIsBrowsable(false)
+                                .setIsPlayable(true)
+                                .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
+                                .build()
+                            mediaItems.add(
+                                MediaItem.Builder()
+                                    .setMediaId("all_song|${song.id}")
+                                    .setMediaMetadata(metadata)
+                                    .build()
+                            )
+                        }
+                    }
+                    "playlists" -> {
+                        val playlists = playbackManager.musicRepository.allPlaylists.firstOrNull() ?: emptyList()
+                        for (playlist in playlists) {
+                            val metadata = MediaMetadata.Builder()
+                                .setTitle(playlist.name)
+                                .setFolderType(MediaMetadata.FOLDER_TYPE_PLAYLISTS)
+                                .setIsBrowsable(true)
+                                .setIsPlayable(false)
+                                .build()
+                            mediaItems.add(
+                                MediaItem.Builder()
+                                    .setMediaId("playlist|${playlist.id}")
+                                    .setMediaMetadata(metadata)
+                                    .build()
+                            )
+                        }
+                    }
+                    "favourites" -> {
+                        val songs = playbackManager.musicRepository.favoriteSongs.firstOrNull() ?: emptyList()
+                        for (song in songs) {
+                            val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
+                            val metadata = MediaMetadata.Builder()
+                                .setTitle(song.title)
+                                .setArtist(song.artist)
+                                .setAlbumTitle(song.album)
+                                .setIsBrowsable(false)
+                                .setIsPlayable(true)
+                                .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
+                                .build()
+                            mediaItems.add(
+                                MediaItem.Builder()
+                                    .setMediaId("favorite_song|${song.id}")
+                                    .setMediaMetadata(metadata)
+                                    .build()
+                            )
+                        }
+                    }
+                    else -> {
+                        if (parentId.startsWith("playlist|")) {
+                            val playlistId = parentId.removePrefix("playlist|")
+                            val songs = playbackManager.musicRepository.getSongsForPlaylist(playlistId).firstOrNull() ?: emptyList()
+                            for (song in songs) {
+                                val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
+                                val metadata = MediaMetadata.Builder()
+                                    .setTitle(song.title)
+                                    .setArtist(song.artist)
+                                    .setAlbumTitle(song.album)
+                                    .setIsBrowsable(false)
+                                    .setIsPlayable(true)
+                                    .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
+                                    .build()
+                                mediaItems.add(
+                                    MediaItem.Builder()
+                                        .setMediaId("playlist_song|${playlistId}|${song.id}")
+                                        .setMediaMetadata(metadata)
+                                        .build()
+                                )
+                            }
+                        }
                     }
                 }
+
+                val immutableList = com.google.common.collect.ImmutableList.copyOf(mediaItems)
+                future.set(LibraryResult.ofItemList(immutableList, params))
+            } catch (e: Exception) {
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
-
-        val immutableList = com.google.common.collect.ImmutableList.copyOf(mediaItems)
-        return Futures.immediateFuture(LibraryResult.ofItemList(immutableList, params))
+        return future
     }
 
     override fun onGetItem(
@@ -332,34 +343,41 @@ class YimlySessionCallback(
         browser: MediaSession.ControllerInfo,
         mediaId: String
     ): ListenableFuture<LibraryResult<MediaItem>> {
-        val song = runBlocking {
-            val parts = mediaId.split("|")
-            val actualSongId = when {
-                mediaId.startsWith("playlist_song|") && parts.size >= 3 -> parts[2]
-                mediaId.startsWith("favorite_song|") && parts.size >= 2 -> parts[1]
-                mediaId.startsWith("recent_song|") && parts.size >= 2 -> parts[1]
-                mediaId.startsWith("all_song|") && parts.size >= 2 -> parts[1]
-                else -> mediaId
+        val future = SettableFuture.create<LibraryResult<MediaItem>>()
+        playbackManager.coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val parts = mediaId.split("|")
+                val actualSongId = when {
+                    mediaId.startsWith("playlist_song|") && parts.size >= 3 -> parts[2]
+                    mediaId.startsWith("favorite_song|") && parts.size >= 2 -> parts[1]
+                    mediaId.startsWith("recent_song|") && parts.size >= 2 -> parts[1]
+                    mediaId.startsWith("all_song|") && parts.size >= 2 -> parts[1]
+                    else -> mediaId
+                }
+                val song = playbackManager.musicRepository.getSongById(actualSongId)
+                if (song != null) {
+                    val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
+                    val metadata = MediaMetadata.Builder()
+                        .setTitle(song.title)
+                        .setArtist(song.artist)
+                        .setAlbumTitle(song.album)
+                        .setIsBrowsable(false)
+                        .setIsPlayable(true)
+                        .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
+                        .build()
+                    val item = MediaItem.Builder()
+                        .setMediaId(mediaId)
+                        .setMediaMetadata(metadata)
+                        .build()
+                    future.set(LibraryResult.ofItem(item, null))
+                } else {
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+                }
+            } catch (e: Exception) {
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
-            playbackManager.musicRepository.getSongById(actualSongId)
         }
-        if (song != null) {
-            val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-            val metadata = MediaMetadata.Builder()
-                .setTitle(song.title)
-                .setArtist(song.artist)
-                .setAlbumTitle(song.album)
-                .setIsBrowsable(false)
-                .setIsPlayable(true)
-                .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                .build()
-            val item = MediaItem.Builder()
-                .setMediaId(mediaId)
-                .setMediaMetadata(metadata)
-                .build()
-            return Futures.immediateFuture(LibraryResult.ofItem(item, null))
-        }
-        return Futures.immediateFuture(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+        return future
     }
 
     override fun onSearch(
@@ -380,25 +398,33 @@ class YimlySessionCallback(
         pageSize: Int,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
-        val app = playbackManager.context.applicationContext as YimlyApplication
-        val entities = runBlocking { app.database.musicDao().searchSongs(query) }
-        val mediaItems = entities.map { entity ->
-            val song = entity.toSong()
-            val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-            val metadata = MediaMetadata.Builder()
-                .setTitle(song.title)
-                .setArtist(song.artist)
-                .setAlbumTitle(song.album)
-                .setIsBrowsable(false)
-                .setIsPlayable(true)
-                .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                .build()
-            MediaItem.Builder()
-                .setMediaId("all_song|${song.id}")
-                .setMediaMetadata(metadata)
-                .build()
+        val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
+        playbackManager.coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val app = playbackManager.context.applicationContext as YimlyApplication
+                val entities = app.database.musicDao().searchSongs(query)
+                val mediaItems = entities.map { entity ->
+                    val song = entity.toSong()
+                    val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
+                    val metadata = MediaMetadata.Builder()
+                        .setTitle(song.title)
+                        .setArtist(song.artist)
+                        .setAlbumTitle(song.album)
+                        .setIsBrowsable(false)
+                        .setIsPlayable(true)
+                        .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
+                        .build()
+                    MediaItem.Builder()
+                        .setMediaId("all_song|${song.id}")
+                        .setMediaMetadata(metadata)
+                        .build()
+                }
+                future.set(LibraryResult.ofItemList(com.google.common.collect.ImmutableList.copyOf(mediaItems), params))
+            } catch (e: Exception) {
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+            }
         }
-        return Futures.immediateFuture(LibraryResult.ofItemList(com.google.common.collect.ImmutableList.copyOf(mediaItems), params))
+        return future
     }
 
     override fun onAddMediaItems(

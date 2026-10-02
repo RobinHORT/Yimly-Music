@@ -33,7 +33,7 @@ class YimlyApplication : Application(), ImageLoaderFactory {
     }
 
     val networkModule by lazy {
-        NetworkModule(preferencesManager)
+        NetworkModule(preferencesManager, scope = applicationScope)
     }
 
     val musicRepository by lazy {
