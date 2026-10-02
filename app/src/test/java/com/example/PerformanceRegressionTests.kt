@@ -1199,4 +1199,261 @@ class PerformanceRegressionTests {
             database.close()
         }
     }
+
+    private fun createTestControllerInfo(packageName: String = "com.google.android.projection.gearhead", uid: Int = 1000): androidx.media3.session.MediaSession.ControllerInfo {
+        val constructors = androidx.media3.session.MediaSession.ControllerInfo::class.java.declaredConstructors
+        for (c in constructors) {
+            c.isAccessible = true
+            try {
+                val paramTypes = c.parameterTypes
+                val args = Array<Any?>(c.parameterCount) { idx ->
+                    val type = paramTypes[idx]
+                    when {
+                        type.name.contains("RemoteUserInfo") -> {
+                            val rUiConstructor = type.declaredConstructors.firstOrNull()
+                            rUiConstructor?.isAccessible = true
+                            if (rUiConstructor != null && rUiConstructor.parameterCount == 3) {
+                                rUiConstructor.newInstance(packageName, uid, uid)
+                            } else {
+                                null
+                            }
+                        }
+                        type == Int::class.javaPrimitiveType || type == Int::class.java -> 0
+                        type == Boolean::class.javaPrimitiveType || type == Boolean::class.java -> true
+                        type == android.os.Bundle::class.java -> android.os.Bundle.EMPTY
+                        else -> null
+                    }
+                }
+                return c.newInstance(*args) as androidx.media3.session.MediaSession.ControllerInfo
+            } catch (_: Throwable) {}
+        }
+        throw IllegalStateException("Failed to reflectively instantiate ControllerInfo")
+    }
+
+    @Test
+    fun testAndroidAuto_onConnect_GrantsLibraryCommands() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, YimlyDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val repository = MusicRepository(
+                musicDao = database.musicDao(),
+                apiService = ConcurrencyTrackingApiService(),
+                coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            )
+            val preferencesManager = com.example.data.datastore.PreferencesManager(context)
+            val playbackManager = com.example.playback.PlaybackManager(
+                context = context,
+                musicRepository = repository,
+                preferencesManager = preferencesManager,
+                coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            )
+
+            val session = playbackManager.mediaSession
+            assertNotNull("mediaSession must not be null", session)
+
+            val callback = com.example.playback.YimlySessionCallback(playbackManager)
+            val controllerInfo = createTestControllerInfo()
+
+            val result = callback.onConnect(session!!, controllerInfo)
+            assertTrue("Controller connection must be accepted", result.isAccepted)
+            assertTrue("Session commands must contain library command GET_LIBRARY_ROOT",
+                result.availableSessionCommands.contains(androidx.media3.session.SessionCommand.COMMAND_CODE_LIBRARY_GET_LIBRARY_ROOT))
+            assertTrue("Session commands must contain library command GET_CHILDREN",
+                result.availableSessionCommands.contains(androidx.media3.session.SessionCommand.COMMAND_CODE_LIBRARY_GET_CHILDREN))
+
+            playbackManager.release()
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun testAndroidAuto_onGetLibraryRoot_ReturnsValidRoot() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, YimlyDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val repository = MusicRepository(
+                musicDao = database.musicDao(),
+                apiService = ConcurrencyTrackingApiService(),
+                coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            )
+            val preferencesManager = com.example.data.datastore.PreferencesManager(context)
+            val playbackManager = com.example.playback.PlaybackManager(
+                context = context,
+                musicRepository = repository,
+                preferencesManager = preferencesManager,
+                coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            )
+
+            val session = playbackManager.mediaSession!!
+            val callback = com.example.playback.YimlySessionCallback(playbackManager)
+            val controllerInfo = createTestControllerInfo()
+
+            val rootFuture = callback.onGetLibraryRoot(session, controllerInfo, null)
+            val libraryResult = rootFuture.get()
+            assertEquals("Root result code must be SUCCESS", androidx.media3.session.LibraryResult.RESULT_SUCCESS, libraryResult.resultCode)
+            val rootItem = libraryResult.value
+            assertNotNull("Root item must not be null", rootItem)
+            assertEquals("root", rootItem?.mediaId)
+            assertTrue("Root item must be browsable", rootItem?.mediaMetadata?.isBrowsable == true)
+            assertFalse("Root item must not be playable", rootItem?.mediaMetadata?.isPlayable == true)
+
+            playbackManager.release()
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun testAndroidAuto_onGetChildren_RootCategoriesAndSongsPagination() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, YimlyDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val song1 = Song(id = "s1", title = "Track 1", artist = "Artist 1")
+            val song2 = Song(id = "s2", title = "Track 2", artist = "Artist 2")
+            database.musicDao().upsertSongs(listOf(song1.toEntity(), song2.toEntity()))
+
+            val repository = MusicRepository(
+                musicDao = database.musicDao(),
+                apiService = ConcurrencyTrackingApiService(),
+                coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            )
+            val preferencesManager = com.example.data.datastore.PreferencesManager(context)
+            val playbackManager = com.example.playback.PlaybackManager(
+                context = context,
+                musicRepository = repository,
+                preferencesManager = preferencesManager,
+                coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            )
+
+            val session = playbackManager.mediaSession!!
+            val callback = com.example.playback.YimlySessionCallback(playbackManager)
+            val controllerInfo = createTestControllerInfo()
+
+            // Test root categories
+            val categoriesFuture = callback.onGetChildren(session, controllerInfo, "root", 0, 100, null)
+            val categoriesResult = categoriesFuture.get()
+            assertEquals(androidx.media3.session.LibraryResult.RESULT_SUCCESS, categoriesResult.resultCode)
+            val categories = categoriesResult.value
+            assertNotNull(categories)
+            assertEquals(4, categories!!.size)
+            val categoryIds = categories.map { it.mediaId }
+            assertEquals(listOf("recently_played", "songs", "playlists", "favourites"), categoryIds)
+            assertEquals("Recently Played", categories[0].mediaMetadata.title.toString())
+            assertEquals("All Songs", categories[1].mediaMetadata.title.toString())
+            assertEquals("Playlists", categories[2].mediaMetadata.title.toString())
+            assertEquals("Favourites", categories[3].mediaMetadata.title.toString())
+            assertEquals(androidx.media3.common.MediaMetadata.FOLDER_TYPE_TITLES, categories[0].mediaMetadata.folderType)
+            assertEquals(androidx.media3.common.MediaMetadata.FOLDER_TYPE_TITLES, categories[1].mediaMetadata.folderType)
+            assertEquals(androidx.media3.common.MediaMetadata.FOLDER_TYPE_PLAYLISTS, categories[2].mediaMetadata.folderType)
+            assertEquals(androidx.media3.common.MediaMetadata.FOLDER_TYPE_TITLES, categories[3].mediaMetadata.folderType)
+
+            // Test root categories via empty string and slash
+            val emptyRootResult = callback.onGetChildren(session, controllerInfo, "", 0, 100, null).get()
+            assertEquals(4, emptyRootResult.value?.size)
+            val slashRootResult = callback.onGetChildren(session, controllerInfo, "/", 0, 100, null).get()
+            assertEquals(4, slashRootResult.value?.size)
+
+            // Test songs page 0
+            val songsPage0Future = callback.onGetChildren(session, controllerInfo, "songs", 0, 1, null)
+            val songsPage0Result = songsPage0Future.get()
+            assertEquals(androidx.media3.session.LibraryResult.RESULT_SUCCESS, songsPage0Result.resultCode)
+            val songsPage0 = songsPage0Result.value
+            assertNotNull(songsPage0)
+            assertEquals("Page size 1 must return exactly 1 item", 1, songsPage0!!.size)
+
+            // Test songs page 1 out of bounds
+            val songsPage10Future = callback.onGetChildren(session, controllerInfo, "songs", 10, 10, null)
+            val songsPage10Result = songsPage10Future.get()
+            assertEquals(androidx.media3.session.LibraryResult.RESULT_SUCCESS, songsPage10Result.resultCode)
+            val songsPage10 = songsPage10Result.value
+            assertNotNull(songsPage10)
+            assertTrue("Out of bounds page must return empty list", songsPage10!!.isEmpty())
+
+            playbackManager.release()
+        } finally {
+            database.close()
+        }
+    }
+
+    @Test
+    fun testAndroidAuto_BrowseHierarchy_PlaylistsAndTracks() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val database = Room.inMemoryDatabaseBuilder(context, YimlyDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+
+        try {
+            val song = Song(id = "s100", title = "Playlist Track", artist = "Artist X", album = "Album Y")
+            database.musicDao().upsertSongs(listOf(song.toEntity()))
+            val playlist = com.example.data.models.Playlist(id = "pl_1", name = "Chill Vibes", songCount = 1)
+            database.musicDao().insertPlaylist(playlist.toEntity())
+            database.musicDao().insertPlaylistSongCrossRef(
+                com.example.data.db.PlaylistSongCrossRef(playlistId = "pl_1", songId = "s100", orderIndex = 0)
+            )
+
+            val repository = MusicRepository(
+                musicDao = database.musicDao(),
+                apiService = ConcurrencyTrackingApiService(),
+                coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+            )
+            val preferencesManager = com.example.data.datastore.PreferencesManager(context)
+            val playbackManager = com.example.playback.PlaybackManager(
+                context = context,
+                musicRepository = repository,
+                preferencesManager = preferencesManager,
+                coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+            )
+
+            val session = playbackManager.mediaSession!!
+            val callback = com.example.playback.YimlySessionCallback(playbackManager)
+            val controllerInfo = createTestControllerInfo()
+
+            // 1. Browse playlists
+            val playlistsFuture = callback.onGetChildren(session, controllerInfo, "playlists", 0, 50, null)
+            val playlistsResult = playlistsFuture.get()
+            assertEquals(androidx.media3.session.LibraryResult.RESULT_SUCCESS, playlistsResult.resultCode)
+            val playlistItems = playlistsResult.value
+            assertNotNull(playlistItems)
+            assertEquals(1, playlistItems!!.size)
+            assertEquals("playlist|pl_1", playlistItems[0].mediaId)
+            assertEquals("Chill Vibes", playlistItems[0].mediaMetadata.title.toString())
+            assertTrue("Playlist folder must be browsable", playlistItems[0].mediaMetadata.isBrowsable == true)
+            assertFalse("Playlist folder must not be playable", playlistItems[0].mediaMetadata.isPlayable == true)
+
+            // 2. Browse songs inside playlist
+            val playlistSongsFuture = callback.onGetChildren(session, controllerInfo, "playlist|pl_1", 0, 50, null)
+            val playlistSongsResult = playlistSongsFuture.get()
+            assertEquals(androidx.media3.session.LibraryResult.RESULT_SUCCESS, playlistSongsResult.resultCode)
+            val trackItems = playlistSongsResult.value
+            assertNotNull(trackItems)
+            assertEquals(1, trackItems!!.size)
+            assertEquals("playlist_song|pl_1|s100", trackItems[0].mediaId)
+            assertEquals("Playlist Track", trackItems[0].mediaMetadata.title.toString())
+            assertEquals("Artist X", trackItems[0].mediaMetadata.artist.toString())
+            assertEquals(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC, trackItems[0].mediaMetadata.mediaType)
+            assertFalse("Song track must not be browsable", trackItems[0].mediaMetadata.isBrowsable == true)
+            assertTrue("Song track must be playable", trackItems[0].mediaMetadata.isPlayable == true)
+
+            // 3. onAddMediaItems handles playable track
+            val playableItem = androidx.media3.common.MediaItem.Builder()
+                .setMediaId("playlist_song|pl_1|s100")
+                .build()
+            val addItemsResult = callback.onAddMediaItems(session, controllerInfo, listOf(playableItem)).get()
+            assertNotNull(addItemsResult)
+
+            playbackManager.release()
+        } finally {
+            database.close()
+        }
+    }
 }

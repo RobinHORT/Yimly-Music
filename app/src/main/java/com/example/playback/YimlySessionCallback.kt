@@ -39,7 +39,9 @@ class YimlySessionCallback(
         session: MediaSession,
         controller: MediaSession.ControllerInfo
     ): MediaSession.ConnectionResult {
-        val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_COMMANDS.buildUpon()
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}")
+
+        val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
             .add(SessionCommand(ACTION_TOGGLE_INSTRUMENTAL, Bundle.EMPTY))
             .build()
 
@@ -178,6 +180,7 @@ class YimlySessionCallback(
         browser: MediaSession.ControllerInfo,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<MediaItem>> {
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() START package=${browser.packageName}, uid=${browser.uid}, params=$params")
         val rootMetadata = MediaMetadata.Builder()
             .setTitle("Yimly Music")
             .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
@@ -188,7 +191,9 @@ class YimlySessionCallback(
             .setMediaId("root")
             .setMediaMetadata(rootMetadata)
             .build()
-        return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
+        val result = LibraryResult.ofItem(rootItem, params)
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() SUCCESS rootId=${rootItem.mediaId}")
+        return Futures.immediateFuture(result)
     }
 
     override fun onGetChildren(
@@ -199,18 +204,19 @@ class YimlySessionCallback(
         pageSize: Int,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() START package=${browser.packageName}, parentId=$parentId, page=$page, pageSize=$pageSize")
         val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
-        playbackManager.coroutineScope.launch(Dispatchers.IO) {
+        val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
                 val mediaItems = mutableListOf<MediaItem>()
 
                 when (parentId) {
-                    "root" -> {
+                    "root", "", "/" -> {
                         val categories = listOf(
-                            Triple("recently_played", "Recently Played", MediaMetadata.FOLDER_TYPE_MIXED),
-                            Triple("songs", "All Songs", MediaMetadata.FOLDER_TYPE_MIXED),
+                            Triple("recently_played", "Recently Played", MediaMetadata.FOLDER_TYPE_TITLES),
+                            Triple("songs", "All Songs", MediaMetadata.FOLDER_TYPE_TITLES),
                             Triple("playlists", "Playlists", MediaMetadata.FOLDER_TYPE_PLAYLISTS),
-                            Triple("favourites", "Favourites", MediaMetadata.FOLDER_TYPE_MIXED)
+                            Triple("favourites", "Favourites", MediaMetadata.FOLDER_TYPE_TITLES)
                         )
                         for ((id, title, folderType) in categories) {
                             val metadata = MediaMetadata.Builder()
@@ -235,6 +241,7 @@ class YimlySessionCallback(
                                 .setTitle(song.title)
                                 .setArtist(song.artist)
                                 .setAlbumTitle(song.album)
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                                 .setIsBrowsable(false)
                                 .setIsPlayable(true)
                                 .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
@@ -255,6 +262,7 @@ class YimlySessionCallback(
                                 .setTitle(song.title)
                                 .setArtist(song.artist)
                                 .setAlbumTitle(song.album)
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                                 .setIsBrowsable(false)
                                 .setIsPlayable(true)
                                 .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
@@ -292,6 +300,7 @@ class YimlySessionCallback(
                                 .setTitle(song.title)
                                 .setArtist(song.artist)
                                 .setAlbumTitle(song.album)
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                                 .setIsBrowsable(false)
                                 .setIsPlayable(true)
                                 .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
@@ -314,6 +323,7 @@ class YimlySessionCallback(
                                     .setTitle(song.title)
                                     .setArtist(song.artist)
                                     .setAlbumTitle(song.album)
+                                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                                     .setIsBrowsable(false)
                                     .setIsPlayable(true)
                                     .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
@@ -329,9 +339,30 @@ class YimlySessionCallback(
                     }
                 }
 
-                val immutableList = com.google.common.collect.ImmutableList.copyOf(mediaItems)
+                val fromIndexLong = page.toLong() * pageSize.toLong()
+                val pagedList = if (pageSize > 0 && page >= 0) {
+                    if (fromIndexLong >= mediaItems.size) {
+                        emptyList()
+                    } else {
+                        val fromIndex = fromIndexLong.toInt()
+                        val toIndex = (fromIndexLong + pageSize).coerceAtMost(mediaItems.size.toLong()).toInt()
+                        mediaItems.subList(fromIndex, toIndex)
+                    }
+                } else {
+                    mediaItems
+                }
+
+                val immutableList = com.google.common.collect.ImmutableList.copyOf(pagedList)
+                android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() SUCCESS parentId=$parentId, totalFound=${mediaItems.size}, returnedCount=${immutableList.size}")
                 future.set(LibraryResult.ofItemList(immutableList, params))
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() ERROR parentId=$parentId: ${e.message}", e)
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+            }
+        }
+        job.invokeOnCompletion { cause ->
+            if (cause != null && !future.isDone) {
+                android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() Job cancelled/failed for parentId=$parentId: ${cause.message}")
                 future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
@@ -343,8 +374,9 @@ class YimlySessionCallback(
         browser: MediaSession.ControllerInfo,
         mediaId: String
     ): ListenableFuture<LibraryResult<MediaItem>> {
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() START package=${browser.packageName}, mediaId=$mediaId")
         val future = SettableFuture.create<LibraryResult<MediaItem>>()
-        playbackManager.coroutineScope.launch(Dispatchers.IO) {
+        val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
                 val parts = mediaId.split("|")
                 val actualSongId = when {
@@ -361,6 +393,7 @@ class YimlySessionCallback(
                         .setTitle(song.title)
                         .setArtist(song.artist)
                         .setAlbumTitle(song.album)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                         .setIsBrowsable(false)
                         .setIsPlayable(true)
                         .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
@@ -369,11 +402,19 @@ class YimlySessionCallback(
                         .setMediaId(mediaId)
                         .setMediaMetadata(metadata)
                         .build()
+                    android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() SUCCESS mediaId=$mediaId, title=${song.title}")
                     future.set(LibraryResult.ofItem(item, null))
                 } else {
+                    android.util.Log.w("AA_DIAG", "YimlySessionCallback.onGetItem() NOT FOUND mediaId=$mediaId")
                     future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
                 }
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
+                android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetItem() ERROR mediaId=$mediaId: ${e.message}", e)
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+            }
+        }
+        job.invokeOnCompletion { cause ->
+            if (cause != null && !future.isDone) {
                 future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
@@ -386,6 +427,7 @@ class YimlySessionCallback(
         query: String,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<Void>> {
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onSearch() package=${browser.packageName}, query=$query")
         session.notifySearchResultChanged(browser, query, 1, params)
         return Futures.immediateFuture(LibraryResult.ofVoid())
     }
@@ -398,8 +440,9 @@ class YimlySessionCallback(
         pageSize: Int,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() START package=${browser.packageName}, query=$query, page=$page, pageSize=$pageSize")
         val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
-        playbackManager.coroutineScope.launch(Dispatchers.IO) {
+        val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
                 val app = playbackManager.context.applicationContext as YimlyApplication
                 val entities = app.database.musicDao().searchSongs(query)
@@ -410,6 +453,7 @@ class YimlySessionCallback(
                         .setTitle(song.title)
                         .setArtist(song.artist)
                         .setAlbumTitle(song.album)
+                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
                         .setIsBrowsable(false)
                         .setIsPlayable(true)
                         .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
@@ -419,8 +463,28 @@ class YimlySessionCallback(
                         .setMediaMetadata(metadata)
                         .build()
                 }
-                future.set(LibraryResult.ofItemList(com.google.common.collect.ImmutableList.copyOf(mediaItems), params))
-            } catch (e: Exception) {
+                val fromIndexLong = page.toLong() * pageSize.toLong()
+                val pagedList = if (pageSize > 0 && page >= 0) {
+                    if (fromIndexLong >= mediaItems.size) {
+                        emptyList()
+                    } else {
+                        val fromIndex = fromIndexLong.toInt()
+                        val toIndex = (fromIndexLong + pageSize).coerceAtMost(mediaItems.size.toLong()).toInt()
+                        mediaItems.subList(fromIndex, toIndex)
+                    }
+                } else {
+                    mediaItems
+                }
+                val immutableList = com.google.common.collect.ImmutableList.copyOf(pagedList)
+                android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() SUCCESS query=$query, count=${immutableList.size}")
+                future.set(LibraryResult.ofItemList(immutableList, params))
+            } catch (e: Throwable) {
+                android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetSearchResult() ERROR query=$query: ${e.message}", e)
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+            }
+        }
+        job.invokeOnCompletion { cause ->
+            if (cause != null && !future.isDone) {
                 future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
