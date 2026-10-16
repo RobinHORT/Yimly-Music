@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="288dp"
+    android:height="288dp"
+    android:viewportWidth="288"
+    android:viewportHeight="288">
+
+    <!-- Signature Yimly Pink Badge -->
+    <path
+        android:pathData="M116,76 L172,76 C194.091,76 212,93.909 212,116 L212,172 C212,194.091 194.091,212 172,212 L116,212 C93.909,212 76,194.091 76,172 L76,116 C76,93.909 93.909,76 116,76 Z">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="76"
+                android:startY="76"
+                android:endX="212"
+                android:endY="212"
+                android:startColor="#FF6EB3"
+                android:endColor="#E0378B"
+                android:type="linear" />
+        </aapt:attr>
+    </path>
+
+    <!-- Microphone Capsule (Rounded Pill) -->
+    <path
+        android:pathData="M144,98 C134.059,98 126,106.059 126,116 L126,132 C126,141.941 134.059,150 144,150 C153.941,150 162,141.941 162,132 L162,116 C162,106.059 153.941,98 144,98 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- U-shaped Microphone Cradle -->
+    <path
+        android:pathData="M180,123 L180,132 C180,151.882 163.882,168 144,168 C124.118,168 108,151.882 108,132 L108,123"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Vertical Stem -->
+    <path
+        android:pathData="M144,168 L144,186"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+
+    <!-- Stand Base -->
+    <path
+        android:pathData="M120,186 L168,186"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="7"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round" />
+</vector>

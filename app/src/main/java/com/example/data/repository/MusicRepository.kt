@@ -1,0 +1,1121 @@
+package com.example.data.repository
+
+import com.example.data.api.YimlyApiService
+import com.example.data.datastore.PreferencesManager
+import com.example.data.datastore.ServerUrlConfig
+import com.example.data.db.LyricResourceEntity
+import com.example.data.db.MusicDao
+import com.example.data.db.PlayHistoryEntity
+import com.example.data.db.PlaylistEntity
+import com.example.data.db.PlaylistSongCrossRef
+import com.example.data.db.toEntity
+import com.example.data.models.AddPlaylistSongRequest
+import com.example.data.models.Album
+import com.example.data.models.Artist
+import com.example.data.models.Collaborator
+import com.example.data.models.CreatePlaylistRequest
+import com.example.data.models.LyricsData
+import com.example.data.models.LyricsFormatMode
+import com.example.data.models.Playlist
+import com.example.data.models.SearchResult
+import com.example.data.models.SharePlaylistRequest
+import com.example.data.models.Song
+import com.example.data.models.UpdatePlaylistRequest
+import com.example.lyrics.LyricsFormatUtils
+import com.example.lyrics.LyricsParser
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import retrofit2.HttpException
+import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import java.util.UUID
+
+private data class SyncBatch(
+    val remoteSongs: List<Song>?,
+    val isCompleteSync: Boolean,
+    val remoteFavorites: List<Song>?,
+    val remoteAlbums: List<Album>?,
+    val remoteArtists: List<Artist>?,
+    val remotePlaylists: List<Playlist>?
+)
+
+data class ResolvedTrack(
+    val song: Song,
+    val normalUrl: String,
+    val instrumentalUrl: String?,
+    val playableUrl: String,
+    val hasInstrumental: Boolean,
+    val isInstrumentalActive: Boolean
+)
+
+class MusicRepository(
+    private val musicDao: MusicDao,
+    private val apiService: YimlyApiService,
+    private val coroutineScope: CoroutineScope,
+    private val context: android.content.Context? = null,
+    private val preferencesManager: PreferencesManager? = null
+) {
+
+    private val playlistLastSyncTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    fun isPlaylistFresh(playlistId: String): Boolean {
+        val lastSync = playlistLastSyncTimes[playlistId.trim()] ?: return false
+        return (System.currentTimeMillis() - lastSync) < PLAYLIST_FRESHNESS_WINDOW_MS
+    }
+
+    fun markPlaylistSynced(playlistId: String, timestamp: Long = System.currentTimeMillis()) {
+        val trimmed = playlistId.trim()
+        if (trimmed.isNotBlank()) {
+            playlistLastSyncTimes[trimmed] = timestamp
+        }
+    }
+
+    fun clearPlaylistSyncCache(playlistId: String? = null) {
+        if (playlistId != null) {
+            playlistLastSyncTimes.remove(playlistId.trim())
+        } else {
+            playlistLastSyncTimes.clear()
+        }
+    }
+
+    init {
+        if (preferencesManager != null) {
+            coroutineScope.launch(Dispatchers.IO) {
+                syncWithBackend()
+            }
+        }
+    }
+
+    val rawAllSongs: Flow<List<Song>> = musicDao.getAllSongs().map { list -> list.map { it.toSong() } }
+
+    val allSongs: Flow<List<Song>> = rawAllSongs.map { list -> list.filter { !it.isInstrumentalTrack } }
+
+    val recentlyAddedSongs: Flow<List<Song>> = musicDao.getRecentlyAddedSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }
+
+    val favoriteSongs: Flow<List<Song>> = musicDao.getFavoriteSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }
+
+    val recentlyPlayedSongs: Flow<List<Song>> = musicDao.getRecentlyPlayedSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }
+
+    val allAlbums: Flow<List<Album>> = combine(
+        musicDao.getAllAlbums().map { list -> list.map { it.toAlbum() } },
+        allSongs
+    ) { dbAlbums, songs ->
+        if (dbAlbums.isNotEmpty()) {
+            // Merge DB albums with derived albums from songs to guarantee complete library coverage
+            mergeAlbums(dbAlbums, deriveAlbumsFromSongs(songs))
+        } else {
+            deriveAlbumsFromSongs(songs)
+        }
+    }
+
+    val allArtists: Flow<List<Artist>> = combine(
+        musicDao.getAllArtists().map { list -> list.map { it.toArtist() } },
+        allSongs
+    ) { dbArtists, songs ->
+        if (dbArtists.isNotEmpty()) {
+            // Merge DB artists with derived artists from songs to guarantee complete library coverage
+            mergeArtists(dbArtists, deriveArtistsFromSongs(songs))
+        } else {
+            deriveArtistsFromSongs(songs)
+        }
+    }
+
+    val allPlaylists: Flow<List<Playlist>> = musicDao.getAllPlaylists().map { list -> list.map { it.toPlaylist() } }
+
+    suspend fun getSongById(id: String): Song? = withContext(Dispatchers.IO) {
+        try {
+            val remoteSong = apiService.getSongById(id)
+            musicDao.upsertSongs(listOf(remoteSong.toEntity()))
+            remoteSong
+        } catch (_: Exception) {
+            musicDao.getSongById(id)?.toSong()
+        }
+    }
+
+    fun getSongsByAlbum(albumTitle: String): Flow<List<Song>> {
+        val cleanAlbum = albumTitle.trim()
+        return allSongs.map { songs ->
+            songs.filter { song ->
+                val sAlbum = song.album.trim()
+                if (sAlbum.isNotBlank()) {
+                    sAlbum.equals(cleanAlbum, ignoreCase = true)
+                } else {
+                    song.title.trim().equals(cleanAlbum, ignoreCase = true) ||
+                    "${song.title.trim()} (Single)".equals(cleanAlbum, ignoreCase = true) ||
+                    "${song.artist.trim()} - Single".equals(cleanAlbum, ignoreCase = true) ||
+                    cleanAlbum.equals("Singles", ignoreCase = true)
+                }
+            }
+        }
+    }
+
+    fun getSongsByArtist(artistName: String): Flow<List<Song>> {
+        val cleanArtist = artistName.trim().lowercase()
+        return allSongs.map { songs ->
+            songs.filter { song ->
+                val parsed = parseArtists(song.artist)
+                if (parsed.isEmpty()) {
+                    val songArtist = song.artist.trim().lowercase()
+                    songArtist == cleanArtist ||
+                    songArtist.contains(cleanArtist) ||
+                    cleanArtist.contains(songArtist)
+                } else {
+                    parsed.any { it == cleanArtist || it.contains(cleanArtist) || cleanArtist.contains(it) }
+                }
+            }
+        }
+    }
+
+    suspend fun findInstrumentalAudioUrl(song: Song): String? = withContext(Dispatchers.IO) {
+        val direct = song.directInstrumentalAudioUrl
+        if (!direct.isNullOrBlank()) return@withContext direct
+
+        if (song.hasInstrumental) {
+            return@withContext "${ServerUrlConfig.activeServerUrl}/api/songs/${song.id}/audio?type=instrumental"
+        }
+
+        val allSongsList = rawAllSongs.firstOrNull() ?: emptyList()
+        if (!song.instrumentalSongId.isNullOrBlank()) {
+            val instSong = allSongsList.find { it.id == song.instrumentalSongId }
+            if (instSong != null) return@withContext instSong.audioUrl
+        }
+
+        val matchingInst = findMatchingInstrumental(song, allSongsList)
+        if (matchingInst != null) {
+            return@withContext matchingInst.audioUrl
+        }
+
+        "${ServerUrlConfig.activeServerUrl}/api/songs/${song.id}/audio?type=instrumental"
+    }
+
+    suspend fun resolvePlayableTrack(song: Song, wantInstrumental: Boolean): ResolvedTrack = withContext(Dispatchers.IO) {
+        val baseUrl = ServerUrlConfig.activeServerUrl.trimEnd('/')
+        val isDirectInst = song.isInstrumentalTrack
+
+        val normalUrl = if (isDirectInst) {
+            "$baseUrl/api/songs/${song.id}/audio?type=main"
+        } else {
+            song.audioUrl
+        }
+
+        val directInstUrl = song.directInstrumentalAudioUrl
+        val instUrl = if (!directInstUrl.isNullOrBlank()) {
+            directInstUrl
+        } else {
+            "$baseUrl/api/songs/${song.id}/audio?type=instrumental"
+        }
+
+        val playableUrl = if (wantInstrumental) instUrl else normalUrl
+        Log.d("MusicRepository", "resolvePlayableTrack: title='${song.title}', wantInst=$wantInstrumental, playableUrl=$playableUrl")
+
+        ResolvedTrack(
+            song = song,
+            normalUrl = normalUrl,
+            instrumentalUrl = instUrl,
+            playableUrl = playableUrl,
+            hasInstrumental = song.hasInstrumentalEffective,
+            isInstrumentalActive = wantInstrumental
+        )
+    }
+
+    fun getSongsForPlaylist(playlistId: String): Flow<List<Song>> {
+        return musicDao.getSongsForPlaylist(playlistId).map { list -> list.map { it.toSong() } }
+    }
+
+    suspend fun toggleFavorite(songId: String): Boolean = withContext(Dispatchers.IO) {
+        val songEntity = musicDao.getSongById(songId)
+        val currentFav = songEntity?.isFavorite ?: false
+        val newFav = !currentFav
+
+        // Call server API FIRST (Server is source of truth)
+        if (newFav) {
+            apiService.addFavorite(songId)
+        } else {
+            apiService.removeFavorite(songId)
+        }
+
+        // Only update local Room cache after successful server API call
+        if (songEntity != null) {
+            musicDao.updateFavorite(songId, newFav)
+        } else {
+            try {
+                val remoteSong = apiService.getSongById(songId)
+                musicDao.upsertSong(remoteSong.toEntity().copy(isFavorite = newFav))
+            } catch (_: Exception) {
+                musicDao.updateFavorite(songId, newFav)
+            }
+        }
+        newFav
+    }
+
+    suspend fun recordPlayHistory(songId: String) = withContext(Dispatchers.IO) {
+        musicDao.insertHistory(PlayHistoryEntity(songId = songId, playedAt = System.currentTimeMillis()))
+    }
+
+    suspend fun createPlaylist(name: String, description: String?, isPublic: Boolean = false): Playlist = withContext(Dispatchers.IO) {
+        val request = CreatePlaylistRequest(name = name, description = description, isPublic = isPublic)
+        val remotePlaylist = apiService.createPlaylist(request)
+        val freshPlaylist = remotePlaylist.copy(createdAt = System.currentTimeMillis().toString())
+        musicDao.insertPlaylist(freshPlaylist.toEntity())
+        freshPlaylist
+    }
+
+    suspend fun updatePlaylist(playlistId: String, name: String, description: String?, isPublic: Boolean? = null): Playlist = withContext(Dispatchers.IO) {
+        val request = UpdatePlaylistRequest(name = name, description = description, isPublic = isPublic)
+        val updatedPlaylist = apiService.updatePlaylist(playlistId, request)
+        val freshPlaylist = updatedPlaylist.copy(createdAt = System.currentTimeMillis().toString())
+        musicDao.insertPlaylist(freshPlaylist.toEntity())
+        freshPlaylist
+    }
+
+    suspend fun deletePlaylist(playlistId: String) = withContext(Dispatchers.IO) {
+        apiService.deletePlaylist(playlistId)
+        musicDao.deletePlaylist(playlistId)
+        musicDao.clearPlaylistSongs(playlistId)
+        clearPlaylistSyncCache(playlistId)
+    }
+
+    suspend fun updatePlaylistArtwork(playlistId: String, localUri: String?) = withContext(Dispatchers.IO) {
+        if (!localUri.isNullOrBlank()) {
+            val uriString = localUri.trim()
+            var imageBytes: ByteArray? = null
+            var mimeType = "image/jpeg"
+
+            if (uriString.startsWith("content://", ignoreCase = true) && context != null) {
+                try {
+                    val uri = android.net.Uri.parse(uriString)
+                    mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                    imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                } catch (e: Exception) {
+                    Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
+                }
+            } else {
+                val filePath = if (uriString.startsWith("file://", ignoreCase = true)) {
+                    uriString.removePrefix("file://")
+                } else {
+                    uriString
+                }
+                val file = java.io.File(filePath)
+                if (file.exists()) {
+                    imageBytes = file.readBytes()
+                    val isPng = file.extension.equals("png", ignoreCase = true)
+                    mimeType = if (isPng) "image/png" else "image/jpeg"
+                } else if (context != null && uriString.startsWith("content://", ignoreCase = true)) {
+                    try {
+                        val uri = android.net.Uri.parse(uriString)
+                        mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                        imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    } catch (e: Exception) {
+                        Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
+                    }
+                }
+            }
+
+            if (imageBytes != null && imageBytes.isNotEmpty()) {
+                val mediaType = mimeType.toMediaTypeOrNull() ?: "image/jpeg".toMediaType()
+                val requestBody = okhttp3.RequestBody.create(mediaType, imageBytes)
+                val uploaded = apiService.uploadPlaylistCover(playlistId, requestBody)
+                val freshUploaded = uploaded.copy(createdAt = System.currentTimeMillis().toString())
+                musicDao.insertPlaylist(freshUploaded.toEntity())
+            } else {
+                throw java.io.IOException("Could not read image file or content URI: $localUri")
+            }
+        } else {
+            // Even if localUri is blank (clearing cover), update timestamp
+            try {
+                val localPl = musicDao.getPlaylistById(playlistId)
+                if (localPl != null) {
+                    val req = UpdatePlaylistRequest(
+                        name = localPl.name,
+                        description = localPl.description,
+                        isPublic = localPl.isPublic,
+                        coverUrl = null
+                    )
+                    val updatedRemote = apiService.updatePlaylist(playlistId, req)
+                    val freshRemote = updatedRemote.copy(createdAt = System.currentTimeMillis().toString())
+                    musicDao.insertPlaylist(freshRemote.toEntity())
+                }
+            } catch (_: Exception) {
+                musicDao.updatePlaylistCoverUrl(playlistId, null)
+            }
+        }
+    }
+
+    suspend fun addSongToPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
+        apiService.addSongToPlaylist(playlistId, AddPlaylistSongRequest(songId = songId))
+        refreshPlaylistDetail(playlistId, force = true)
+    }
+
+    suspend fun removeSongFromPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
+        apiService.removeSongFromPlaylist(playlistId, songId)
+        musicDao.removeSongFromPlaylist(playlistId, songId)
+        refreshPlaylistDetail(playlistId, force = true)
+    }
+
+    suspend fun sharePlaylist(playlistId: String, username: String, permission: String) = withContext(Dispatchers.IO) {
+        apiService.sharePlaylist(playlistId, SharePlaylistRequest(username = username, permission = permission))
+    }
+
+    suspend fun getCollaborators(playlistId: String): List<Collaborator> = withContext(Dispatchers.IO) {
+        apiService.getCollaborators(playlistId)
+    }
+
+    suspend fun revokeShare(playlistId: String, userId: String) = withContext(Dispatchers.IO) {
+        try {
+            apiService.revokeShare(playlistId, userId)
+        } catch (_: Exception) {
+            apiService.removeCollaborator(playlistId, userId)
+        }
+    }
+
+    suspend fun refreshPlaylistDetail(playlistId: String, force: Boolean = false) = withContext(Dispatchers.IO) {
+        val trimmedId = playlistId.trim()
+        if (trimmedId.isBlank()) return@withContext
+
+        if (!force && isPlaylistFresh(trimmedId)) {
+            val localPl = musicDao.getPlaylistById(trimmedId)
+            if (localPl != null) {
+                return@withContext
+            }
+        }
+
+        try {
+            val remotePlaylist = apiService.getPlaylistById(trimmedId)
+            val songs = if (remotePlaylist.songs.isNotEmpty()) {
+                remotePlaylist.songs
+            } else {
+                apiService.getPlaylistSongs(trimmedId)
+            }
+
+            // The getPlaylistById response might not include songCount, so we derive it from the fetched songs array
+            val localPl = musicDao.getPlaylistById(trimmedId)
+            val finalCover = remotePlaylist.coverUrl ?: localPl?.coverUrl
+            val playlistWithCorrectCount = remotePlaylist.copy(
+                id = trimmedId,
+                songCount = songs.size,
+                rawCoverUrl = finalCover
+            )
+            musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
+            musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
+            markPlaylistSynced(trimmedId)
+        } catch (_: Exception) {
+            // Failed refresh must not destroy valid existing cached playlist data
+        }
+    }
+
+    fun searchFlow(query: String): Flow<SearchResult> {
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return kotlinx.coroutines.flow.flowOf(SearchResult())
+
+        return combine(
+            rawAllSongs,
+            allAlbums,
+            allArtists,
+            allPlaylists
+        ) { songs, albums, artists, playlists ->
+            val matchingSongs = songs.filter { SearchUtils.matchesSong(it, cleanQuery) }
+                .sortedBy { it.title.lowercase() }
+            val matchingArtists = artists.filter { SearchUtils.matchesArtist(it, cleanQuery) }
+                .sortedBy { it.name.lowercase() }
+            val matchingAlbums = albums.filter { SearchUtils.matchesAlbum(it, cleanQuery) }
+                .sortedBy { it.title.lowercase() }
+            val matchingPlaylists = playlists.filter { SearchUtils.matchesPlaylist(it, cleanQuery) }
+                .sortedBy { it.name.lowercase() }
+
+            SearchResult(
+                songs = matchingSongs,
+                artists = matchingArtists,
+                albums = matchingAlbums,
+                playlists = matchingPlaylists
+            )
+        }
+    }
+
+    suspend fun search(query: String): SearchResult = searchFlow(query).firstOrNull() ?: SearchResult()
+
+    private suspend fun fallbackLocalSearch(query: String): SearchResult {
+        return search(query)
+    }
+
+    suspend fun getLyricsForSong(
+        song: Song,
+        formatMode: LyricsFormatMode = LyricsFormatMode.ELRC
+    ): LyricsData = withContext(Dispatchers.IO) {
+        val cleanSongId = song.id.trim()
+        val cachedResource = musicDao.getLyricResource(cleanSongId, formatMode.name)
+        if (cachedResource != null && cachedResource.rawLyrics.isNotBlank()) {
+            val parsed = LyricsParser.parse(
+                rawText = cachedResource.rawLyrics,
+                songId = cleanSongId,
+                songDurationMs = song.durationMs,
+                mode = formatMode
+            )
+            if (parsed.lines.isNotEmpty()) {
+                return@withContext parsed
+            }
+        }
+
+        // Fetch from API
+        var rawRemote: String? = null
+        try {
+            val responseBody = apiService.getLyrics(cleanSongId)
+            rawRemote = responseBody.string()
+        } catch (_: Exception) {
+            // Fallback
+        }
+
+        val rawTextToUse = if (!rawRemote.isNullOrBlank()) rawRemote else song.lyricsText
+
+        if (!rawTextToUse.isNullOrBlank()) {
+            val hasWordTags = LyricsFormatUtils.hasWordTimingTags(rawTextToUse)
+            val isElrc = hasWordTags ||
+                LyricsFormatUtils.isElrcFile(song.effectiveElrcPath) ||
+                LyricsFormatUtils.isElrcFile(song.effectiveLrcPath)
+
+            // Cache separately for ELRC and LRC without overwriting each other
+            if (isElrc && hasWordTags) {
+                // Real eLRC available
+                musicDao.insertLyricResource(
+                    LyricResourceEntity(
+                        songId = cleanSongId,
+                        format = LyricsFormatMode.ELRC.name,
+                        rawLyrics = rawTextToUse,
+                        filePath = song.effectiveElrcPath ?: song.effectiveLrcPath
+                    )
+                )
+                // Clean standard LRC without word tags
+                val strippedLrc = LyricsFormatUtils.convertElrcToLrc(rawTextToUse)
+                musicDao.insertLyricResource(
+                    LyricResourceEntity(
+                        songId = cleanSongId,
+                        format = LyricsFormatMode.LRC.name,
+                        rawLyrics = strippedLrc,
+                        filePath = song.effectiveLrcPath ?: song.effectiveElrcPath
+                    )
+                )
+            } else {
+                // Only standard LRC available
+                musicDao.insertLyricResource(
+                    LyricResourceEntity(
+                        songId = cleanSongId,
+                        format = LyricsFormatMode.LRC.name,
+                        rawLyrics = rawTextToUse,
+                        filePath = song.effectiveLrcPath
+                    )
+                )
+            }
+
+            val parsed = LyricsParser.parse(
+                rawText = rawTextToUse,
+                songId = cleanSongId,
+                songDurationMs = song.durationMs,
+                mode = formatMode
+            )
+            return@withContext parsed
+        }
+
+        LyricsParser.parse(
+            rawText = "",
+            songId = cleanSongId,
+            songDurationMs = song.durationMs,
+            mode = formatMode
+        )
+    }
+
+    suspend fun getLyricsText(songId: String): String = withContext(Dispatchers.IO) {
+        try {
+            val responseBody = apiService.getLyrics(songId)
+            return@withContext responseBody.string()
+        } catch (e: Exception) {
+            ""
+        }
+    }
+
+    suspend fun updateLyrics(songId: String, lrcText: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val body = okhttp3.RequestBody.create("text/plain; charset=utf-8".toMediaType(), lrcText)
+            try {
+                apiService.updateLyrics(songId, body)
+            } catch (e: HttpException) {
+                if (e.code() == 404 || e.code() == 405) {
+                    try {
+                        apiService.createLyrics(songId, body)
+                    } catch (e2: HttpException) {
+                        if (e2.code() == 404 || e2.code() == 405) {
+                            apiService.patchLyrics(songId, body)
+                        } else {
+                            throw e2
+                        }
+                    }
+                } else {
+                    throw e
+                }
+            }
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteLrc(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            apiService.deleteLrc(songId)
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun deleteSong(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            apiService.deleteSong(songId)
+            musicDao.deleteSongById(songId)
+            musicDao.cleanOrphanPlaylistSongs()
+            musicDao.cleanOrphanPlayHistory()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun getLyricsOffset(songId: String): Long? = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.getLyricsOffset(songId)
+            return@withContext response.lyricOffset
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    suspend fun updateLyricsOffset(songId: String, offsetMs: Long) = withContext(Dispatchers.IO) {
+        try {
+            apiService.updateLyricsOffset(songId, com.example.data.models.UpdateLyricsOffsetRequest(offsetMs))
+            val song = getSongById(songId)
+            if (song != null) {
+                musicDao.upsertSong(song.copy(lyricOffset = offsetMs).toEntity())
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private suspend fun fetchAllRemoteSongs(): Pair<List<Song>?, Boolean> {
+        val accumulatedSongs = mutableListOf<Song>()
+        val seenIds = mutableSetOf<String>()
+        var currentPage = 1
+        val pageSize = 100
+        val maxPages = 1000
+        var isComplete = true
+
+        while (currentPage <= maxPages) {
+            val pageSongs = try {
+                apiService.getSongs(page = currentPage, limit = pageSize)
+            } catch (e: Exception) {
+                if (e is retrofit2.HttpException && e.code() == 401) {
+                    Log.w("MusicRepository", "Unauthorized request (HTTP 401) on page $currentPage. Token is likely expired or invalid.")
+                } else {
+                    Log.e("MusicRepository", "Failed to fetch songs page $currentPage: ${e.message}")
+                }
+                if (currentPage == 1) {
+                    return Pair(null, false)
+                } else {
+                    isComplete = false
+                    break
+                }
+            }
+
+            if (pageSongs.isEmpty()) {
+                break
+            }
+
+            var newItemsCount = 0
+            for (song in pageSongs) {
+                if (song.id.isNotBlank() && seenIds.add(song.id.trim())) {
+                    accumulatedSongs.add(song)
+                    newItemsCount++
+                }
+            }
+
+            if (newItemsCount == 0) {
+                break
+            }
+
+            if (pageSongs.size < pageSize) {
+                break
+            }
+
+            currentPage++
+        }
+
+        return Pair(accumulatedSongs, isComplete)
+    }
+
+    suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
+        val token = preferencesManager?.authTokenFlow?.firstOrNull()
+        if (preferencesManager != null && token.isNullOrBlank()) {
+            Log.i("MusicRepository", "Skipping backend sync because user is not authenticated.")
+            return@withContext Result.success(Unit)
+        }
+        try {
+            // Concurrent execution of independent network requests using structured concurrency
+            val (remoteSongs, isCompleteSync, remoteFavorites, remoteAlbums, remoteArtists, remotePlaylists) = coroutineScope {
+                val songsDeferred = async { fetchAllRemoteSongs() }
+                val favoritesDeferred = async {
+                    try {
+                        apiService.getFavorites()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                val albumsDeferred = async {
+                    try {
+                        apiService.getAlbums()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                val artistsDeferred = async {
+                    try {
+                        apiService.getArtists()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                val playlistsDeferred = async {
+                    try {
+                        apiService.getPlaylists()
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+
+                val songsResult = songsDeferred.await()
+                SyncBatch(
+                    remoteSongs = songsResult.first,
+                    isCompleteSync = songsResult.second,
+                    remoteFavorites = favoritesDeferred.await(),
+                    remoteAlbums = albumsDeferred.await(),
+                    remoteArtists = artistsDeferred.await(),
+                    remotePlaylists = playlistsDeferred.await()
+                )
+            }
+
+            // 1. Process and persist songs
+            if (remoteSongs != null) {
+                val cleanSongs = remoteSongs
+                    .filter { it.id.isNotBlank() }
+                    .distinctBy { it.id.trim() }
+
+                if (cleanSongs.isNotEmpty()) {
+                    musicDao.upsertSongs(cleanSongs.map { it.toEntity() })
+                    if (isCompleteSync) {
+                        val validIds = cleanSongs.map { it.id.trim() }
+                        musicDao.deleteStaleSongs(validIds)
+                        musicDao.cleanOrphanPlaylistSongs()
+                        musicDao.cleanOrphanPlayHistory()
+                    }
+                } else if (isCompleteSync) {
+                    // Server explicitly returned empty list and sync was complete
+                    musicDao.deleteStaleSongs(emptyList())
+                    musicDao.cleanOrphanPlaylistSongs()
+                    musicDao.cleanOrphanPlayHistory()
+                }
+            }
+
+            // 2. Process and persist favorites
+            if (!remoteFavorites.isNullOrEmpty()) {
+                val favIds = remoteFavorites.map { it.id.trim() }.filter { it.isNotBlank() }
+                if (favIds.isNotEmpty()) {
+                    musicDao.setFavorites(favIds)
+                }
+            }
+
+            // 3. Process and persist albums
+            if (remoteAlbums != null) {
+                val cleanAlbums = remoteAlbums.filter { it.id.isNotBlank() }.distinctBy { it.id.trim() }
+                if (cleanAlbums.isNotEmpty()) {
+                    musicDao.insertAlbums(cleanAlbums.map { it.toEntity() })
+                    musicDao.deleteStaleAlbums(cleanAlbums.map { it.id.trim() })
+                } else if (remoteSongs != null && remoteSongs.isNotEmpty()) {
+                    val derived = deriveAlbumsFromSongs(remoteSongs)
+                    if (derived.isNotEmpty()) {
+                        musicDao.insertAlbums(derived.map { it.toEntity() })
+                        musicDao.deleteStaleAlbums(derived.map { it.id.trim() })
+                    }
+                }
+            }
+
+            // 4. Process and persist artists
+            if (remoteArtists != null) {
+                val cleanArtists = remoteArtists.filter { it.id.isNotBlank() }.distinctBy { it.id.trim() }
+                if (cleanArtists.isNotEmpty()) {
+                    musicDao.insertArtists(cleanArtists.map { it.toEntity() })
+                    musicDao.deleteStaleArtists(cleanArtists.map { it.id.trim() })
+                } else if (remoteSongs != null && remoteSongs.isNotEmpty()) {
+                    val derived = deriveArtistsFromSongs(remoteSongs)
+                    if (derived.isNotEmpty()) {
+                        musicDao.insertArtists(derived.map { it.toEntity() })
+                        musicDao.deleteStaleArtists(derived.map { it.id.trim() })
+                    }
+                }
+            }
+
+            // 5. Process and persist playlists (dependency on getPlaylists strictly preserved)
+            if (remotePlaylists != null) {
+                val validIds = remotePlaylists.map { it.id.trim() }.filter { it.isNotBlank() }
+                musicDao.deleteStalePlaylists(validIds)
+                for (pl in remotePlaylists) {
+                    val localPl = musicDao.getPlaylistById(pl.id.trim())
+                    val finalCover = pl.coverUrl ?: localPl?.coverUrl
+                    val plToInsert = pl.copy(id = pl.id.trim(), rawCoverUrl = finalCover)
+                    musicDao.insertPlaylist(plToInsert.toEntity())
+                    if (pl.songs.isNotEmpty()) {
+                        musicDao.syncPlaylistSongs(pl.id.trim(), pl.songs.map { it.toEntity() })
+                        markPlaylistSynced(pl.id.trim())
+                    } else {
+                        try {
+                            val plSongs = apiService.getPlaylistSongs(pl.id.trim())
+                            musicDao.syncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
+                            markPlaylistSynced(pl.id.trim())
+                        } catch (_: Exception) {}
+                    }
+                }
+            }
+
+            Result.success(Unit)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun clearLocalCache() = withContext(Dispatchers.IO) {
+        try {
+            musicDao.deleteStaleSongs(emptyList())
+            musicDao.deleteStaleAlbums(emptyList())
+            musicDao.deleteStaleArtists(emptyList())
+            musicDao.deleteStalePlaylists(emptyList())
+            musicDao.clearAllFavorites()
+            musicDao.clearHistory()
+        } catch (e: Exception) {
+            Log.e("MusicRepository", "Failed to clear local DB cache on logout: ${e.message}", e)
+        }
+    }
+
+    companion object {
+        const val PLAYLIST_FRESHNESS_WINDOW_MS = 5 * 60 * 1000L // 5 minutes
+
+        fun parseArtists(rawArtist: String): Set<String> {
+            if (rawArtist.isBlank()) return emptySet()
+            return rawArtist
+                .split(Regex("(?i)[;,/&]|\\b(?:feat\\.?|ft\\.?|featuring|vs\\.?|with)\\b"))
+                .map { it.trim().lowercase() }
+                .filter { it.isNotBlank() }
+                .toSet()
+        }
+
+        fun cleanSongTitle(title: String): String {
+            if (title.isBlank()) return ""
+            var cleaned = title
+            // Strip file extension if present
+            cleaned = cleaned.replace(Regex("(?i)\\.(?:mp3|flac|wav|m4a|aac|ogg|opus|wma)$"), "")
+
+            // 1. Remove bracketed / parenthesized instrumental or karaoke tags
+            cleaned = cleaned.replace(
+                Regex("(?i)\\s*[\\[\\(](?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental\\s+mix|instrumental|karaoke\\s+version|karaoke|backing\\s+track|off\\s+vocal|vocal\\s+off|inst\\.|inst)[\\]\\)]"),
+                ""
+            )
+            // 2. Remove dash separated instrumental or karaoke tags
+            cleaned = cleaned.replace(
+                Regex("(?i)\\s*-\\s*(?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental\\s+mix|instrumental|karaoke\\s+version|karaoke|backing\\s+track|off\\s+vocal|vocal\\s+off|inst\\.|inst)"),
+                ""
+            )
+            // 3. Remove trailing instrumental tags
+            cleaned = cleaned.replace(
+                Regex("(?i)\\s+(?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental\\s+mix|instrumental|karaoke\\s+version|karaoke|backing\\s+track|off\\s+vocal|vocal\\s+off|inst\\.|inst)$"),
+                ""
+            )
+            return cleaned.replace(Regex("\\s+"), " ").trim().lowercase()
+        }
+
+        fun cleanAlbumTitle(album: String): String {
+            if (album.isBlank()) return ""
+            var cleaned = cleanSongTitle(album)
+            cleaned = cleaned
+                .replace(Regex("(?i)\\s*[\\[\\(]single[\\]\\)]"), "")
+                .replace(Regex("(?i)\\s*-\\s*single"), "")
+                .replace(Regex("(?i)\\s+single$"), "")
+                .trim()
+            return cleaned
+        }
+
+        fun extractBaseFilename(path: String?): String {
+            if (path.isNullOrBlank()) return ""
+            val name = path.substringAfterLast('/').substringAfterLast('\\')
+            return cleanSongTitle(name)
+        }
+
+        fun isTitleMatching(title1: String, title2: String): Boolean {
+            val t1 = cleanSongTitle(title1)
+            val t2 = cleanSongTitle(title2)
+            if (t1.isBlank() || t2.isBlank()) return false
+            if (t1 == t2) return true
+
+            val sub1 = t1.substringAfterLast(" - ").trim()
+            val sub2 = t2.substringAfterLast(" - ").trim()
+            if (sub1.isNotBlank() && (sub1 == t2 || sub1 == sub2)) return true
+            if (sub2.isNotBlank() && (sub2 == t1 || sub2 == sub1)) return true
+
+            return false
+        }
+
+        fun isArtistsMatching(mainArtists: Set<String>, candArtists: Set<String>): Boolean {
+            if (mainArtists.isEmpty() || candArtists.isEmpty()) return true
+            if (mainArtists == candArtists) return true
+            if (mainArtists.intersect(candArtists).isNotEmpty()) return true
+            return mainArtists.any { m ->
+                candArtists.any { c ->
+                    m == c || (m.length > 3 && c.contains(m)) || (c.length > 3 && m.contains(c))
+                }
+            }
+        }
+
+        fun isAlbumsMatching(mainAlbum: String, candAlbum: String): Boolean {
+            val cleanMain = cleanAlbumTitle(mainAlbum)
+            val cleanCand = cleanAlbumTitle(candAlbum)
+            if (cleanMain.isBlank() || cleanCand.isBlank()) return true
+            if (cleanMain == "singles" || cleanCand == "singles" || cleanMain == "unknown" || cleanCand == "unknown") return true
+            if (cleanCand.contains("instrumental") || cleanCand == "instrumentals") return true
+            if (cleanMain == cleanCand) return true
+            if (cleanMain.contains(cleanCand) || cleanCand.contains(cleanMain)) return true
+            return true
+        }
+
+        fun findMatchingInstrumental(mainSong: Song, allSongsList: List<Song>): Song? {
+            if (allSongsList.isEmpty()) return null
+
+            // 1. Explicit ID link
+            if (!mainSong.instrumentalSongId.isNullOrBlank()) {
+                val found = allSongsList.find { it.id == mainSong.instrumentalSongId }
+                if (found != null) return found
+            }
+            val reverseFound = allSongsList.find { it.instrumentalSongId == mainSong.id && it.isInstrumentalTrack }
+            if (reverseFound != null) return reverseFound
+
+            val cleanMainTitle = cleanSongTitle(mainSong.title)
+            val mainArtists = parseArtists(mainSong.artist)
+            val mainBaseFile = extractBaseFilename(mainSong.mainAudioPath ?: mainSong.explicitAudioUrl)
+
+            // 2. Exact match by audio filename stem (e.g. "Song.mp3" vs "Song [Instrumental].mp3")
+            if (mainBaseFile.isNotBlank()) {
+                val fileMatch = allSongsList.firstOrNull { candidate ->
+                    if (candidate.id == mainSong.id) return@firstOrNull false
+                    if (!candidate.isInstrumentalTrack) return@firstOrNull false
+                    val candBaseFile = extractBaseFilename(candidate.mainAudioPath ?: candidate.explicitAudioUrl)
+                    candBaseFile.isNotBlank() && (candBaseFile == mainBaseFile || isTitleMatching(mainBaseFile, candBaseFile))
+                }
+                if (fileMatch != null) return fileMatch
+            }
+
+            // 3. Match by Title & Artist
+            if (cleanMainTitle.isBlank()) return null
+
+            return allSongsList.firstOrNull { candidate ->
+                if (candidate.id == mainSong.id) return@firstOrNull false
+                if (!candidate.isInstrumentalTrack) return@firstOrNull false
+
+                val candArtists = parseArtists(candidate.artist)
+                val artistsMatch = isArtistsMatching(mainArtists, candArtists)
+                if (!artistsMatch) return@firstOrNull false
+
+                val cleanCandTitle = cleanSongTitle(candidate.title)
+                val titlesMatch = isTitleMatching(cleanMainTitle, cleanCandTitle)
+                if (!titlesMatch) return@firstOrNull false
+
+                val albumsMatch = isAlbumsMatching(mainSong.album, candidate.album)
+                albumsMatch
+            }
+        }
+
+        fun findMatchingNormalSong(instrumentalSong: Song, allSongsList: List<Song>): Song? {
+            if (allSongsList.isEmpty()) return null
+
+            // 1. Explicit ID link
+            if (!instrumentalSong.instrumentalSongId.isNullOrBlank()) {
+                val found = allSongsList.find { it.id == instrumentalSong.instrumentalSongId }
+                if (found != null && !found.isInstrumentalTrack) return found
+            }
+            val reverseFound = allSongsList.find { it.instrumentalSongId == instrumentalSong.id && !it.isInstrumentalTrack }
+            if (reverseFound != null) return reverseFound
+
+            val cleanInstTitle = cleanSongTitle(instrumentalSong.title)
+            val instArtists = parseArtists(instrumentalSong.artist)
+            val instBaseFile = extractBaseFilename(instrumentalSong.mainAudioPath ?: instrumentalSong.explicitAudioUrl)
+
+            // 2. Exact match by audio filename stem
+            if (instBaseFile.isNotBlank()) {
+                val fileMatch = allSongsList.firstOrNull { candidate ->
+                    if (candidate.id == instrumentalSong.id) return@firstOrNull false
+                    if (candidate.isInstrumentalTrack) return@firstOrNull false
+                    val candBaseFile = extractBaseFilename(candidate.mainAudioPath ?: candidate.explicitAudioUrl)
+                    candBaseFile.isNotBlank() && (candBaseFile == instBaseFile || isTitleMatching(instBaseFile, candBaseFile))
+                }
+                if (fileMatch != null) return fileMatch
+            }
+
+            // 3. Match by Title & Artist
+            if (cleanInstTitle.isBlank()) return null
+
+            return allSongsList.firstOrNull { candidate ->
+                if (candidate.id == instrumentalSong.id) return@firstOrNull false
+                if (candidate.isInstrumentalTrack) return@firstOrNull false
+
+                val candArtists = parseArtists(candidate.artist)
+                val artistsMatch = isArtistsMatching(instArtists, candArtists)
+                if (!artistsMatch) return@firstOrNull false
+
+                val cleanCandTitle = cleanSongTitle(candidate.title)
+                val titlesMatch = isTitleMatching(cleanInstTitle, cleanCandTitle)
+                if (!titlesMatch) return@firstOrNull false
+
+                val albumsMatch = isAlbumsMatching(instrumentalSong.album, candidate.album)
+                albumsMatch
+            }
+        }
+
+        fun deriveArtistsFromSongs(songs: List<Song>): List<Artist> {
+            if (songs.isEmpty()) return emptyList()
+
+            val artistMap = LinkedHashMap<String, MutableList<Song>>()
+            val canonicalNames = mutableMapOf<String, String>()
+
+            for (song in songs) {
+                if (song.isInstrumentalTrack) continue
+                val rawArtist = song.artist.trim()
+                if (rawArtist.isNotBlank()) {
+                    val individualArtists = rawArtist.split(';')
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+
+                    if (individualArtists.isEmpty()) {
+                        val key = rawArtist.lowercase()
+                        artistMap.getOrPut(key) { mutableListOf() }.add(song)
+                        canonicalNames.putIfAbsent(key, rawArtist)
+                    } else {
+                        for (individual in individualArtists) {
+                            val key = individual.lowercase()
+                            artistMap.getOrPut(key) { mutableListOf() }.add(song)
+                            canonicalNames.putIfAbsent(key, individual)
+                        }
+                    }
+                }
+            }
+
+            return artistMap.map { (key, artistSongs) ->
+                val canonicalName = canonicalNames[key] ?: key
+                val artwork = artistSongs.firstNotNullOfOrNull { s ->
+                    s.explicitArtworkUrl?.takeIf { it.isNotBlank() } ?: s.artworkUrl?.takeIf { it.isNotBlank() }
+                }
+                val genres = artistSongs.mapNotNull { it.genre?.trim() }.filter { it.isNotBlank() }.distinct()
+                val artistId = "art_" + Math.abs(key.hashCode()).toString(16)
+
+                Artist(
+                    id = artistId,
+                    name = canonicalName,
+                    explicitAvatarUrl = artwork,
+                    songCount = artistSongs.size,
+                    genres = genres
+                )
+            }.sortedBy { it.name.lowercase() }
+        }
+
+        fun deriveAlbumsFromSongs(songs: List<Song>): List<Album> {
+            if (songs.isEmpty()) return emptyList()
+
+            val albumMap = LinkedHashMap<String, MutableList<Song>>()
+            for (song in songs) {
+                if (song.isInstrumentalTrack) continue
+                val rawAlbum = song.album.trim()
+                val albumKey = if (rawAlbum.isNotBlank()) {
+                    rawAlbum.lowercase()
+                } else {
+                    "${song.title.trim().lowercase()}_single"
+                }
+                albumMap.getOrPut(albumKey) { mutableListOf() }.add(song)
+            }
+
+            return albumMap.map { (_, albumSongs) ->
+                val firstSong = albumSongs.first()
+                val hasAlbumName = firstSong.album.trim().isNotBlank()
+                val canonicalTitle = if (hasAlbumName) {
+                    albumSongs.firstNotNullOfOrNull { it.album.takeIf { a -> a.isNotBlank() } }?.trim() ?: firstSong.title
+                } else {
+                    "${firstSong.title.trim()} (Single)"
+                }
+
+                val distinctArtists = albumSongs.mapNotNull { it.artist.takeIf { a -> a.isNotBlank() }?.trim() }.distinct()
+                val canonicalArtist = when {
+                    distinctArtists.isEmpty() -> "Unknown Artist"
+                    distinctArtists.size == 1 -> distinctArtists.first()
+                    distinctArtists.size > 2 -> "Various Artists"
+                    else -> distinctArtists.joinToString(", ")
+                }
+
+                val artwork = albumSongs.firstNotNullOfOrNull { s ->
+                    s.explicitArtworkUrl?.takeIf { it.isNotBlank() } ?: s.artworkUrl?.takeIf { it.isNotBlank() }
+                }
+
+                val year = albumSongs.firstNotNullOfOrNull { it.year }
+                val genre = albumSongs.firstNotNullOfOrNull { it.genre?.takeIf { g -> g.isNotBlank() } }
+                val albumId = "alb_" + Math.abs((canonicalTitle.lowercase() + "_" + canonicalArtist.lowercase()).hashCode()).toString(16)
+
+                Album(
+                    id = albumId,
+                    title = canonicalTitle,
+                    artist = canonicalArtist,
+                    explicitArtworkUrl = artwork,
+                    year = year,
+                    genre = genre,
+                    songCount = albumSongs.size,
+                    description = "${albumSongs.size} tracks"
+                )
+            }.sortedBy { it.title.lowercase() }
+        }
+
+        private fun mergeAlbums(primary: List<Album>, fallback: List<Album>): List<Album> {
+            val map = LinkedHashMap<String, Album>()
+            for (album in primary) {
+                map[album.title.trim().lowercase()] = album
+            }
+            for (album in fallback) {
+                val key = album.title.trim().lowercase()
+                if (!map.containsKey(key)) {
+                    map[key] = album
+                }
+            }
+            return map.values.toList().sortedBy { it.title.lowercase() }
+        }
+
+        private fun mergeArtists(primary: List<Artist>, fallback: List<Artist>): List<Artist> {
+            val map = LinkedHashMap<String, Artist>()
+            for (artist in primary) {
+                map[artist.name.trim().lowercase()] = artist
+            }
+            for (artist in fallback) {
+                val key = artist.name.trim().lowercase()
+                if (!map.containsKey(key)) {
+                    map[key] = artist
+                }
+            }
+            return map.values.toList().sortedBy { it.name.lowercase() }
+        }
+    }
+}

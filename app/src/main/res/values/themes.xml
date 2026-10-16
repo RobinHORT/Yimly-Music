@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme -->
+    <style name="Theme.MyApplication" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/yimly_dark_bg</item>
+        <item name="android:statusBarColor">@color/yimly_dark_bg</item>
+        <item name="android:navigationBarColor">@color/yimly_dark_bg</item>
+    </style>
+
+    <!-- Android 12+ Official SplashScreen Theme -->
+    <style name="Theme.App.Starting" parent="Theme.SplashScreen">
+        <!-- Background color of the splash screen -->
+        <item name="windowSplashScreenBackground">@color/yimly_dark_bg</item>
+        <!-- Center icon of the splash screen -->
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_logo</item>
+        <!-- Icon background color -->
+        <item name="windowSplashScreenIconBackgroundColor">@color/yimly_dark_bg</item>
+        <!-- Theme to transition to after splash screen finishes -->
+        <item name="postSplashScreenTheme">@style/Theme.MyApplication</item>
+    </style>
+</resources>

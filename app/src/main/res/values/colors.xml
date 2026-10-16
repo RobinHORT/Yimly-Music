@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="yimly_pink">#FF4FA3</color>
+    <color name="yimly_pink_hover">#FF6EB3</color>
+    <color name="yimly_pink_dark">#E0378B</color>
+    <color name="yimly_dark_bg">#0A0B10</color>
+    <color name="yimly_card_bg">#141622</color>
+    <color name="yimly_card_border">#25283C</color>
+    <color name="black">#08090E</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
