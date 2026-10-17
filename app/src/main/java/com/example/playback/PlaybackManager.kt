@@ -122,7 +122,7 @@ class PlaybackManager(
         get() = transitionWakeLock?.isHeld == true
 
     @Synchronized
-    internal fun acquireTransitionWakeLock(timeoutMs: Long = 10000L) {
+    internal fun acquireTransitionWakeLock(timeoutMs: Long = 30000L) {
         try {
             val lock = transitionWakeLock ?: return
             if (!lock.isHeld) {
@@ -550,7 +550,8 @@ class PlaybackManager(
     private fun playCurrentQueueIndex() {
         if (currentQueue.isEmpty() || currentIndex !in currentQueue.indices) return
 
-        acquireTransitionWakeLock(10000L)
+        acquireTransitionWakeLock(30000L)
+        startPlaybackService()
         isWaitingForNetworkRecovery = false
         recoveryJob?.cancel()
         recoveryAttemptCount = 0
@@ -844,7 +845,7 @@ class PlaybackManager(
     }
 
     private fun handleSongEnded() {
-        acquireTransitionWakeLock(10000L)
+        acquireTransitionWakeLock(30000L)
         when (_playbackInfo.value.repeatMode) {
             RepeatMode.ONE -> {
                 exoPlayer?.seekTo(0L)
