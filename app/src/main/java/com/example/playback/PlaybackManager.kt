@@ -140,7 +140,7 @@ class PlaybackManager(
             val lock = transitionWakeLock ?: return
             if (lock.isHeld) {
                 lock.release()
-                Log.d("PlaybackManager", "Transition WakeLock released")
+                Log.d("PlaybackManager", "Transition WakeLock released, activeThreads=" + Thread.activeCount())
             }
         } catch (e: Exception) {
             Log.w("PlaybackManager", "Failed to release transition WakeLock: ${e.message}")
@@ -230,7 +230,7 @@ class PlaybackManager(
                 true
             )
             .setHandleAudioBecomingNoisy(true)
-            .setWakeMode(C.WAKE_MODE_LOCAL)
+            .setWakeMode(C.WAKE_MODE_NETWORK)
             .setUsePlatformDiagnostics(false)
             .build()
 
@@ -243,6 +243,7 @@ class PlaybackManager(
 
         player.addListener(object : Player.Listener {
             override fun onIsPlayingChanged(isPlaying: Boolean) {
+                Log.d("PlaybackManager", "onIsPlayingChanged: isPlaying=" + isPlaying)
                 if (isPlaying) {
                     releaseTransitionWakeLock()
                 }
@@ -255,6 +256,7 @@ class PlaybackManager(
             }
 
             override fun onPlaybackStateChanged(playbackState: Int) {
+                Log.d("PlaybackManager", "onPlaybackStateChanged: state=" + playbackState)
                 when (playbackState) {
                     Player.STATE_BUFFERING -> {
                         updatePlaybackState { it.copy(isBuffering = true) }
@@ -279,6 +281,7 @@ class PlaybackManager(
             }
 
             override fun onPlayerError(error: PlaybackException) {
+                Log.d("PlaybackManager", "onPlayerError: error=" + error.message)
                 handlePlayerError(error)
             }
         })
@@ -550,6 +553,7 @@ class PlaybackManager(
     private fun playCurrentQueueIndex() {
         if (currentQueue.isEmpty() || currentIndex !in currentQueue.indices) return
 
+        Log.d("PlaybackManager", "playCurrentQueueIndex: songId=" + currentQueue[currentIndex].id)
         acquireTransitionWakeLock(30000L)
         startPlaybackService()
         isWaitingForNetworkRecovery = false
@@ -561,7 +565,7 @@ class PlaybackManager(
         val wantInstrumental = isInstrumentalPreferred
 
         instrumentalResolutionJob?.cancel()
-        instrumentalResolutionJob = coroutineScope.launch {
+        instrumentalResolutionJob = coroutineScope.launch(Dispatchers.IO) {
             try {
                 val resolved = musicRepository.resolvePlayableTrack(song, wantInstrumental)
                 currentNormalAudioUrl = resolved.normalUrl
@@ -569,6 +573,7 @@ class PlaybackManager(
 
                 val resolvedArtworkUrl = getResolvedArtworkUrl(song)
 
+                Log.d("PlaybackManager", "URL resolved for songId=" + song.id + ", url=" + resolved.playableUrl)
                 withContext(Dispatchers.Main) {
                     val newUri = Uri.parse(resolved.playableUrl)
                     val mediaMetadata = MediaMetadata.Builder()
@@ -595,7 +600,7 @@ class PlaybackManager(
 
                     player.setMediaItem(mediaItem)
                     player.prepare()
-                    startPlaybackService()
+                    Log.d("PlaybackManager", "Player prepared and play requested for songId=" + song.id)
                     player.play()
 
                     updatePlaybackState {
@@ -689,7 +694,7 @@ class PlaybackManager(
         Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_NEW_STATE isInstrumentalPreferred: $newIsInstrumental")
 
         instrumentalResolutionJob?.cancel()
-        instrumentalResolutionJob = coroutineScope.launch {
+        instrumentalResolutionJob = coroutineScope.launch(Dispatchers.IO) {
             val resolved = musicRepository.resolvePlayableTrack(currentSong, newIsInstrumental)
             Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_RESOLVED_URL = ${resolved.playableUrl}")
 
