@@ -18,6 +18,9 @@ import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Repeat
+import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -49,6 +52,7 @@ import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.LyricsFormatMode
 import com.example.data.models.Song
+import com.example.playback.RepeatMode
 import com.example.ui.components.YimlyMicIcon
 import com.example.ui.lyrics.LyricsView
 import com.example.ui.theme.BackgroundDark
@@ -64,12 +68,16 @@ fun FullscreenLyricsDialog(
     currentPositionMs: Long,
     durationMs: Long,
     isPlaying: Boolean,
+    isShuffle: Boolean,
+    repeatMode: RepeatMode,
     songOffsetMs: Long,
     lyricsConfig: LyricsDisplayConfig,
     onDismiss: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onPrevious: () -> Unit,
     onNext: () -> Unit,
+    onToggleShuffle: () -> Unit,
+    onCycleRepeatMode: () -> Unit,
     onSeekTo: (Long) -> Unit,
     onOpenSettings: () -> Unit,
     onLyricsOffsetChange: (Long) -> Unit,
@@ -247,17 +255,33 @@ fun FullscreenLyricsDialog(
                 }
 
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp),
-                    horizontalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 8.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onPrevious, modifier = Modifier.size(60.dp)) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous track",
+                    IconButton(onClick = onToggleShuffle, modifier = Modifier.size(48.dp)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = Icons.Default.Shuffle,
+                                contentDescription = "Shuffle",
+                                tint = if (isShuffle) YimlyPink else TextSecondaryDark,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            if (isShuffle) {
+                                Box(Modifier.size(4.dp).clip(CircleShape).background(YimlyPink))
+                            }
+                        }
+                    }
+
+                    IconButton(onClick = onPrevious, modifier = Modifier.size(54.dp)) {
+                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous",
                             tint = TextPrimaryDark, modifier = Modifier.size(36.dp))
                     }
-                    Spacer(Modifier.size(22.dp))
+
                     Box(
-                        modifier = Modifier.size(70.dp).clip(CircleShape).background(YimlyPink),
+                        modifier = Modifier.size(68.dp).clip(CircleShape).background(YimlyPink),
                         contentAlignment = Alignment.Center
                     ) {
                         IconButton(onClick = onTogglePlayPause, modifier = Modifier.fillMaxSize()) {
@@ -265,14 +289,28 @@ fun FullscreenLyricsDialog(
                                 imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (isPlaying) "Pause" else "Play",
                                 tint = Color.White,
-                                modifier = Modifier.size(40.dp)
+                                modifier = Modifier.size(38.dp)
                             )
                         }
                     }
-                    Spacer(Modifier.size(22.dp))
-                    IconButton(onClick = onNext, modifier = Modifier.size(60.dp)) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next track",
+
+                    IconButton(onClick = onNext, modifier = Modifier.size(54.dp)) {
+                        Icon(Icons.Default.SkipNext, contentDescription = "Next",
                             tint = TextPrimaryDark, modifier = Modifier.size(36.dp))
+                    }
+
+                    IconButton(onClick = onCycleRepeatMode, modifier = Modifier.size(48.dp)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(
+                                imageVector = if (repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                                contentDescription = "Repeat",
+                                tint = if (repeatMode != RepeatMode.OFF) YimlyPink else TextSecondaryDark,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            if (repeatMode != RepeatMode.OFF) {
+                                Box(Modifier.size(4.dp).clip(CircleShape).background(YimlyPink))
+                            }
+                        }
                     }
                 }
             }
