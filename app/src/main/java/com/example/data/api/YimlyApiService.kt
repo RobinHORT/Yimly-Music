@@ -16,6 +16,7 @@ import com.example.data.models.Song
 import com.example.data.models.UpdatePlaylistRequest
 import com.example.data.models.UserProfile
 import com.example.data.models.YimlySession
+import okhttp3.ResponseBody
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -42,7 +43,7 @@ interface YimlyApiService {
         @Query("q") query: String? = null,
         @Query("page") page: Int? = null,
         @Query("limit") limit: Int? = null
-    ): Any
+    ): ResponseBody
 
     @GET("api/songs/{id}")
     suspend fun getSongById(@Path("id") id: String): Song
