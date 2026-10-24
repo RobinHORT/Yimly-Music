@@ -133,6 +133,7 @@ fun FullPlayerScreen(
     var selectedTab by remember { mutableIntStateOf(0) } // 0 = Player, 1 = Lyrics, 2 = Queue
     var showLyricsSettings by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
+    var showFullscreenLyrics by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedTab) {
         onSetLyricsActive(selectedTab == 1)
@@ -162,6 +163,29 @@ fun FullPlayerScreen(
             initialConfig = lyricsConfig,
             onDismiss = { showLyricsSettings = false },
             onSaveConfig = onSaveLyricsConfig
+        )
+    }
+
+    if (showFullscreenLyrics) {
+        FullscreenLyricsDialog(
+            song = song,
+            lyricsData = lyricsData,
+            currentPositionMs = currentPos,
+            durationMs = totalDuration,
+            isPlaying = playbackInfo.isPlaying,
+            songOffsetMs = songOffsetMs,
+            lyricsConfig = lyricsConfig,
+            onDismiss = { showFullscreenLyrics = false },
+            onTogglePlayPause = onTogglePlayPause,
+            onPrevious = onPrevious,
+            onNext = onNext,
+            onSeekTo = onSeekTo,
+            onOpenSettings = {
+                showFullscreenLyrics = false
+                showLyricsSettings = true
+            },
+            onLyricsOffsetChange = onLyricsOffsetChange,
+            onSaveLyricsConfig = onSaveLyricsConfig
         )
     }
 
@@ -271,6 +295,13 @@ fun FullPlayerScreen(
                             onClick = {
                                 menuExpanded = false
                                 showLyricsSettings = true
+                            }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("Open Full-screen Lyrics", color = TextPrimaryDark) },
+                            onClick = {
+                                menuExpanded = false
+                                showFullscreenLyrics = true
                             }
                         )
                     }
