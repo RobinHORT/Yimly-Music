@@ -38,6 +38,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.UUID
+import java.io.IOException
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import okhttp3.ResponseBody
 
 private data class SyncBatch(
     val remoteSongs: List<Song>?,
@@ -66,6 +70,47 @@ class MusicRepository(
 ) {
 
     private val playlistLastSyncTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    private val songResponseMoshi: Moshi by lazy {
+        Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+    }
+    private val anyJsonAdapter by lazy { songResponseMoshi.adapter(Any::class.java) }
+    private val songJsonAdapter by lazy { songResponseMoshi.adapter(Song::class.java) }
+
+    /**
+     * Decode the API's supported array/envelope formats into typed Song objects.
+     * An unknown or partially malformed payload throws so a bad response cannot be
+     * mistaken for a complete empty library sync.
+     */
+    private fun parseSongPage(responseBody: ResponseBody): List<Song> {
+        val payload = anyJsonAdapter.fromJson(responseBody.string())
+            ?: throw IOException("Song API returned an empty JSON payload")
+
+        fun findItems(value: Any?, depth: Int = 0): List<*>? {
+            if (value is List<*>) return value
+            if (depth >= 3 || value !is Map<*, *>) return null
+            for (key in listOf("songs", "data", "items", "results", "tracks")) {
+                val nested = value[key] ?: continue
+                val items = findItems(nested, depth + 1)
+                if (items != null) return items
+            }
+            return null
+        }
+
+        val items = findItems(payload)
+            ?: throw IOException("Unrecognised song API response structure")
+
+        if (items.isEmpty()) return emptyList()
+
+        val songs = items.map { item ->
+            songJsonAdapter.fromJsonValue(item)
+                ?: throw IOException("Song API response contained an invalid song")
+        }
+        if (songs.any { it.id.isBlank() || it.title.isBlank() }) {
+            throw IOException("Song API response contained a song without an ID or title")
+        }
+        return songs
+    }
 
     fun isPlaylistFresh(playlistId: String): Boolean {
         val lastSync = playlistLastSyncTimes[playlistId.trim()] ?: return false
@@ -633,18 +678,16 @@ class MusicRepository(
                 }
             }
 
-            val pageSongs = when (pageSongsRaw) {
-                is List<*> -> pageSongsRaw.filterIsInstance<Song>()
-                is Map<*, *> -> {
-                    // Try to extract list from map, assuming standard pagination
-                    val potentialList = pageSongsRaw["songs"] ?: pageSongsRaw["data"]
-                    if (potentialList is List<*>) {
-                        potentialList.filterIsInstance<Song>()
-                    } else {
-                        emptyList()
-                    }
+            val pageSongs = try {
+                parseSongPage(pageSongsRaw)
+            } catch (e: Exception) {
+                Log.e("MusicRepository", "Invalid song API response on page $currentPage: ${e.message}", e)
+                if (currentPage == 1) {
+                    return Pair(null, false)
+                } else {
+                    isComplete = false
+                    break
                 }
-                else -> emptyList()
             }
 
             if (pageSongs.isEmpty()) {
@@ -737,11 +780,10 @@ class MusicRepository(
                         musicDao.cleanOrphanPlaylistSongs()
                         musicDao.cleanOrphanPlayHistory()
                     }
-                } else if (isCompleteSync) {
-                    // Server explicitly returned empty list and sync was complete
-                    musicDao.deleteStaleSongs(emptyList())
-                    musicDao.cleanOrphanPlaylistSongs()
-                    musicDao.cleanOrphanPlayHistory()
+                } else {
+                    // An empty response is ambiguous (including malformed/filtered server data).
+                    // Never erase a previously cached library solely because this sync is empty.
+                    Log.w("MusicRepository", "Song sync returned no valid songs; preserving the local library")
                 }
             }
 
