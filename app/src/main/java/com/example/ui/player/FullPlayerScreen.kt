@@ -223,13 +223,13 @@ fun FullPlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 4.dp),
+                    .padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = onCollapse,
-                    modifier = Modifier.size(44.dp).testTag("collapse_player_btn")
+                    modifier = Modifier.size(48.dp).testTag("collapse_player_btn")
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
@@ -239,27 +239,18 @@ fun FullPlayerScreen(
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "PLAYING FROM ALBUM",
-                        style = MaterialTheme.typography.labelSmall,
-                        letterSpacing = 1.5.sp,
-                        color = TextSecondaryDark
-                    )
-                    Text(
-                        text = song.album,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+                Text(
+                    text = "NOW PLAYING",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimaryDark,
+                    letterSpacing = 1.sp
+                )
 
                 Box {
                     IconButton(
                         onClick = { menuExpanded = true },
-                        modifier = Modifier.size(44.dp).testTag("player_more_options_btn")
+                        modifier = Modifier.size(48.dp).testTag("player_more_options_btn")
                     ) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
@@ -291,199 +282,59 @@ fun FullPlayerScreen(
                             }
                         )
                         DropdownMenuItem(
+                            text = { Text(if (playbackInfo.isInstrumental) "Instrumental: ON" else "Instrumental: OFF", color = TextPrimaryDark) },
+                            onClick = {
+                                menuExpanded = false
+                                onToggleInstrumental()
+                            }
+                        )
+                        DropdownMenuItem(
                             text = { Text("Customize Lyrics", color = TextPrimaryDark) },
                             onClick = {
                                 menuExpanded = false
                                 showLyricsSettings = true
                             }
                         )
-                        DropdownMenuItem(
-                            text = { Text("Open Full-screen Lyrics", color = TextPrimaryDark) },
-                            onClick = {
-                                menuExpanded = false
-                                showFullscreenLyrics = true
-                            }
-                        )
                     }
                 }
             }
 
-            // Mode Selector Tabs (Player | Lyrics | Queue)
-            TabRow(
-                selectedTabIndex = selectedTab,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(14.dp))
-                    .border(1.dp, SurfaceBorderDark, RoundedCornerShape(14.dp)),
-                containerColor = SurfaceCardDark,
-                contentColor = YimlyPink,
-                indicator = { tabPositions ->
-                    if (selectedTab < tabPositions.size) {
-                        SecondaryIndicator(
-                            Modifier.tabIndicatorOffset(tabPositions[selectedTab]),
-                            color = YimlyPink,
-                            height = 3.dp
-                        )
-                    }
-                }
-            ) {
-                Tab(
-                    selected = selectedTab == 0,
-                    onClick = { selectedTab = 0 },
-                    text = { Text("Player", fontWeight = if (selectedTab == 0) FontWeight.Bold else FontWeight.Normal) },
-                    icon = { Icon(Icons.Default.MusicNote, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                    selectedContentColor = YimlyPink,
-                    unselectedContentColor = TextSecondaryDark
-                )
-                Tab(
-                    selected = selectedTab == 1,
-                    onClick = { selectedTab = 1 },
-                    text = { Text("Lyrics", fontWeight = if (selectedTab == 1) FontWeight.Bold else FontWeight.Normal) },
-                    icon = { Icon(Icons.Default.FormatQuote, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                    selectedContentColor = YimlyPink,
-                    unselectedContentColor = TextSecondaryDark
-                )
-                Tab(
-                    selected = selectedTab == 2,
-                    onClick = { selectedTab = 2 },
-                    text = { Text("Queue (${playbackInfo.queue.size})", fontWeight = if (selectedTab == 2) FontWeight.Bold else FontWeight.Normal) },
-                    icon = { Icon(Icons.Default.QueueMusic, contentDescription = null, modifier = Modifier.size(16.dp)) },
-                    selectedContentColor = YimlyPink,
-                    unselectedContentColor = TextSecondaryDark
-                )
-            }
-
-            // 2. Main Content Area (Player, Lyrics, or Queue)
+            // 2. Main Content Area (Player View)
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp)
+                    .padding(vertical = 12.dp),
+                contentAlignment = Alignment.Center
             ) {
-                if (selectedTab == 0) {
-                    // Standard Player View
-                    if (isLandscape) {
-                        Row(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalArrangement = Arrangement.spacedBy(24.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .fillMaxHeight()
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(20.dp))
-                                    .background(SurfaceCardDark)
-                                    .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (!song.artworkUrl.isNullOrBlank()) {
-                                    AsyncImage(
-                                        model = song.artworkUrl,
-                                        contentDescription = song.title,
-                                        contentScale = ContentScale.Crop,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                } else {
-                                    YimlyMicIcon(
-                                        tint = TextSecondaryDark,
-                                        modifier = Modifier.size(64.dp)
-                                    )
-                                }
-                            }
-
-                            Column(
-                                modifier = Modifier.weight(1.2f),
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Text(
-                                    text = song.title,
-                                    style = MaterialTheme.typography.headlineMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimaryDark,
-                                    maxLines = 1
-                                )
-                                Text(
-                                    text = song.artist,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = TextSecondaryDark,
-                                    maxLines = 1
-                                )
-                            }
-                        }
-                    } else {
-                        // Portrait layout with Card
-                        Column(
-                            modifier = Modifier.fillMaxSize(),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            Card(
-                                modifier = Modifier
-                                    .fillMaxWidth(0.88f)
-                                    .aspectRatio(1f)
-                                    .clip(RoundedCornerShape(24.dp)),
-                                shape = RoundedCornerShape(24.dp),
-                                colors = CardDefaults.cardColors(containerColor = SurfaceCardDark),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorderDark),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier.fillMaxSize(),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    if (!song.artworkUrl.isNullOrBlank()) {
-                                        AsyncImage(
-                                            model = song.artworkUrl,
-                                            contentDescription = song.title,
-                                            contentScale = ContentScale.Crop,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                    } else {
-                                        YimlyMicIcon(
-                                            tint = TextSecondaryDark,
-                                            modifier = Modifier.size(90.dp)
-                                        )
-                                    }
-                                }
-                            }
+                // Artwork (dominant)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth(0.85f)
+                        .aspectRatio(1f)
+                        .clip(RoundedCornerShape(24.dp)),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = SurfaceCardDark),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!song.artworkUrl.isNullOrBlank()) {
+                            AsyncImage(
+                                model = song.artworkUrl,
+                                contentDescription = song.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                        } else {
+                            YimlyMicIcon(
+                                tint = TextSecondaryDark,
+                                modifier = Modifier.size(90.dp)
+                            )
                         }
                     }
-                } else if (selectedTab == 1) {
-                    // Synced Lyrics View
-                    val lyricsPos = if (isUserSeeking) {
-                        seekPositionMs.toLong()
-                    } else if (lyricsPositionMs > 0L) {
-                        lyricsPositionMs
-                    } else {
-                        currentPos
-                    }
-                    LyricsView(
-                        lyricsData = lyricsData,
-                        currentPositionMs = lyricsPos,
-                        isPlaying = playbackInfo.isPlaying,
-                        songOffsetMs = songOffsetMs,
-                        config = lyricsConfig,
-                        onSeekTo = onSeekTo,
-                        onOpenSettings = { showLyricsSettings = true },
-                        onOffsetChange = onLyricsOffsetChange,
-                        onToggleFormatMode = {
-                            val newMode = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) LyricsFormatMode.LRC else LyricsFormatMode.ELRC
-                            onSaveLyricsConfig(lyricsConfig.copy(formatMode = newMode))
-                        }
-                    )
-                } else {
-                    // Queue View
-                    QueueView(
-                        queue = playbackInfo.queue,
-                        currentIndex = playbackInfo.currentQueueIndex,
-                        isPlaying = playbackInfo.isPlaying,
-                        onPlayItem = onPlayQueueItem,
-                        onRemoveItem = onRemoveFromQueue,
-                        onReorderItem = onReorderQueue,
-                        onClearQueue = onClearQueue
-                    )
                 }
             }
 
@@ -520,7 +371,7 @@ fun FullPlayerScreen(
                 ) {
                     IconButton(
                         onClick = onToggleFavorite,
-                        modifier = Modifier.size(44.dp).testTag("full_player_fav_btn")
+                        modifier = Modifier.size(48.dp).testTag("full_player_fav_btn")
                     ) {
                         Icon(
                             imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
@@ -530,73 +381,17 @@ fun FullPlayerScreen(
                         )
                     }
 
-                    // Lyrics Format Toggle Button (eLRC <-> LRC)
-                    Surface(
-                        onClick = {
-                            val newMode = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) LyricsFormatMode.LRC else LyricsFormatMode.ELRC
-                            onSaveLyricsConfig(lyricsConfig.copy(formatMode = newMode))
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) YimlyPink.copy(alpha = 0.2f) else SurfaceCardDark,
-                        border = BorderStroke(
-                            1.dp,
-                            if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) YimlyPink else SurfaceBorderDark
-                        ),
-                        modifier = Modifier
-                            .height(38.dp)
-                            .testTag("lyrics_format_toggle_btn")
+                    // Lyrics Button
+                    IconButton(
+                        onClick = { showFullscreenLyrics = true },
+                        modifier = Modifier.size(48.dp).testTag("full_player_lyrics_btn")
                     ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.FormatQuote,
-                                contentDescription = "Lyrics Format Mode",
-                                tint = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) YimlyPink else TextSecondaryDark,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = lyricsConfig.formatMode.displayName,
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) YimlyPink else TextSecondaryDark
-                            )
-                        }
-                    }
-
-                    Surface(
-                        onClick = {
-                            android.util.Log.d("INSTRUMENTAL_DEBUG", "INSTRUMENTAL_UI_CLICK")
-                            onToggleInstrumental()
-                        },
-                        shape = RoundedCornerShape(16.dp),
-                        color = if (playbackInfo.isInstrumental) YimlyPink.copy(alpha = 0.2f) else SurfaceCardDark,
-                        border = BorderStroke(
-                            1.dp,
-                            if (playbackInfo.isInstrumental) YimlyPink else SurfaceBorderDark
-                        ),
-                        modifier = Modifier
-                            .height(38.dp)
-                            .testTag("instrumental_toggle_btn")
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
-                        ) {
-                            YimlyMicIcon(
-                                tint = if (playbackInfo.isInstrumental) YimlyPink else TextSecondaryDark,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                text = if (playbackInfo.isInstrumental) "INST ON" else "INST",
-                                style = MaterialTheme.typography.labelMedium,
-                                fontWeight = FontWeight.Bold,
-                                color = if (playbackInfo.isInstrumental) YimlyPink else TextSecondaryDark
-                            )
-                        }
+                        Icon(
+                            imageVector = Icons.Default.FormatQuote,
+                            contentDescription = "Open Lyrics",
+                            tint = TextSecondaryDark,
+                            modifier = Modifier.size(28.dp)
+                        )
                     }
                 }
             }

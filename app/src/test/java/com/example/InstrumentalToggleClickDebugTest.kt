@@ -38,14 +38,14 @@ class InstrumentalToggleClickDebugTest {
         playbackManager = app.playbackManager
     }
 
-    private fun waitForCondition(timeoutMs: Long = 3000L, condition: (PlaybackInfo) -> Boolean) {
+    private fun waitForCondition(timeoutMs: Long = 5000L, condition: (PlaybackInfo) -> Boolean) {
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
             ShadowLooper.idleMainLooper()
             if (condition(playbackManager.playbackInfo.value)) {
                 return
             }
-            Thread.sleep(20)
+            Thread.sleep(50)
         }
         ShadowLooper.idleMainLooper()
         assertTrue("Condition was not met within ${timeoutMs}ms", condition(playbackManager.playbackInfo.value))

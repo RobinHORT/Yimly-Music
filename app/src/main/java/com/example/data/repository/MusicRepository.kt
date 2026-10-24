@@ -617,7 +617,7 @@ class MusicRepository(
         var isComplete = true
 
         while (currentPage <= maxPages) {
-            val pageSongs = try {
+            val pageSongsRaw = try {
                 apiService.getSongs(page = currentPage, limit = pageSize)
             } catch (e: Exception) {
                 if (e is retrofit2.HttpException && e.code() == 401) {
@@ -631,6 +631,20 @@ class MusicRepository(
                     isComplete = false
                     break
                 }
+            }
+
+            val pageSongs = when (pageSongsRaw) {
+                is List<*> -> pageSongsRaw.filterIsInstance<Song>()
+                is Map<*, *> -> {
+                    // Try to extract list from map, assuming standard pagination
+                    val potentialList = pageSongsRaw["songs"] ?: pageSongsRaw["data"]
+                    if (potentialList is List<*>) {
+                        potentialList.filterIsInstance<Song>()
+                    } else {
+                        emptyList()
+                    }
+                }
+                else -> emptyList()
             }
 
             if (pageSongs.isEmpty()) {

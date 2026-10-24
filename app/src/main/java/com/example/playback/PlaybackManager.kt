@@ -12,6 +12,7 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
@@ -54,46 +55,75 @@ class PlaybackManager(
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
     private var transitionWakeLock: PowerManager.WakeLock? = null
 
-    val player: ExoPlayer = ExoPlayer.Builder(context).build().apply {
-        setWakeMode(C.WAKE_MODE_LOCAL)
-        setAudioAttributes(
-            AudioAttributes.Builder()
-                .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                .setUsage(C.USAGE_MEDIA)
-                .build(),
-            true
-        )
-        addListener(object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                when (playbackState) {
-                    Player.STATE_ENDED -> {
-                        Log.d("PlaybackManager", "Song ended, advancing queue...")
-                        handleSongEnded()
+    val isTransitionWakeLockHeld: Boolean
+        get() = transitionWakeLock?.isHeld == true
+
+    private var _player: ExoPlayer? = null
+
+    val isPlayerInitialized: Boolean
+        get() = _player != null
+
+    val player: ExoPlayer?
+        get() = _player
+
+    fun ensurePlayerInitialized(): ExoPlayer {
+        _player?.let { return it }
+        val newPlayer = ExoPlayer.Builder(context).build().apply {
+            setWakeMode(C.WAKE_MODE_LOCAL)
+            setAudioAttributes(
+                AudioAttributes.Builder()
+                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                    .setUsage(C.USAGE_MEDIA)
+                    .build(),
+                true
+            )
+            addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    when (playbackState) {
+                        Player.STATE_ENDED -> {
+                            Log.d("PlaybackManager", "Song ended, advancing queue...")
+                            handleSongEnded()
+                        }
+                        Player.STATE_READY -> {
+                            releaseTransitionWakeLock()
+                        }
+                        else -> {}
                     }
-                    Player.STATE_READY -> {
+                    updatePlaybackInfo()
+                }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying) {
                         releaseTransitionWakeLock()
                     }
-                    else -> {}
+                    updatePlaybackInfo()
                 }
-                updatePlaybackInfo()
-            }
 
-            override fun onIsPlayingChanged(isPlaying: Boolean) {
-                if (isPlaying) {
-                    releaseTransitionWakeLock()
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
+                    handlePlayerError(error)
                 }
-                updatePlaybackInfo()
-            }
-        })
+            })
+        }
+        _player = newPlayer
+        return newPlayer
     }
 
-    val mediaSession: MediaLibrarySession by lazy {
-        MediaLibrarySession.Builder(
-            (context as? Service) ?: (context.applicationContext as? Service) ?: (context.applicationContext as? YimlyApplication ?: context) as Service,
-            YimlyForwardingPlayer(player, this),
-            YimlySessionCallback(this)
-        ).build()
-    }
+    private var _mediaSession: MediaLibrarySession? = null
+    val mediaSession: MediaLibrarySession
+        get() {
+            return _mediaSession ?: run {
+                val session = MediaLibrarySession.Builder(
+                    context,
+                    YimlyForwardingPlayer(ensurePlayerInitialized(), this),
+                    YimlySessionCallback(this)
+                )
+                .setId("yimly_session_${System.identityHashCode(this)}_${System.nanoTime()}")
+                .build()
+                _mediaSession = session
+                session
+            }
+        }
 
     private val _playbackInfo = MutableStateFlow(PlaybackInfo())
     val playbackInfo: StateFlow<PlaybackInfo> = _playbackInfo.asStateFlow()
@@ -123,7 +153,7 @@ class PlaybackManager(
         }
     }
 
-    private fun acquireTransitionWakeLock() {
+    fun acquireTransitionWakeLock(timeoutMs: Long = 5000L) {
         try {
             if (transitionWakeLock == null) {
                 transitionWakeLock = powerManager?.newWakeLock(
@@ -134,15 +164,15 @@ class PlaybackManager(
                 }
             }
             if (transitionWakeLock?.isHeld == false) {
-                transitionWakeLock?.acquire(5000L)
-                Log.d("PlaybackManager", "Acquired transition WakeLock")
+                transitionWakeLock?.acquire(timeoutMs)
+                Log.d("PlaybackManager", "Acquired transition WakeLock for ${timeoutMs}ms")
             }
         } catch (e: Exception) {
             Log.e("PlaybackManager", "Failed to acquire transition WakeLock", e)
         }
     }
 
-    private fun releaseTransitionWakeLock() {
+    fun releaseTransitionWakeLock() {
         try {
             if (transitionWakeLock?.isHeld == true) {
                 transitionWakeLock?.release()
@@ -153,11 +183,37 @@ class PlaybackManager(
         }
     }
 
+    fun handlePlayerError(error: PlaybackException) {
+        releaseTransitionWakeLock()
+        val info = _playbackInfo.value
+        if (info.isInstrumental) {
+            Log.w("PlaybackManager", "Instrumental stream failed, falling back to vocal track: ${error.message}")
+            val currentSong = info.currentSong
+            if (currentSong != null) {
+                val updatedSong = currentSong.copy(hasInstrumental = false)
+                val updatedQueue = info.queue.map { if (it.id == currentSong.id) updatedSong else it }
+                _playbackInfo.value = info.copy(
+                    isInstrumental = false,
+                    hasInstrumental = false,
+                    currentSong = updatedSong,
+                    queue = updatedQueue
+                )
+                playCurrentQueueIndex(targetInstrumental = false)
+            } else {
+                _playbackInfo.value = info.copy(
+                    isInstrumental = false,
+                    hasInstrumental = false
+                )
+            }
+        }
+    }
+
     fun getResolvedArtworkUrl(song: Song): String? {
         return song.artworkUrl
     }
 
     fun playSong(song: Song, queue: List<Song> = listOf(song), startIndex: Int = 0) {
+        ensurePlayerInitialized()
         startPlaybackService()
         val finalQueue = if (queue.isEmpty()) listOf(song) else queue
         val validIndex = if (startIndex in finalQueue.indices) startIndex else 0
@@ -166,7 +222,8 @@ class PlaybackManager(
             queue = finalQueue,
             currentQueueIndex = validIndex,
             currentSong = finalQueue[validIndex],
-            isInstrumental = finalQueue[validIndex].isInstrumental
+            hasInstrumental = finalQueue[validIndex].hasInstrumentalEffective,
+            isInstrumental = false
         )
         playCurrentQueueIndex()
     }
@@ -185,11 +242,13 @@ class PlaybackManager(
     fun playQueueItem(index: Int) {
         val info = _playbackInfo.value
         if (index in info.queue.indices) {
+            ensurePlayerInitialized()
             startPlaybackService()
             _playbackInfo.value = info.copy(
                 currentQueueIndex = index,
                 currentSong = info.queue[index],
-                isInstrumental = info.queue[index].isInstrumental
+                hasInstrumental = info.queue[index].hasInstrumentalEffective,
+                isInstrumental = false
             )
             playCurrentQueueIndex()
         }
@@ -215,10 +274,12 @@ class PlaybackManager(
             }
         }
         
+        val currentInst = info.isInstrumental
         _playbackInfo.value = info.copy(
             currentQueueIndex = nextIndex,
             currentSong = info.queue[nextIndex],
-            isInstrumental = info.queue[nextIndex].isInstrumental
+            hasInstrumental = info.queue[nextIndex].hasInstrumentalEffective,
+            isInstrumental = currentInst
         )
         playCurrentQueueIndex()
     }
@@ -227,8 +288,11 @@ class PlaybackManager(
         val info = _playbackInfo.value
         if (info.queue.isEmpty()) return
         
-        if (player.currentPosition > 3000L) {
-            player.seekTo(0)
+        val currentP = _player
+        if (currentP != null && currentP.currentPosition > 3000L) {
+            currentP.seekTo(0)
+            _playbackPositionMs.value = 0L
+            updatePlaybackInfo()
             return
         }
 
@@ -238,10 +302,12 @@ class PlaybackManager(
             info.queue.size - 1
         }
 
+        val currentInst = info.isInstrumental
         _playbackInfo.value = info.copy(
             currentQueueIndex = prevIndex,
             currentSong = info.queue[prevIndex],
-            isInstrumental = info.queue[prevIndex].isInstrumental
+            hasInstrumental = info.queue[prevIndex].hasInstrumentalEffective,
+            isInstrumental = currentInst
         )
         playCurrentQueueIndex()
     }
@@ -251,25 +317,32 @@ class PlaybackManager(
         next()
     }
 
-    private fun playCurrentQueueIndex() {
+    private fun playCurrentQueueIndex(targetInstrumental: Boolean? = null) {
         val info = _playbackInfo.value
         if (info.currentQueueIndex !in info.queue.indices) {
             releaseTransitionWakeLock()
             return
         }
         val song = info.queue[info.currentQueueIndex]
+        val wantInst = targetInstrumental ?: info.isInstrumental
         
-        coroutineScope.launch(Dispatchers.IO) {
+        coroutineScope.launch(Dispatchers.Main) {
             try {
                 acquireTransitionWakeLock()
-                val resolvedTrack = musicRepository.resolvePlayableTrack(song, info.isInstrumental)
+                val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInst)
                 val audioUrl = resolvedTrack.playableUrl
                 
                 val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
+                val parsedAudioUri = Uri.parse(audioUrl)
 
                 val mediaItem = MediaItem.Builder()
-                    .setMediaId(song.id)
-                    .setUri(Uri.parse(audioUrl))
+                    .setMediaId(if (wantInst) "${song.id}_inst" else song.id)
+                    .setUri(parsedAudioUri)
+                    .setRequestMetadata(
+                        MediaItem.RequestMetadata.Builder()
+                            .setMediaUri(parsedAudioUri)
+                            .build()
+                    )
                     .setMediaMetadata(
                         MediaMetadata.Builder()
                             .setTitle(song.title)
@@ -280,11 +353,25 @@ class PlaybackManager(
                     )
                     .build()
 
-                withContext(Dispatchers.Main) {
-                    player.setMediaItem(mediaItem)
-                    player.prepare()
-                    player.playWhenReady = true
+                val p = ensurePlayerInitialized()
+                val isSameSong = p.currentMediaItem?.mediaId?.startsWith(song.id) == true
+                val currentPos = if (isSameSong) p.currentPosition.coerceAtLeast(0L) else 0L
+
+                val activeIndex = p.currentMediaItemIndex
+                if (isSameSong && activeIndex in 0 until p.mediaItemCount) {
+                    p.replaceMediaItem(activeIndex, mediaItem)
+                    p.seekTo(activeIndex, currentPos)
+                } else {
+                    p.setMediaItem(mediaItem, currentPos)
                 }
+                p.prepare()
+                p.playWhenReady = true
+                _playbackInfo.value = _playbackInfo.value.copy(
+                    isInstrumental = wantInst,
+                    currentSong = song,
+                    hasInstrumental = if (!wantInst && targetInstrumental == false && !song.hasInstrumentalEffective) false else song.hasInstrumentalEffective
+                )
+                updatePlaybackInfo()
             } catch (e: Exception) {
                 Log.e("PlaybackManager", "Error playing song: ${song.title}", e)
                 releaseTransitionWakeLock()
@@ -293,7 +380,8 @@ class PlaybackManager(
     }
 
     fun togglePlayPause() {
-        if (player.isPlaying) {
+        val p = _player
+        if (p != null && p.isPlaying) {
             pause()
         } else {
             play()
@@ -302,20 +390,25 @@ class PlaybackManager(
 
     fun play() {
         startPlaybackService()
-        if (player.playbackState == Player.STATE_ENDED) {
-            player.seekTo(0)
+        val p = ensurePlayerInitialized()
+        if (p.playbackState == Player.STATE_ENDED) {
+            p.seekTo(0)
         }
-        player.play()
+        p.play()
         updatePlaybackInfo()
     }
 
     fun pause() {
-        player.pause()
+        releaseTransitionWakeLock()
+        _player?.pause()
         updatePlaybackInfo()
     }
 
     fun seekTo(positionMs: Long) {
-        player.seekTo(positionMs)
+        ensurePlayerInitialized().seekTo(positionMs)
+        _playbackPositionMs.value = positionMs
+        _lyricsPositionMs.value = positionMs
+        _playbackInfo.value = _playbackInfo.value.copy(currentPositionMs = positionMs)
     }
 
     fun setRepeatMode(mode: RepeatMode) {
@@ -346,9 +439,10 @@ class PlaybackManager(
     fun toggleInstrumental() {
         val info = _playbackInfo.value
         val newInst = !info.isInstrumental
-        _playbackInfo.value = info.copy(isInstrumental = newInst)
-        if (info.currentSong != null && info.currentSong.hasInstrumental) {
-            playCurrentQueueIndex()
+        if (info.currentSong != null) {
+            playCurrentQueueIndex(targetInstrumental = newInst)
+        } else {
+            _playbackInfo.value = info.copy(isInstrumental = newInst)
         }
     }
 
@@ -426,19 +520,24 @@ class PlaybackManager(
     }
 
     private fun updatePlaybackInfo() {
-        _playbackInfo.value = _playbackInfo.value.copy(
-            isPlaying = player.isPlaying,
-            currentPositionMs = player.currentPosition,
-            durationMs = if (player.duration > 0) player.duration else 0L
-        )
+        val p = _player
+        if (p != null) {
+            _playbackInfo.value = _playbackInfo.value.copy(
+                isPlaying = p.isPlaying,
+                currentPositionMs = p.currentPosition,
+                durationMs = if (p.duration > 0) p.duration else 0L,
+                isBuffering = p.playbackState == Player.STATE_BUFFERING
+            )
+        }
     }
 
     private fun startProgressTracker() {
         coroutineScope.launch(Dispatchers.Main) {
             while (true) {
-                if (player.isPlaying) {
-                    _playbackPositionMs.value = player.currentPosition
-                    _lyricsPositionMs.value = player.currentPosition
+                val p = _player
+                if (p != null && p.isPlaying) {
+                    _playbackPositionMs.value = p.currentPosition
+                    _lyricsPositionMs.value = p.currentPosition
                     updatePlaybackInfo()
                 }
                 kotlinx.coroutines.delay(500L)
@@ -448,7 +547,12 @@ class PlaybackManager(
 
     fun release() {
         releaseTransitionWakeLock()
-        mediaSession.release()
-        player.release()
+        _mediaSession?.release()
+        _mediaSession = null
+        _player?.release()
+        _player = null
+        _playbackPositionMs.value = 0L
+        _lyricsPositionMs.value = 0L
+        _playbackInfo.value = PlaybackInfo()
     }
 }

@@ -42,7 +42,7 @@ interface YimlyApiService {
         @Query("q") query: String? = null,
         @Query("page") page: Int? = null,
         @Query("limit") limit: Int? = null
-    ): List<Song>
+    ): Any
 
     @GET("api/songs/{id}")
     suspend fun getSongById(@Path("id") id: String): Song

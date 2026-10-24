@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Yimly Music</string>
+    <string name="app_name">Yimly</string>
     <string name="nav_home">Home</string>
     <string name="nav_music">Music</string>
     <string name="nav_search">Search</string>
