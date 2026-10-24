@@ -173,12 +173,16 @@ fun FullPlayerScreen(
             currentPositionMs = currentPos,
             durationMs = totalDuration,
             isPlaying = playbackInfo.isPlaying,
+            isShuffle = playbackInfo.isShuffle,
+            repeatMode = playbackInfo.repeatMode,
             songOffsetMs = songOffsetMs,
             lyricsConfig = lyricsConfig,
             onDismiss = { showFullscreenLyrics = false },
             onTogglePlayPause = onTogglePlayPause,
             onPrevious = onPrevious,
             onNext = onNext,
+            onToggleShuffle = onToggleShuffle,
+            onCycleRepeatMode = onCycleRepeatMode,
             onSeekTo = onSeekTo,
             onOpenSettings = {
                 showFullscreenLyrics = false
