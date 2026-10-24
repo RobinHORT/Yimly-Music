@@ -355,7 +355,7 @@ class PlaybackManager(
 
                 val p = ensurePlayerInitialized()
                 val isSameSong = p.currentMediaItem?.mediaId?.startsWith(song.id) == true
-                val currentPos = if (isSameSong) p.currentPosition.coerceAtLeast(0L) else 0L
+                val currentPos = if (isSameSong && p.playbackState != Player.STATE_ENDED) p.currentPosition.coerceAtLeast(0L) else 0L
 
                 val activeIndex = p.currentMediaItemIndex
                 if (isSameSong && activeIndex in 0 until p.mediaItemCount) {
@@ -469,19 +469,49 @@ class PlaybackManager(
     fun removeFromQueue(index: Int) {
         val info = _playbackInfo.value
         val queue = info.queue.toMutableList()
-        if (index in queue.indices) {
-            queue.removeAt(index)
-            var newIndex = info.currentQueueIndex
-            if (index < newIndex) {
-                newIndex--
-            } else if (index == newIndex && queue.isNotEmpty()) {
-                newIndex = newIndex.coerceAtMost(queue.size - 1)
-            }
+        if (index !in queue.indices) return
+
+        val removedCurrent = index == info.currentQueueIndex
+        queue.removeAt(index)
+
+        if (queue.isEmpty()) {
+            _player?.stop()
+            _player?.clearMediaItems()
+            releaseTransitionWakeLock()
+            _playbackPositionMs.value = 0L
+            _lyricsPositionMs.value = 0L
             _playbackInfo.value = info.copy(
-                queue = queue,
-                currentQueueIndex = newIndex,
-                currentSong = if (queue.isNotEmpty() && newIndex in queue.indices) queue[newIndex] else null
+                queue = emptyList(),
+                currentQueueIndex = -1,
+                currentSong = null,
+                isPlaying = false,
+                isBuffering = false,
+                currentPositionMs = 0L,
+                durationMs = 0L,
+                isInstrumental = false,
+                hasInstrumental = false
             )
+            return
+        }
+
+        val newIndex = when {
+            info.currentQueueIndex < 0 -> -1
+            index < info.currentQueueIndex -> info.currentQueueIndex - 1
+            removedCurrent -> info.currentQueueIndex.coerceAtMost(queue.lastIndex)
+            else -> info.currentQueueIndex
+        }
+        val newSong = queue.getOrNull(newIndex)
+        _playbackInfo.value = info.copy(
+            queue = queue,
+            currentQueueIndex = newIndex,
+            currentSong = newSong,
+            hasInstrumental = newSong?.hasInstrumentalEffective ?: false,
+            isInstrumental = if (removedCurrent) false else info.isInstrumental
+        )
+
+        // Removing the active item must also move ExoPlayer to the replacement item.
+        if (removedCurrent && newSong != null) {
+            playCurrentQueueIndex(targetInstrumental = false)
         }
     }
 
