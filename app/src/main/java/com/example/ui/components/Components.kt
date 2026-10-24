@@ -31,10 +31,14 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Upload
+import com.example.ui.theme.SurfaceDark
+import com.example.ui.theme.YimlyPink
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import android.net.Uri
@@ -1089,3 +1093,64 @@ fun SectionHeader(
         }
     }
 }
+
+@Composable
+fun YimlyTopBar(
+    title: String = "Yimly",
+    queueSize: Int = 0,
+    onOpenDrawer: () -> Unit,
+    onNavigateToQueue: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = SurfaceDark,
+        tonalElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 8.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(
+                    onClick = onOpenDrawer,
+                    modifier = Modifier.testTag("menu_drawer_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Menu,
+                        contentDescription = "Open Menu",
+                        tint = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = YimlyPink
+                )
+            }
+
+            TextButton(
+                onClick = onNavigateToQueue,
+                modifier = Modifier.testTag("queue_button")
+            ) {
+                Icon(
+                    imageVector = Icons.Default.QueueMusic,
+                    contentDescription = null,
+                    modifier = Modifier.size(18.dp),
+                    tint = YimlyPink
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Queue${if (queueSize > 0) " ($queueSize)" else ""}",
+                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+        }
+    }
+}
+

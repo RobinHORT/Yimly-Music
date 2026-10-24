@@ -12,6 +12,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -19,6 +20,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -69,6 +72,26 @@ import com.example.ui.theme.SurfaceCardDark
 import com.example.ui.theme.SurfaceDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.QueueMusic
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.NavigationDrawerItemDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.material3.rememberDrawerState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.text.font.FontWeight
+import com.example.ui.components.YimlyMicIcon
+import com.example.ui.components.YimlyTopBar
+import kotlinx.coroutines.launch
 
 @Composable
 fun YimlyNavigation(
@@ -129,10 +152,167 @@ fun YimlyNavigation(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize().background(BackgroundDark)) {
         val isWideScreen = maxWidth > 720.dp
+        val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+        val coroutineScope = rememberCoroutineScope()
 
-        Scaffold(
-            contentWindowInsets = WindowInsets.safeDrawing,
-            snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
+        BackHandler(enabled = drawerState.isOpen) {
+            coroutineScope.launch { drawerState.close() }
+        }
+
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = !isWideScreen && currentRoute != Screen.Login.route,
+            drawerContent = {
+                ModalDrawerSheet(
+                    drawerContainerColor = SurfaceDark,
+                    drawerContentColor = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.widthIn(max = 280.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 24.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            YimlyMicIcon(modifier = Modifier.size(32.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text(
+                                text = "Yimly Music",
+                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                                color = YimlyPink
+                            )
+                        }
+                        userProfile?.let { user ->
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = user.username,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = Color.White
+                            )
+                            Text(
+                                text = if (isAdmin) "Administrator" else (user.role?.ifBlank { "User" } ?: "User"),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+                    HorizontalDivider(color = SurfaceBorderDark)
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    bottomNavItems.forEach { item ->
+                        val selected = currentRoute == item.route
+                        NavigationDrawerItem(
+                            label = { Text(item.title, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal) },
+                            icon = {
+                                Icon(
+                                    imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
+                                    contentDescription = item.title,
+                                    tint = if (selected) YimlyPink else TextSecondaryDark
+                                )
+                            },
+                            selected = selected,
+                            onClick = {
+                                coroutineScope.launch { drawerState.close() }
+                                if (currentRoute != item.route) {
+                                    navController.navigate(item.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) {
+                                            saveState = true
+                                        }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
+                                }
+                            },
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = YimlyPink.copy(alpha = 0.15f),
+                                unselectedContainerColor = Color.Transparent,
+                                selectedTextColor = YimlyPink,
+                                unselectedTextColor = TextSecondaryDark
+                            ),
+                            modifier = Modifier
+                                .padding(NavigationDrawerItemDefaults.ItemPadding)
+                                .testTag("drawer_item_${item.route}")
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.weight(1f))
+                    HorizontalDivider(color = SurfaceBorderDark)
+                    NavigationDrawerItem(
+                        label = {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Now Playing Queue")
+                                if (playbackInfo.queue.isNotEmpty()) {
+                                    Surface(
+                                        shape = RoundedCornerShape(12.dp),
+                                        color = YimlyPink.copy(alpha = 0.2f)
+                                    ) {
+                                        Text(
+                                            text = "${playbackInfo.queue.size}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = YimlyPink,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        },
+                        icon = {
+                            Icon(
+                                imageVector = Icons.Default.QueueMusic,
+                                contentDescription = "Queue",
+                                tint = if (isPlayerExpanded) YimlyPink else TextSecondaryDark
+                            )
+                        },
+                        selected = false,
+                        onClick = {
+                            coroutineScope.launch { drawerState.close() }
+                            if (playbackInfo.currentSong != null) {
+                                isPlayerExpanded = true
+                            }
+                        },
+                        colors = NavigationDrawerItemDefaults.colors(
+                            selectedContainerColor = YimlyPink.copy(alpha = 0.15f),
+                            unselectedContainerColor = Color.Transparent,
+                            selectedTextColor = YimlyPink,
+                            unselectedTextColor = TextSecondaryDark
+                        ),
+                        modifier = Modifier
+                            .padding(NavigationDrawerItemDefaults.ItemPadding)
+                            .testTag("drawer_item_queue")
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                }
+            }
+        ) {
+            Scaffold(
+                contentWindowInsets = WindowInsets.safeDrawing,
+                snackbarHost = { androidx.compose.material3.SnackbarHost(snackbarHostState) },
+                topBar = {
+                    if (!isWideScreen && currentRoute != Screen.Login.route && currentRoute in listOf(Screen.Home.route, Screen.Music.route, Screen.Search.route, Screen.Settings.route)) {
+                        YimlyTopBar(
+                            title = when (currentRoute) {
+                                Screen.Home.route -> "Yimly"
+                                Screen.Music.route -> "Library"
+                                Screen.Search.route -> "Search"
+                                Screen.Settings.route -> "Settings"
+                                else -> "Yimly"
+                            },
+                            queueSize = playbackInfo.queue.size,
+                            onOpenDrawer = {
+                                coroutineScope.launch { drawerState.open() }
+                            },
+                            onNavigateToQueue = {
+                                if (playbackInfo.currentSong != null) {
+                                    isPlayerExpanded = true
+                                }
+                            }
+                        )
+                    }
+                },
             bottomBar = {
                 if (!isWideScreen && currentRoute != Screen.Login.route) {
                     androidx.compose.foundation.layout.Column(modifier = Modifier.fillMaxWidth()) {
@@ -456,6 +636,7 @@ fun YimlyNavigation(
                 }
             }
         }
+    }
 
         // Full Screen Player Modal / Slide-up
         AnimatedVisibility(
