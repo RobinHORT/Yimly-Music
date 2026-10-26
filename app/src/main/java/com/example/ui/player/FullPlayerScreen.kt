@@ -255,8 +255,8 @@ fun FullPlayerScreen(
             // 2. TOP HALF — Artwork + Lyrics
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 320.dp)
+                    .fillMaxWidth(0.68f)
+                    .widthIn(max = 240.dp)
                     .aspectRatio(1f)
                     .clip(RoundedCornerShape(20.dp))
                     .background(SurfaceCardDark)
@@ -313,13 +313,10 @@ fun FullPlayerScreen(
                 modifier = Modifier
                     .weight(0.8f)
                     .fillMaxWidth()
-                    .padding(top = 10.dp)
+                    .padding(top = 2.dp)
             ) {
-
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Fixed Controls
+                // Fixed Controls. Track details are already shown in the header,
+                // so keep this card focused on seek and playback controls.
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -327,44 +324,6 @@ fun FullPlayerScreen(
                         .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Song Title & Artist + Favorite button
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                            Text(
-                                text = song.title,
-                                style = MaterialTheme.typography.titleLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = TextPrimaryDark,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = song.artist,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = TextSecondaryDark,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-
-                        IconButton(
-                            onClick = onToggleFavorite,
-                            modifier = Modifier.size(48.dp).testTag("full_player_fav_btn")
-                        ) {
-                            Icon(
-                                imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                contentDescription = "Favorite",
-                                tint = if (song.isFavorite) YimlyPink else TextSecondaryDark,
-                                modifier = Modifier.size(26.dp)
-                            )
-                        }
-                    }
-
                     // Progress Scrubber Slider & Duration labels
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Slider(
