@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -157,26 +159,13 @@ fun FullPlayerScreen(
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 1. Top Header Bar
+            // Header: lyrics toggle on the left, track details centred, collapse on the right.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(
-                    onClick = onCollapse,
-                    modifier = Modifier.size(48.dp).testTag("collapse_player_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Collapse",
-                        tint = TextPrimaryDark,
-                        modifier = Modifier.size(32.dp)
-                    )
-                }
-
                 IconButton(
                     onClick = { showLyrics = !showLyrics },
                     modifier = Modifier.size(48.dp).testTag("lyrics_toggle_btn")
@@ -189,27 +178,41 @@ fun FullPlayerScreen(
                     )
                 }
 
-                Text(
-                    text = "NOW PLAYING",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimaryDark,
-                    letterSpacing = 1.sp
-                )
+                Column(
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = song.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = TextPrimaryDark,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Text(
+                        text = song.artist,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondaryDark,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                }
 
                 Box {
                     IconButton(
                         onClick = { menuExpanded = true },
-                        modifier = Modifier.size(48.dp).testTag("player_more_options_btn")
+                        modifier = Modifier.size(40.dp).testTag("player_more_options_btn")
                     ) {
                         Icon(
                             imageVector = Icons.Default.MoreVert,
                             contentDescription = "Options",
                             tint = TextPrimaryDark,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
-
                     DropdownMenu(
                         expanded = menuExpanded,
                         onDismissRequest = { menuExpanded = false },
@@ -219,43 +222,45 @@ fun FullPlayerScreen(
                     ) {
                         DropdownMenuItem(
                             text = { Text(if (song.isFavorite) "Remove from Liked Songs" else "Save to Liked Songs", color = TextPrimaryDark) },
-                            onClick = {
-                                menuExpanded = false
-                                onToggleFavorite()
-                            }
+                            onClick = { menuExpanded = false; onToggleFavorite() }
                         )
                         DropdownMenuItem(
                             text = { Text("Add to Playlist", color = TextPrimaryDark) },
-                            onClick = {
-                                menuExpanded = false
-                                onAddToPlaylist(song)
-                            }
+                            onClick = { menuExpanded = false; onAddToPlaylist(song) }
                         )
                         DropdownMenuItem(
                             text = { Text(if (playbackInfo.isInstrumental) "Instrumental: ON" else "Instrumental: OFF", color = TextPrimaryDark) },
-                            onClick = {
-                                menuExpanded = false
-                                onToggleInstrumental()
-                            }
+                            onClick = { menuExpanded = false; onToggleInstrumental() }
                         )
                         DropdownMenuItem(
                             text = { Text("Customize Lyrics", color = TextPrimaryDark) },
-                            onClick = {
-                                menuExpanded = false
-                                showLyricsSettings = true
-                            }
+                            onClick = { menuExpanded = false; showLyricsSettings = true }
                         )
                     }
+                }
+
+                IconButton(
+                    onClick = onCollapse,
+                    modifier = Modifier.size(48.dp).testTag("collapse_player_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Collapse",
+                        tint = TextPrimaryDark,
+                        modifier = Modifier.size(32.dp)
+                    )
                 }
             }
 
             // 2. TOP HALF — Artwork + Lyrics
             Box(
                 modifier = Modifier
-                    .weight(1f)
                     .fillMaxWidth()
+                    .widthIn(max = 320.dp)
+                    .aspectRatio(1f)
                     .clip(RoundedCornerShape(20.dp))
                     .background(SurfaceCardDark)
+                    .align(Alignment.CenterHorizontally)
             ) {
                 // Background album artwork
                 if (!song.artworkUrl.isNullOrBlank()) {
