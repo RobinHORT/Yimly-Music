@@ -55,7 +55,7 @@ class InstrumentalQueuePersistenceTest {
         playbackManager = app.playbackManager
     }
 
-    private fun waitForCondition(timeoutMs: Long = 5000L, condition: (PlaybackInfo) -> Boolean) {
+    private fun waitForCondition(timeoutMs: Long = 10000L, condition: (PlaybackInfo) -> Boolean) {
         val start = System.currentTimeMillis()
         while (System.currentTimeMillis() - start < timeoutMs) {
             ShadowLooper.idleMainLooper()

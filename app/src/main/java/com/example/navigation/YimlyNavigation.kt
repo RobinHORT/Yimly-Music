@@ -324,6 +324,7 @@ fun YimlyNavigation(
                                 onMiniPlayerClick = { isPlayerExpanded = true },
                                 onTogglePlayPause = { viewModel.togglePlayPause() },
                                 onNext = { viewModel.next() },
+                                onPrevious = { viewModel.previous() },
                                 onToggleFavorite = {
                                     playbackInfo.currentSong?.let { viewModel.toggleFavorite(it.id) }
                                 }

@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -34,7 +36,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -57,6 +58,7 @@ fun MiniPlayer(
     onMiniPlayerClick: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onNext: () -> Unit,
+    onPrevious: () -> Unit,
     onToggleFavorite: () -> Unit,
     playbackPositionFlow: StateFlow<Long>? = null,
     modifier: Modifier = Modifier
@@ -133,16 +135,16 @@ fun MiniPlayer(
                     )
                 }
 
-                // Favorite
+                // Previous Button
                 IconButton(
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.size(38.dp).testTag("mini_fav_btn")
+                    onClick = onPrevious,
+                    modifier = Modifier.size(36.dp).testTag("mini_prev_btn")
                 ) {
                     Icon(
-                        imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = "Favorite",
-                        tint = if (song.isFavorite) YimlyPink else TextSecondaryDark,
-                        modifier = Modifier.size(20.dp)
+                        imageVector = Icons.Filled.SkipPrevious,
+                        contentDescription = "Previous",
+                        tint = TextPrimaryDark,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
 
@@ -155,20 +157,33 @@ fun MiniPlayer(
                         imageVector = if (playbackInfo.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = if (playbackInfo.isPlaying) "Pause" else "Play",
                         tint = YimlyPink,
-                        modifier = Modifier.size(30.dp)
+                        modifier = Modifier.size(28.dp)
                     )
                 }
 
-                // Next
+                // Next Button
                 IconButton(
                     onClick = onNext,
-                    modifier = Modifier.size(38.dp).testTag("mini_next_btn")
+                    modifier = Modifier.size(36.dp).testTag("mini_next_btn")
                 ) {
                     Icon(
                         imageVector = Icons.Filled.SkipNext,
                         contentDescription = "Next",
                         tint = TextPrimaryDark,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
+                // Expand indicator
+                IconButton(
+                    onClick = onMiniPlayerClick,
+                    modifier = Modifier.size(36.dp).testTag("mini_expand_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowUp,
+                        contentDescription = "Expand player",
+                        tint = TextSecondaryDark,
+                        modifier = Modifier.size(22.dp)
                     )
                 }
             }

@@ -17,6 +17,7 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
+import com.example.data.api.NetworkModule
 import com.example.YimlyApplication
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
@@ -72,7 +73,11 @@ class PlaybackManager(
 
     fun ensurePlayerInitialized(): ExoPlayer {
         _player?.let { return it }
-        val newPlayer = ExoPlayer.Builder(context).build().apply {
+        val networkModule = NetworkModule(PreferencesManager(context))
+        val dataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(networkModule.okHttpClient)
+        val newPlayer = ExoPlayer.Builder(context)
+            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
+            .build().apply {
             setWakeMode(C.WAKE_MODE_NETWORK)
             setHandleAudioBecomingNoisy(true)
             setAudioAttributes(

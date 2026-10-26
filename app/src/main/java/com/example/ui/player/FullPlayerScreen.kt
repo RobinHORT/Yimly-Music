@@ -1,28 +1,19 @@
 package com.example.ui.player
 
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -30,18 +21,14 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -49,15 +36,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
-import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
-import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -72,14 +55,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
-import com.example.data.models.LyricsFormatMode
 import com.example.data.models.Song
 import com.example.playback.PlaybackInfo
 import com.example.playback.RepeatMode
@@ -94,8 +75,6 @@ import com.example.ui.theme.SurfaceElevatedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
-import com.example.ui.theme.YimlyPinkGlow
-import androidx.compose.runtime.collectAsState
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -130,13 +109,12 @@ fun FullPlayerScreen(
 
     val currentPositionMs by (playbackPositionFlow ?: remember { MutableStateFlow(playbackInfo.currentPositionMs) }).collectAsState()
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Player, 1 = Lyrics, 2 = Queue
     var showLyricsSettings by remember { mutableStateOf(false) }
+    var showLyrics by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
-    var showFullscreenLyrics by remember { mutableStateOf(false) }
 
-    LaunchedEffect(selectedTab) {
-        onSetLyricsActive(selectedTab == 1)
+    LaunchedEffect(Unit) {
+        onSetLyricsActive(true)
     }
 
     DisposableEffect(Unit) {
@@ -166,68 +144,24 @@ fun FullPlayerScreen(
         )
     }
 
-    if (showFullscreenLyrics) {
-        FullscreenLyricsDialog(
-            song = song,
-            lyricsData = lyricsData,
-            currentPositionMs = currentPos,
-            durationMs = totalDuration,
-            isPlaying = playbackInfo.isPlaying,
-            isShuffle = playbackInfo.isShuffle,
-            repeatMode = playbackInfo.repeatMode,
-            songOffsetMs = songOffsetMs,
-            lyricsConfig = lyricsConfig,
-            onDismiss = { showFullscreenLyrics = false },
-            onTogglePlayPause = onTogglePlayPause,
-            onPrevious = onPrevious,
-            onNext = onNext,
-            onToggleShuffle = onToggleShuffle,
-            onCycleRepeatMode = onCycleRepeatMode,
-            onSeekTo = onSeekTo,
-            onOpenSettings = {
-                showFullscreenLyrics = false
-                showLyricsSettings = true
-            },
-            onLyricsOffsetChange = onLyricsOffsetChange,
-            onSaveLyricsConfig = onSaveLyricsConfig
-        )
-    }
-
-    BoxWithConstraints(
+    Box(
         modifier = modifier
             .fillMaxSize()
             .background(BackgroundDark)
             .testTag("full_player_screen")
     ) {
-        val isLandscape = maxWidth > maxHeight
-
-        // Ambient Yimly Glow
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            YimlyPinkGlow.copy(alpha = 0.3f),
-                            BackgroundDark
-                        ),
-                        radius = 1200f
-                    )
-                )
-        )
-
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .safeDrawingPadding()
-                .padding(horizontal = 20.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
-            // 1. Top Bar
+            // 1. Top Header Bar
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 8.dp),
+                    .padding(vertical = 4.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -240,6 +174,18 @@ fun FullPlayerScreen(
                         contentDescription = "Collapse",
                         tint = TextPrimaryDark,
                         modifier = Modifier.size(32.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = { showLyrics = !showLyrics },
+                    modifier = Modifier.size(48.dp).testTag("lyrics_toggle_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FormatQuote,
+                        contentDescription = "Toggle Lyrics",
+                        tint = if (showLyrics) YimlyPink else TextPrimaryDark,
+                        modifier = Modifier.size(28.dp)
                     )
                 }
 
@@ -303,237 +249,262 @@ fun FullPlayerScreen(
                 }
             }
 
-            // 2. Main Content Area (Player View)
+            // 2. TOP HALF — Artwork + Lyrics
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                contentAlignment = Alignment.Center
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(SurfaceCardDark)
             ) {
-                // Artwork (dominant)
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth(0.85f)
-                        .aspectRatio(1f)
-                        .clip(RoundedCornerShape(24.dp)),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = SurfaceCardDark),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 12.dp)
-                ) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!song.artworkUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = song.artworkUrl,
-                                contentDescription = song.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            YimlyMicIcon(
-                                tint = TextSecondaryDark,
-                                modifier = Modifier.size(90.dp)
-                            )
-                        }
-                    }
-                }
-            }
-
-            // 3. Track Details & Action Controls (Title, Artist, Heart, Instrumental, Lyrics Format)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
-                    Text(
-                        text = song.title,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimaryDark,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
+                // Background album artwork
+                if (!song.artworkUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = song.artworkUrl,
+                        contentDescription = song.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
                     )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = song.artist,
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = TextSecondaryDark,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    IconButton(
-                        onClick = onToggleFavorite,
-                        modifier = Modifier.size(48.dp).testTag("full_player_fav_btn")
-                    ) {
-                        Icon(
-                            imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                            contentDescription = "Favorite",
-                            tint = if (song.isFavorite) YimlyPink else TextSecondaryDark,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-
-                    // Lyrics Button
-                    IconButton(
-                        onClick = { showFullscreenLyrics = true },
-                        modifier = Modifier.size(48.dp).testTag("full_player_lyrics_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.FormatQuote,
-                            contentDescription = "Open Lyrics",
-                            tint = TextSecondaryDark,
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-                }
-            }
-
-            // 4. Progress Scrubber Slider
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Slider(
-                    value = currentPos.toFloat().coerceIn(0f, totalDuration.toFloat().coerceAtLeast(1f)),
-                    onValueChange = {
-                        isUserSeeking = true
-                        seekPositionMs = it
-                    },
-                    onValueChangeFinished = {
-                        isUserSeeking = false
-                        onSeekTo(seekPositionMs.toLong())
-                    },
-                    valueRange = 0f..totalDuration.toFloat().coerceAtLeast(1f),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = YimlyPink,
-                        inactiveTrackColor = SurfaceBorderDark
-                    ),
-                    modifier = Modifier.fillMaxWidth().testTag("player_progress_slider")
-                )
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = formatTime(currentPos),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondaryDark
-                    )
-                    Text(
-                        text = formatTime(totalDuration),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = TextSecondaryDark
-                    )
-                }
-            }
-
-            // 5. Playback Controls Row (Shuffle, Prev, Play/Pause, Next, Repeat)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 8.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Shuffle Button
-                IconButton(
-                    onClick = onToggleShuffle,
-                    modifier = Modifier.size(48.dp).testTag("shuffle_btn")
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Shuffle,
-                            contentDescription = "Shuffle",
-                            tint = if (playbackInfo.isShuffle) YimlyPink else TextSecondaryDark,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        if (playbackInfo.isShuffle) {
-                            Box(
-                                modifier = Modifier
-                                    .size(4.dp)
-                                    .clip(CircleShape)
-                                    .background(YimlyPink)
-                            )
-                        }
+                } else {
+                    Box(modifier = Modifier.fillMaxSize().background(SurfaceCardDark), contentAlignment = Alignment.Center) {
+                        YimlyMicIcon(tint = TextSecondaryDark, modifier = Modifier.size(80.dp))
                     }
                 }
 
-                // Previous Button
-                IconButton(
-                    onClick = onPrevious,
-                    modifier = Modifier.size(54.dp).testTag("prev_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipPrevious,
-                        contentDescription = "Previous",
-                        tint = TextPrimaryDark,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-
-                // Play / Pause Button (Large Yimly Pink glowing circle)
+                // Pink translucent gradient overlay
                 Box(
                     modifier = Modifier
-                        .size(68.dp)
-                        .clip(CircleShape)
-                        .background(YimlyPink)
-                        .clickable(onClick = onTogglePlayPause)
-                        .testTag("full_play_pause_btn"),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        imageVector = if (playbackInfo.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = if (playbackInfo.isPlaying) "Pause" else "Play",
-                        tint = Color.White,
-                        modifier = Modifier.size(38.dp)
-                    )
-                }
-
-                // Next Button
-                IconButton(
-                    onClick = onNext,
-                    modifier = Modifier.size(54.dp).testTag("next_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.SkipNext,
-                        contentDescription = "Next",
-                        tint = TextPrimaryDark,
-                        modifier = Modifier.size(36.dp)
-                    )
-                }
-
-                // Repeat Button
-                IconButton(
-                    onClick = onCycleRepeatMode,
-                    modifier = Modifier.size(48.dp).testTag("repeat_btn")
-                ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = if (playbackInfo.repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                            contentDescription = "Repeat",
-                            tint = if (playbackInfo.repeatMode != RepeatMode.OFF) YimlyPink else TextSecondaryDark,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        if (playbackInfo.repeatMode != RepeatMode.OFF) {
-                            Box(
-                                modifier = Modifier
-                                    .size(4.dp)
-                                    .clip(CircleShape)
-                                    .background(YimlyPink)
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    Color(0xFFBE185D).copy(alpha = 0.48f),
+                                    Color(0xFF9D174D).copy(alpha = 0.58f),
+                                    BackgroundDark.copy(alpha = 0.90f)
+                                )
                             )
+                        )
+                )
+
+                // Overlaid synchronised lyrics view
+                if (showLyrics) {
+                    LyricsView(
+                        lyricsData = lyricsData,
+                        currentPositionMs = currentPos,
+                        songOffsetMs = songOffsetMs,
+                        config = lyricsConfig,
+                        onSeekTo = onSeekTo,
+                        onOpenSettings = { showLyricsSettings = true },
+                        onOffsetChange = onLyricsOffsetChange,
+                        isPlaying = playbackInfo.isPlaying,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            // 3. BOTTOM HALF — Queue + Controls (Fixed)
+            Column(
+                modifier = Modifier
+                    .weight(0.8f)
+                    .fillMaxWidth()
+                    .padding(top = 10.dp)
+            ) {
+                // Scrollable Queue
+                Box(modifier = Modifier.weight(1f)) {
+                    com.example.ui.queue.QueueView(
+                        queue = playbackInfo.queue,
+                        currentIndex = playbackInfo.currentQueueIndex,
+                        isPlaying = playbackInfo.isPlaying,
+                        onPlayItem = onPlayQueueItem,
+                        onRemoveItem = onRemoveFromQueue,
+                        onReorderItem = onReorderQueue,
+                        onClearQueue = onClearQueue,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Fixed Controls
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(SurfaceCardDark.copy(alpha = 0.65f), RoundedCornerShape(20.dp))
+                        .padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    // Song Title & Artist + Favorite button
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = song.title,
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimaryDark,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = song.artist,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = TextSecondaryDark,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+
+                        IconButton(
+                            onClick = onToggleFavorite,
+                            modifier = Modifier.size(48.dp).testTag("full_player_fav_btn")
+                        ) {
+                            Icon(
+                                imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                contentDescription = "Favorite",
+                                tint = if (song.isFavorite) YimlyPink else TextSecondaryDark,
+                                modifier = Modifier.size(26.dp)
+                            )
+                        }
+                    }
+
+                    // Progress Scrubber Slider & Duration labels
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Slider(
+                            value = currentPos.toFloat().coerceIn(0f, totalDuration.toFloat().coerceAtLeast(1f)),
+                            onValueChange = {
+                                isUserSeeking = true
+                                seekPositionMs = it
+                            },
+                            onValueChangeFinished = {
+                                isUserSeeking = false
+                                onSeekTo(seekPositionMs.toLong())
+                            },
+                            valueRange = 0f..totalDuration.toFloat().coerceAtLeast(1f),
+                            colors = SliderDefaults.colors(
+                                thumbColor = Color.White,
+                                activeTrackColor = YimlyPink,
+                                inactiveTrackColor = SurfaceBorderDark
+                            ),
+                            modifier = Modifier.fillMaxWidth().height(24.dp).testTag("player_progress_slider")
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = formatTime(currentPos),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondaryDark
+                            )
+                            Text(
+                                text = formatTime(totalDuration),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = TextSecondaryDark
+                            )
+                        }
+                    }
+
+                    // Playback Controls Row (Shuffle, Prev, Play/Pause, Next, Repeat)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Shuffle Button
+                        IconButton(
+                            onClick = onToggleShuffle,
+                            modifier = Modifier.size(44.dp).testTag("shuffle_btn")
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = Icons.Default.Shuffle,
+                                    contentDescription = "Shuffle",
+                                    tint = if (playbackInfo.isShuffle) YimlyPink else TextSecondaryDark,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                if (playbackInfo.isShuffle) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(4.dp)
+                                            .clip(CircleShape)
+                                            .background(YimlyPink)
+                                    )
+                                }
+                            }
+                        }
+
+                        // Previous Button
+                        IconButton(
+                            onClick = onPrevious,
+                            modifier = Modifier.size(48.dp).testTag("prev_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipPrevious,
+                                contentDescription = "Previous",
+                                tint = TextPrimaryDark,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+
+                        // Play / Pause Button
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .clip(CircleShape)
+                                .background(YimlyPink)
+                                .clickable(onClick = onTogglePlayPause)
+                                .testTag("full_play_pause_btn"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (playbackInfo.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (playbackInfo.isPlaying) "Pause" else "Play",
+                                tint = Color.White,
+                                modifier = Modifier.size(34.dp)
+                            )
+                        }
+
+                        // Next Button
+                        IconButton(
+                            onClick = onNext,
+                            modifier = Modifier.size(48.dp).testTag("next_btn")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.SkipNext,
+                                contentDescription = "Next",
+                                tint = TextPrimaryDark,
+                                modifier = Modifier.size(32.dp)
+                            )
+                        }
+
+                        // Repeat Button
+                        IconButton(
+                            onClick = onCycleRepeatMode,
+                            modifier = Modifier.size(44.dp).testTag("repeat_btn")
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Icon(
+                                    imageVector = if (playbackInfo.repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
+                                    contentDescription = "Repeat",
+                                    tint = if (playbackInfo.repeatMode != RepeatMode.OFF) YimlyPink else TextSecondaryDark,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                                if (playbackInfo.repeatMode != RepeatMode.OFF) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(4.dp)
+                                            .clip(CircleShape)
+                                            .background(YimlyPink)
+                                    )
+                                }
+                            }
                         }
                     }
                 }

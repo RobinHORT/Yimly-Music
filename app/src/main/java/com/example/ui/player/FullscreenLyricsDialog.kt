@@ -117,13 +117,16 @@ fun FullscreenLyricsDialog(
             }
 
             Box(
+                modifier = Modifier.fillMaxSize().background(Color(0xFF190D18))
+            )
+
+            Box(
                 modifier = Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            YimlyPinkGlow.copy(alpha = 0.48f),
-                            BackgroundDark.copy(alpha = 0.90f),
-                            BackgroundDark,
-                            BackgroundDark
+                            Color(0xFFBE185D).copy(alpha = 0.42f),
+                            Color(0xFF9D174D).copy(alpha = 0.52f),
+                            Color(0xFF230C1D).copy(alpha = 0.78f)
                         )
                     )
                 )
