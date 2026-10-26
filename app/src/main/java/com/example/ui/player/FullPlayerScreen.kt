@@ -302,6 +302,7 @@ fun FullPlayerScreen(
                         onOpenSettings = { showLyricsSettings = true },
                         onOffsetChange = onLyricsOffsetChange,
                         isPlaying = playbackInfo.isPlaying,
+                        showFocusControls = false,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
@@ -314,19 +315,7 @@ fun FullPlayerScreen(
                     .fillMaxWidth()
                     .padding(top = 10.dp)
             ) {
-                // Scrollable Queue
-                Box(modifier = Modifier.weight(1f)) {
-                    com.example.ui.queue.QueueView(
-                        queue = playbackInfo.queue,
-                        currentIndex = playbackInfo.currentQueueIndex,
-                        isPlaying = playbackInfo.isPlaying,
-                        onPlayItem = onPlayQueueItem,
-                        onRemoveItem = onRemoveFromQueue,
-                        onReorderItem = onReorderQueue,
-                        onClearQueue = onClearQueue,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -512,6 +501,21 @@ fun FullPlayerScreen(
                             }
                         }
                     }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+
+                // Scrollable Queue
+                Box(modifier = Modifier.weight(1f)) {
+                    com.example.ui.queue.QueueView(
+                        queue = playbackInfo.queue,
+                        currentIndex = playbackInfo.currentQueueIndex,
+                        isPlaying = playbackInfo.isPlaying,
+                        onPlayItem = onPlayQueueItem,
+                        onRemoveItem = onRemoveFromQueue,
+                        onReorderItem = onReorderQueue,
+                        onClearQueue = onClearQueue,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }
