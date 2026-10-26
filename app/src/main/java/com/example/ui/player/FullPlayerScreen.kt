@@ -5,6 +5,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -14,8 +15,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -146,18 +145,19 @@ fun FullPlayerScreen(
         )
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(BackgroundDark)
             .testTag("full_player_screen")
     ) {
+        val artworkSize = minOf(maxWidth * 0.58f, maxHeight * 0.29f, 220.dp)
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .safeDrawingPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.SpaceBetween
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // Header: lyrics toggle on the left, track details centred, collapse on the right.
             Row(
@@ -252,12 +252,10 @@ fun FullPlayerScreen(
                 }
             }
 
-            // 2. TOP HALF — Artwork + Lyrics
+            // Artwork is constrained by available width and height to preserve room for controls and queue.
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.68f)
-                    .widthIn(max = 240.dp)
-                    .aspectRatio(1f)
+                    .size(artworkSize)
                     .clip(RoundedCornerShape(20.dp))
                     .background(SurfaceCardDark)
                     .align(Alignment.CenterHorizontally)
@@ -303,7 +301,8 @@ fun FullPlayerScreen(
                         onOffsetChange = onLyricsOffsetChange,
                         isPlaying = playbackInfo.isPlaying,
                         showFocusControls = false,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        compactMode = true
                     )
                 }
             }
@@ -311,9 +310,9 @@ fun FullPlayerScreen(
             // 3. BOTTOM HALF — Queue + Controls (Fixed)
             Column(
                 modifier = Modifier
-                    .weight(0.8f)
+                    .weight(1f)
                     .fillMaxWidth()
-                    .padding(top = 2.dp)
+                    .padding(top = 0.dp)
             ) {
                 // Fixed Controls. Track details are already shown in the header,
                 // so keep this card focused on seek and playback controls.
@@ -461,7 +460,7 @@ fun FullPlayerScreen(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(2.dp))
 
                 // Scrollable Queue
                 Box(modifier = Modifier.weight(1f)) {
