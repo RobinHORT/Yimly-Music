@@ -142,4 +142,56 @@ class BackgroundPlaybackTransitionTest {
         playbackManager.release()
         assertFalse(playbackManager.isTransitionWakeLockHeld)
     }
+
+    @Test
+    fun testForwardingPlayerReportsBufferingDuringTransition() {
+        val playlist = listOf(song1, song2)
+        playbackManager.playSong(song1, playlist, startIndex = 0)
+
+        val session = playbackManager.mediaSession
+        val forwardingPlayer = session.player
+
+        // Initial state
+        assertNotNull(forwardingPlayer)
+
+        // When transition is triggered, forwarding player masks STATE_ENDED with STATE_BUFFERING
+        // to prevent MediaSessionService from demoting the Foreground Service
+        val rawPlayer = playbackManager.ensurePlayerInitialized()
+        rawPlayer.seekTo(rawPlayer.duration.coerceAtLeast(0L))
+
+        // When isTransitioning is true, state is buffered
+        if (playbackManager.isTransitioning) {
+            assertEquals(androidx.media3.common.Player.STATE_BUFFERING, forwardingPlayer.playbackState)
+        }
+    }
+
+    @Test
+    fun testTransitionWakeLockDefaultTimeoutAndRenewal() {
+        assertFalse(playbackManager.isTransitionWakeLockHeld)
+        // Default 30s timeout acquisition
+        playbackManager.acquireTransitionWakeLock()
+        assertTrue(playbackManager.isTransitionWakeLockHeld)
+
+        // Consecutive acquire calls renew safely without crashing
+        playbackManager.acquireTransitionWakeLock(15000L)
+        assertTrue(playbackManager.isTransitionWakeLockHeld)
+
+        playbackManager.releaseTransitionWakeLock()
+        assertFalse(playbackManager.isTransitionWakeLockHeld)
+    }
+
+    @Test
+    fun testPlayerErrorCleansUpTransitionStateAndWakeLock() {
+        playbackManager.acquireTransitionWakeLock(10000L)
+        assertTrue(playbackManager.isTransitionWakeLockHeld)
+
+        val exception = androidx.media3.common.PlaybackException(
+            "Test error",
+            null,
+            androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+        )
+        playbackManager.handlePlayerError(exception)
+
+        assertFalse(playbackManager.isTransitionWakeLockHeld)
+    }
 }

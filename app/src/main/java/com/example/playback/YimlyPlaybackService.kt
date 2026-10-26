@@ -59,9 +59,26 @@ class YimlyPlaybackService : MediaLibraryService() {
         return session
     }
 
+    override fun onUpdateNotification(
+        session: MediaSession,
+        startInForegroundRequired: Boolean
+    ) {
+        val app = application as? YimlyApplication
+        val manager = app?.playbackManager
+        val info = manager?.playbackInfo?.value
+        val hasActiveQueue = info != null && info.queue.isNotEmpty() && info.currentQueueIndex in info.queue.indices
+        val player = session.player
+        val shouldStayInForeground = startInForegroundRequired || (hasActiveQueue && (player.playWhenReady || manager?.isTransitioning == true))
+        super.onUpdateNotification(session, shouldStayInForeground)
+    }
+
     override fun onTaskRemoved(rootIntent: Intent?) {
         val app = application as? YimlyApplication
-        val player = app?.playbackManager?.mediaSession?.player
+        val manager = app?.playbackManager
+        if (manager?.isTransitioning == true) {
+            return
+        }
+        val player = manager?.mediaSession?.player
         if (player == null || !player.playWhenReady || player.playbackState == androidx.media3.common.Player.STATE_IDLE || player.playbackState == androidx.media3.common.Player.STATE_ENDED) {
             stopSelf()
         }

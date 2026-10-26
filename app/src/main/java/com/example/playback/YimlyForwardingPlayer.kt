@@ -8,6 +8,14 @@ class YimlyForwardingPlayer(
     private val playbackManager: PlaybackManager
 ) : ForwardingPlayer(player) {
 
+    override fun getPlaybackState(): Int {
+        val baseState = super.getPlaybackState()
+        if (baseState == Player.STATE_ENDED && playbackManager.isTransitioning) {
+            return Player.STATE_BUFFERING
+        }
+        return baseState
+    }
+
     override fun seekToNext() {
         playbackManager.next()
     }

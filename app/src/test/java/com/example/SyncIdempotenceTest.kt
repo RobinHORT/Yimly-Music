@@ -31,6 +31,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.IOException
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -283,9 +289,15 @@ class SyncIdempotenceTest {
             return mapOf("success" to true)
         }
 
-        override suspend fun getSongs(query: String?, page: Int?, limit: Int?): List<Song> {
+        private val songMoshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        private val songListAdapter = songMoshi.adapter<List<Song>>(
+            Types.newParameterizedType(List::class.java, Song::class.java)
+        )
+
+        override suspend fun getSongs(query: String?, page: Int?, limit: Int?): ResponseBody {
             if (shouldFail) throw IOException("Network unreachable")
-            return songs
+            val json = songListAdapter.toJson(songs)
+            return json.toResponseBody("application/json".toMediaTypeOrNull())
         }
 
         override suspend fun getSongById(id: String): Song {

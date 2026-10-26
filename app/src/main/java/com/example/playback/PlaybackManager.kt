@@ -58,6 +58,10 @@ class PlaybackManager(
     val isTransitionWakeLockHeld: Boolean
         get() = transitionWakeLock?.isHeld == true
 
+    @Volatile
+    var isTransitioning: Boolean = false
+        private set
+
     private var _player: ExoPlayer? = null
 
     val isPlayerInitialized: Boolean
@@ -69,7 +73,8 @@ class PlaybackManager(
     fun ensurePlayerInitialized(): ExoPlayer {
         _player?.let { return it }
         val newPlayer = ExoPlayer.Builder(context).build().apply {
-            setWakeMode(C.WAKE_MODE_LOCAL)
+            setWakeMode(C.WAKE_MODE_NETWORK)
+            setHandleAudioBecomingNoisy(true)
             setAudioAttributes(
                 AudioAttributes.Builder()
                     .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
@@ -85,6 +90,7 @@ class PlaybackManager(
                             handleSongEnded()
                         }
                         Player.STATE_READY -> {
+                            isTransitioning = false
                             releaseTransitionWakeLock()
                         }
                         else -> {}
@@ -94,6 +100,7 @@ class PlaybackManager(
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
                     if (isPlaying) {
+                        isTransitioning = false
                         releaseTransitionWakeLock()
                     }
                     updatePlaybackInfo()
@@ -101,6 +108,7 @@ class PlaybackManager(
 
                 override fun onPlayerError(error: PlaybackException) {
                     Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
+                    isTransitioning = false
                     handlePlayerError(error)
                 }
             })
@@ -153,7 +161,7 @@ class PlaybackManager(
         }
     }
 
-    fun acquireTransitionWakeLock(timeoutMs: Long = 5000L) {
+    fun acquireTransitionWakeLock(timeoutMs: Long = 30000L) {
         try {
             if (transitionWakeLock == null) {
                 transitionWakeLock = powerManager?.newWakeLock(
@@ -163,10 +171,8 @@ class PlaybackManager(
                     setReferenceCounted(false)
                 }
             }
-            if (transitionWakeLock?.isHeld == false) {
-                transitionWakeLock?.acquire(timeoutMs)
-                Log.d("PlaybackManager", "Acquired transition WakeLock for ${timeoutMs}ms")
-            }
+            transitionWakeLock?.acquire(timeoutMs)
+            Log.d("PlaybackManager", "Acquired transition WakeLock for ${timeoutMs}ms")
         } catch (e: Exception) {
             Log.e("PlaybackManager", "Failed to acquire transition WakeLock", e)
         }
@@ -193,7 +199,6 @@ class PlaybackManager(
                 val updatedSong = currentSong.copy(hasInstrumental = false)
                 val updatedQueue = info.queue.map { if (it.id == currentSong.id) updatedSong else it }
                 _playbackInfo.value = info.copy(
-                    isInstrumental = false,
                     hasInstrumental = false,
                     currentSong = updatedSong,
                     queue = updatedQueue
@@ -256,7 +261,11 @@ class PlaybackManager(
 
     fun next() {
         val info = _playbackInfo.value
-        if (info.queue.isEmpty()) return
+        if (info.queue.isEmpty()) {
+            isTransitioning = false
+            releaseTransitionWakeLock()
+            return
+        }
         
         val nextIndex = if (info.isShuffle) {
             info.queue.indices.random()
@@ -268,6 +277,8 @@ class PlaybackManager(
                     if (info.currentQueueIndex + 1 < info.queue.size) {
                         info.currentQueueIndex + 1
                     } else {
+                        isTransitioning = false
+                        releaseTransitionWakeLock()
                         return
                     }
                 }
@@ -313,6 +324,11 @@ class PlaybackManager(
     }
 
     private fun handleSongEnded() {
+        if (isTransitioning) {
+            Log.d("PlaybackManager", "handleSongEnded ignored: already transitioning")
+            return
+        }
+        isTransitioning = true
         acquireTransitionWakeLock()
         next()
     }
@@ -320,6 +336,7 @@ class PlaybackManager(
     private fun playCurrentQueueIndex(targetInstrumental: Boolean? = null) {
         val info = _playbackInfo.value
         if (info.currentQueueIndex !in info.queue.indices) {
+            isTransitioning = false
             releaseTransitionWakeLock()
             return
         }
@@ -372,8 +389,13 @@ class PlaybackManager(
                     hasInstrumental = if (!wantInst && targetInstrumental == false && !song.hasInstrumentalEffective) false else song.hasInstrumentalEffective
                 )
                 updatePlaybackInfo()
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                isTransitioning = false
+                releaseTransitionWakeLock()
+                throw e
             } catch (e: Exception) {
                 Log.e("PlaybackManager", "Error playing song: ${song.title}", e)
+                isTransitioning = false
                 releaseTransitionWakeLock()
             }
         }
@@ -399,6 +421,7 @@ class PlaybackManager(
     }
 
     fun pause() {
+        isTransitioning = false
         releaseTransitionWakeLock()
         _player?.pause()
         updatePlaybackInfo()
@@ -576,6 +599,7 @@ class PlaybackManager(
     }
 
     fun release() {
+        isTransitioning = false
         releaseTransitionWakeLock()
         _mediaSession?.release()
         _mediaSession = null

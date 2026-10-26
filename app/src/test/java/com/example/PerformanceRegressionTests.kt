@@ -34,6 +34,12 @@ import com.example.data.api.AuthInterceptor
 import java.io.IOException
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.ResponseBody
+import okhttp3.ResponseBody.Companion.toResponseBody
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -137,8 +143,16 @@ class PerformanceRegressionTests {
             }
         }
 
-        override suspend fun getSongs(query: String?, page: Int?, limit: Int?): List<Song> {
-            return trackCall("getSongs") { songs }
+        private val songMoshi = Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
+        private val songListAdapter = songMoshi.adapter<List<Song>>(
+            Types.newParameterizedType(List::class.java, Song::class.java)
+        )
+
+        override suspend fun getSongs(query: String?, page: Int?, limit: Int?): ResponseBody {
+            return trackCall("getSongs") {
+                val json = songListAdapter.toJson(songs)
+                json.toResponseBody("application/json".toMediaTypeOrNull())
+            }
         }
 
         override suspend fun getSongById(id: String): Song {
