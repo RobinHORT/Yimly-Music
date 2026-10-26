@@ -301,8 +301,7 @@ fun FullPlayerScreen(
                         onOffsetChange = onLyricsOffsetChange,
                         isPlaying = playbackInfo.isPlaying,
                         showFocusControls = false,
-                        modifier = Modifier.fillMaxSize(),
-                        compactMode = true
+                        modifier = Modifier.fillMaxSize()
                     )
                 }
             }
@@ -472,7 +471,8 @@ fun FullPlayerScreen(
                         onRemoveItem = onRemoveFromQueue,
                         onReorderItem = onReorderQueue,
                         onClearQueue = onClearQueue,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize(),
+                        compactMode = true
                     )
                 }
             }
