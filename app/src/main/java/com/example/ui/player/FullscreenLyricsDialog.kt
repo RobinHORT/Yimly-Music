@@ -117,7 +117,7 @@ fun FullscreenLyricsDialog(
             }
 
             Box(
-                modifier = Modifier.fillMaxSize().background(Color(0xFF190D18))
+                modifier = Modifier.fillMaxSize().background(Color(0xFF190D18).copy(alpha = 0.28f))
             )
 
             Box(
@@ -268,25 +268,10 @@ fun FullscreenLyricsDialog(
                     horizontalArrangement = Arrangement.SpaceEvenly,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = onToggleShuffle, modifier = Modifier.size(48.dp)) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = Icons.Default.Shuffle,
-                                contentDescription = "Shuffle",
-                                tint = if (isShuffle) YimlyPink else TextSecondaryDark,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            if (isShuffle) {
-                                Box(Modifier.size(4.dp).clip(CircleShape).background(YimlyPink))
-                            }
-                        }
-                    }
-
                     IconButton(onClick = onPrevious, modifier = Modifier.size(54.dp)) {
                         Icon(Icons.Default.SkipPrevious, contentDescription = "Previous",
                             tint = TextPrimaryDark, modifier = Modifier.size(36.dp))
                     }
-
                     Box(
                         modifier = Modifier.size(68.dp).clip(CircleShape).background(YimlyPink),
                         contentAlignment = Alignment.Center
@@ -300,24 +285,9 @@ fun FullscreenLyricsDialog(
                             )
                         }
                     }
-
                     IconButton(onClick = onNext, modifier = Modifier.size(54.dp)) {
                         Icon(Icons.Default.SkipNext, contentDescription = "Next",
                             tint = TextPrimaryDark, modifier = Modifier.size(36.dp))
-                    }
-
-                    IconButton(onClick = onCycleRepeatMode, modifier = Modifier.size(48.dp)) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(
-                                imageVector = if (repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
-                                contentDescription = "Repeat",
-                                tint = if (repeatMode != RepeatMode.OFF) YimlyPink else TextSecondaryDark,
-                                modifier = Modifier.size(24.dp)
-                            )
-                            if (repeatMode != RepeatMode.OFF) {
-                                Box(Modifier.size(4.dp).clip(CircleShape).background(YimlyPink))
-                            }
-                        }
                     }
                 }
             }
