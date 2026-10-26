@@ -200,6 +200,13 @@ fun FullscreenLyricsDialog(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                        Text(
+                            song.album,
+                            color = TextSecondaryDark.copy(alpha = 0.8f),
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
                 }
 
