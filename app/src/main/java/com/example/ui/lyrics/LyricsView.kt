@@ -93,6 +93,7 @@ fun LyricsView(
     onOffsetChange: (Long) -> Unit,
     onToggleFormatMode: (() -> Unit)? = null,
     isPlaying: Boolean = true,
+    showFocusControls: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     var viewMode by remember { mutableStateOf(0) } // 0 = Focus Mode, 1 = Full Synced List
@@ -156,6 +157,7 @@ fun LyricsView(
             .padding(16.dp)
             .testTag("lyrics_view")
     ) {
+        if (showFocusControls) {
         // Controls Bar (Offset +/- / Mode Switcher / Format Indicator)
         Row(
             modifier = Modifier
@@ -254,6 +256,7 @@ fun LyricsView(
                     }
                 }
             }
+        }
         }
 
         if (lines.isEmpty()) {
