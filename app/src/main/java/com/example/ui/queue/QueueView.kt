@@ -65,7 +65,8 @@ fun QueueView(
     onRemoveItem: (Int) -> Unit,
     onReorderItem: (Int, Int) -> Unit,
     onClearQueue: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compactMode: Boolean = false
 ) {
     val currentSong = queue.getOrNull(currentIndex)
     val upcomingSongs = if (currentIndex < queue.size - 1) {
@@ -84,18 +85,18 @@ fun QueueView(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 8.dp),
+                .padding(bottom = if (compactMode) 2.dp else 8.dp),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
-                text = "Play Queue",
-                style = MaterialTheme.typography.titleLarge,
+                text = if (compactMode) "Up Next" else "Play Queue",
+                style = if (compactMode) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = TextPrimaryDark
             )
 
-            if (upcomingSongs.isNotEmpty()) {
+            if (upcomingSongs.isNotEmpty() && !compactMode) {
                 Button(
                     onClick = onClearQueue,
                     colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevatedDark),
@@ -117,10 +118,10 @@ fun QueueView(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(if (compactMode) 4.dp else 8.dp)
         ) {
             // 1. Currently Playing Header & Card
-            if (currentSong != null) {
+            if (currentSong != null && !compactMode) {
                 item {
                     Text(
                         text = "NOW PLAYING",
@@ -207,7 +208,7 @@ fun QueueView(
             }
 
             // 2. Next Up Section
-            item {
+            if (!compactMode) item {
                 Spacer(modifier = Modifier.height(8.dp))
                 Text(
                     text = "NEXT FROM: QUEUE (${upcomingSongs.size})",
@@ -219,7 +220,7 @@ fun QueueView(
                 )
             }
 
-            if (upcomingSongs.isEmpty()) {
+            if (upcomingSongs.isEmpty() && !compactMode) {
                 item {
                     YimlyCard(
                         modifier = Modifier
@@ -250,7 +251,8 @@ fun QueueView(
                         }
                     }
                 }
-            } else {
+            }
+            if (upcomingSongs.isNotEmpty()) {
                 itemsIndexed(upcomingSongs) { relIndex, song ->
                     val actualIndex = currentIndex + 1 + relIndex
 
@@ -266,7 +268,7 @@ fun QueueView(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                                .padding(horizontal = if (compactMode) 6.dp else 8.dp, vertical = if (compactMode) 3.dp else 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Up / Down Reorder
@@ -292,7 +294,7 @@ fun QueueView(
                             // Artwork
                             Box(
                                 modifier = Modifier
-                                    .size(40.dp)
+                                    .size(if (compactMode) 32.dp else 40.dp)
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(SurfaceElevatedDark),
                                 contentAlignment = Alignment.Center
@@ -337,13 +339,13 @@ fun QueueView(
                             // Remove from Queue
                             IconButton(
                                 onClick = { onRemoveItem(actualIndex) },
-                                modifier = Modifier.size(36.dp).testTag("remove_queue_$actualIndex")
+                                modifier = Modifier.size(if (compactMode) 30.dp else 36.dp).testTag("remove_queue_$actualIndex")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Remove",
                                     tint = TextSecondaryDark,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(if (compactMode) 16.dp else 18.dp)
                                 )
                             }
                         }
