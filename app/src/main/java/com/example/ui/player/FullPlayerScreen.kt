@@ -299,11 +299,6 @@ fun FullPlayerScreen(
             Box(
                 modifier = Modifier
                     .size(artworkSize)
-                    .graphicsLayer {
-                        val scale = if (artworkIsActive) artworkPulse else 1f
-                        scaleX = scale
-                        scaleY = scale
-                    }
                     .shadow(
                         elevation = if (artworkIsActive) (10f + glowPulse * 18f).dp else 6.dp,
                         shape = artworkShape,
