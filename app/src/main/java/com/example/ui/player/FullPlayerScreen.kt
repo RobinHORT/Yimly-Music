@@ -380,10 +380,10 @@ fun FullPlayerScreen(
                         isPlaying = playbackInfo.isPlaying,
                         showFocusControls = false,
                         floatingFocusMode = true,
-                        modifier = Modifier.fillMaxSize().padding(5.dp).clip(RoundedCornerShape(15.dp))
+                        modifier = Modifier.fillMaxSize().padding(7.dp).clip(RoundedCornerShape(15.dp))
                     )
                     // Tapping the lyric itself opens the same fullscreen lyrics view as the artwork.
-                    Box(modifier = Modifier.fillMaxSize().padding(5.dp).clickable { showFullscreenLyrics = true })
+                    Box(modifier = Modifier.fillMaxSize().padding(7.dp).clickable { showFullscreenLyrics = true })
                 }
 
                 // Rotating conic-gradient border, matching Karaoke's pink radar sweep.
