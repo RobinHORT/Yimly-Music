@@ -61,6 +61,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -138,6 +143,8 @@ fun FullPlayerScreen(
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPositionMs by remember { mutableFloatStateOf(0f) }
+    // Measure the queue position so its tint can be drawn by the full-screen root.
+    var queueOverlayTopPx by remember { mutableFloatStateOf(Float.NaN) }
 
     val currentPos = if (isUserSeeking) seekPositionMs.toLong() else currentPositionMs
     val totalDuration = if (playbackInfo.durationMs > 0) playbackInfo.durationMs else song.durationMs
@@ -210,6 +217,24 @@ fun FullPlayerScreen(
                     )
                 )
             )
+        )
+
+        // Draw the queue tint in the full-screen root coordinate space, not inside
+        // the queue child. This avoids the queue parent's padding and clipping edges.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .drawBehind {
+                    val top = queueOverlayTopPx
+                    if (top.isFinite()) {
+                        val clampedTop = top.coerceIn(0f, size.height)
+                        drawRect(
+                            color = Color(0xFF4A2942).copy(alpha = 0.88f),
+                            topLeft = Offset(0f, clampedTop),
+                            size = Size(size.width, size.height - clampedTop)
+                        )
+                    }
+                }
         )
 
         val artworkSize = minOf(maxWidth * 0.58f, maxHeight * 0.32f, 220.dp)
@@ -576,10 +601,10 @@ fun FullPlayerScreen(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        // The root player column no longer adds horizontal or bottom padding,
-                        // so this background occupies the full screen width and reaches the bottom.
                         .fillMaxWidth()
-                        .background(Color(0xFF4A2942).copy(alpha = 0.88f))
+                        .onGloballyPositioned { coordinates ->
+                            queueOverlayTopPx = coordinates.positionInRoot().y
+                        }
                 ) {
                     com.example.ui.queue.QueueView(
                         queue = playbackInfo.queue,
