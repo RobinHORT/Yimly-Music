@@ -141,22 +141,13 @@ fun QueueView(
                 .padding(
                     start = if (compactMode) 16.dp else 8.dp,
                     end = if (compactMode) 16.dp else 8.dp,
-                    top = if (compactMode) 10.dp else 8.dp,
-                    bottom = if (compactMode) 6.dp else 8.dp
+                    top = if (compactMode) 18.dp else 8.dp,
+                    bottom = if (compactMode) 18.dp else 8.dp
                 ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                if (compactMode) {
-                    Icon(
-                        imageVector = Icons.Default.QueueMusic,
-                        contentDescription = null,
-                        tint = YimlyPink,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                }
                 Text(
                     text = if (compactMode) "Now Playing" else "Play Queue",
                     style = if (compactMode) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
