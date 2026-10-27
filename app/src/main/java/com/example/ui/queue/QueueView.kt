@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -39,6 +40,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,6 +52,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.distinctUntilChanged
 import coil.compose.AsyncImage
 import com.example.data.models.Song
 import com.example.ui.components.AnimatedEqualizer
@@ -78,6 +83,23 @@ fun QueueView(
         queue.subList(currentIndex + 1, queue.size)
     } else {
         emptyList()
+    }
+    // The expanded player is a Now Playing playlist: keep the active song in the list.
+    val displayedSongs = if (compactMode) queue else upcomingSongs
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(currentIndex, queue.size, compactMode, listState) {
+        if (!compactMode || currentIndex !in queue.indices) return@LaunchedEffect
+        snapshotFlow { listState.isScrollInProgress }
+            .distinctUntilChanged()
+            .collect { scrolling ->
+                if (!scrolling) {
+                    delay(4_000)
+                    if (!listState.isScrollInProgress && currentIndex in queue.indices) {
+                        listState.animateScrollToItem(currentIndex)
+                    }
+                }
+            }
     }
 
     Column(
@@ -109,15 +131,15 @@ fun QueueView(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
-                    text = if (compactMode) "Up Next" else "Play Queue",
+                    text = if (compactMode) "Now Playing" else "Play Queue",
                     style = if (compactMode) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimaryDark
                 )
-                if (compactMode && upcomingSongs.isNotEmpty()) {
+                if (compactMode && displayedSongs.isNotEmpty()) {
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "${upcomingSongs.size}",
+                        text = "${displayedSongs.size}",
                         style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Normal,
                         color = TextSecondaryDark.copy(alpha = 0.70f)
@@ -146,6 +168,7 @@ fun QueueView(
         }
 
         LazyColumn(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(
                 start = if (compactMode) 16.dp else 8.dp,
@@ -255,7 +278,7 @@ fun QueueView(
                 )
             }
 
-            if (upcomingSongs.isEmpty() && !compactMode) {
+            if (displayedSongs.isEmpty() && !compactMode) {
                 item {
                     YimlyCard(
                         modifier = Modifier
@@ -287,9 +310,10 @@ fun QueueView(
                     }
                 }
             }
-            if (upcomingSongs.isNotEmpty()) {
-                itemsIndexed(upcomingSongs) { relIndex, song ->
-                    val actualIndex = currentIndex + 1 + relIndex
+            if (displayedSongs.isNotEmpty()) {
+                itemsIndexed(displayedSongs) { relIndex, song ->
+                    val actualIndex = if (compactMode) relIndex else currentIndex + 1 + relIndex
+                    val isActive = compactMode && actualIndex == currentIndex
 
                     Surface(
                         modifier = Modifier
@@ -298,11 +322,11 @@ fun QueueView(
                                 if (compactMode) Modifier
                                 else Modifier
                                     .clip(RoundedCornerShape(12.dp))
-                                    .border(1.dp, SurfaceBorderDark, RoundedCornerShape(12.dp))
+                                    .border(1.dp, if (isActive) YimlyPink else SurfaceBorderDark, RoundedCornerShape(12.dp))
                             )
                             .clickable { onPlayItem(actualIndex) }
                             .testTag("queue_item_$actualIndex"),
-                        color = if (compactMode) Color.Transparent else SurfaceCardDark
+                        color = if (isActive) YimlyPink.copy(alpha = 0.16f) else if (compactMode) Color.Transparent else SurfaceCardDark
                     ) {
                         Row(
                             modifier = Modifier
@@ -359,7 +383,8 @@ fun QueueView(
                                 Text(
                                     text = song.title,
                                     style = MaterialTheme.typography.titleSmall,
-                                    color = TextPrimaryDark,
+                                    color = if (isActive) YimlyPink else TextPrimaryDark,
+                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
