@@ -547,11 +547,19 @@ class PlaybackManager(
         if (fromIndex in queue.indices && toIndex in queue.indices) {
             val item = queue.removeAt(fromIndex)
             queue.add(toIndex, item)
-            var newIndex = info.currentQueueIndex
-            if (info.currentSong != null) {
-                newIndex = queue.indexOf(info.currentSong)
+            val oldIndex = info.currentQueueIndex
+            val newIndex = when {
+                oldIndex !in info.queue.indices -> oldIndex
+                fromIndex == oldIndex -> toIndex
+                fromIndex < oldIndex && toIndex >= oldIndex -> oldIndex - 1
+                fromIndex > oldIndex && toIndex <= oldIndex -> oldIndex + 1
+                else -> oldIndex
             }
-            _playbackInfo.value = info.copy(queue = queue, currentQueueIndex = newIndex)
+            _playbackInfo.value = info.copy(
+                queue = queue,
+                currentQueueIndex = newIndex,
+                currentSong = queue.getOrNull(newIndex)
+            )
         }
     }
 
