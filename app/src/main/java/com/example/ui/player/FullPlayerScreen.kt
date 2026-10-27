@@ -438,7 +438,7 @@ fun FullPlayerScreen(
                                 activeTickColor = YimlyPink,
                                 inactiveTickColor = Color.White.copy(alpha = 0.38f)
                             ),
-                            modifier = Modifier.fillMaxWidth().height(18.dp).testTag("player_progress_slider")
+                            modifier = Modifier.fillMaxWidth().height(12.dp).testTag("player_progress_slider")
                         )
 
                         Row(
