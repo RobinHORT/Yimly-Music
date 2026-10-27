@@ -78,7 +78,7 @@ fun QueueView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(8.dp)
+            .padding(horizontal = if (compactMode) 0.dp else 8.dp, vertical = 8.dp)
             .testTag("queue_view")
     ) {
         // Queue Header with Clear button
