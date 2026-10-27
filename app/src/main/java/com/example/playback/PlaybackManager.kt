@@ -64,6 +64,7 @@ class PlaybackManager(
         private set
 
     private var _player: ExoPlayer? = null
+    private var playbackRequestId: Long = 0L
 
     val isPlayerInitialized: Boolean
         get() = _player != null
@@ -264,7 +265,7 @@ class PlaybackManager(
         }
     }
 
-    fun next() {
+    fun next(manual: Boolean = true) {
         val info = _playbackInfo.value
         if (info.queue.isEmpty()) {
             isTransitioning = false
@@ -272,21 +273,16 @@ class PlaybackManager(
             return
         }
         
-        val nextIndex = if (info.isShuffle) {
-            info.queue.indices.random()
-        } else {
-            when (info.repeatMode) {
-                RepeatMode.ONE -> info.currentQueueIndex
-                RepeatMode.ALL -> (info.currentQueueIndex + 1) % info.queue.size
-                RepeatMode.OFF -> {
-                    if (info.currentQueueIndex + 1 < info.queue.size) {
-                        info.currentQueueIndex + 1
-                    } else {
-                        isTransitioning = false
-                        releaseTransitionWakeLock()
-                        return
-                    }
-                }
+        val nextIndex = when {
+            !manual && info.repeatMode == RepeatMode.ONE -> info.currentQueueIndex
+            info.isShuffle && info.queue.size > 1 -> info.queue.indices.filter { it != info.currentQueueIndex }.random()
+            info.isShuffle -> info.currentQueueIndex
+            info.repeatMode == RepeatMode.ALL -> (info.currentQueueIndex + 1) % info.queue.size
+            info.currentQueueIndex + 1 < info.queue.size -> info.currentQueueIndex + 1
+            else -> {
+                isTransitioning = false
+                releaseTransitionWakeLock()
+                return
             }
         }
         
@@ -335,7 +331,7 @@ class PlaybackManager(
         }
         isTransitioning = true
         acquireTransitionWakeLock()
-        next()
+        next(manual = false)
     }
 
     private fun playCurrentQueueIndex(targetInstrumental: Boolean? = null) {
@@ -347,11 +343,13 @@ class PlaybackManager(
         }
         val song = info.queue[info.currentQueueIndex]
         val wantInst = targetInstrumental ?: info.isInstrumental
+        val requestId = ++playbackRequestId
         
         coroutineScope.launch(Dispatchers.Main) {
             try {
                 acquireTransitionWakeLock()
                 val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInst)
+                if (requestId != playbackRequestId) return@launch
                 val audioUrl = resolvedTrack.playableUrl
                 
                 val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
