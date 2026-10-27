@@ -52,8 +52,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import coil.compose.AsyncImage
 import com.example.data.models.Song
@@ -91,16 +94,39 @@ fun QueueView(
 
     LaunchedEffect(currentIndex, queue.size, compactMode, listState) {
         if (!compactMode || currentIndex !in queue.indices) return@LaunchedEffect
-        snapshotFlow { listState.isScrollInProgress }
-            .distinctUntilChanged()
-            .collectLatest { scrolling ->
-                if (!scrolling) {
-                    delay(4_000)
-                    if (!listState.isScrollInProgress && currentIndex in queue.indices) {
-                        listState.animateScrollToItem(currentIndex)
+
+        coroutineScope {
+            var idleJob: Job? = null
+            var isAutoRecentering = false
+            var skipNextIdleCountdown = false
+
+            snapshotFlow { listState.isScrollInProgress }
+                .distinctUntilChanged()
+                .collect { scrolling ->
+                    if (scrolling) {
+                        // Our own animation also marks the list as scrolling. Do not cancel
+                        // that animation; only user-initiated scrolling should reset the timer.
+                        if (!isAutoRecentering) idleJob?.cancel()
+                    } else if (skipNextIdleCountdown) {
+                        // Do not immediately schedule another timer when our animation ends.
+                        skipNextIdleCountdown = false
+                    } else {
+                        idleJob?.cancel()
+                        idleJob = launch {
+                            delay(4_000)
+                            if (!listState.isScrollInProgress && currentIndex in queue.indices) {
+                                isAutoRecentering = true
+                                try {
+                                    listState.animateScrollToItem(currentIndex)
+                                } finally {
+                                    isAutoRecentering = false
+                                    skipNextIdleCountdown = true
+                                }
+                            }
+                        }
                     }
                 }
-            }
+        }
     }
 
     Column(
