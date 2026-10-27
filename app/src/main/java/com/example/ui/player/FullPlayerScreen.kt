@@ -245,7 +245,7 @@ fun FullPlayerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp),
+                .padding(top = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             // Keep the header below the status bar without shrinking the queue's
@@ -256,7 +256,7 @@ fun FullPlayerScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp),
+                    .padding(horizontal = 16.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
@@ -436,7 +436,7 @@ fun FullPlayerScreen(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
+                        .padding(horizontal = 24.dp, vertical = 4.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     // Progress Scrubber Slider & Duration labels
@@ -582,22 +582,10 @@ fun FullPlayerScreen(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        // requiredWidth bypasses the Column's reduced max-width constraint,
-                        // so the queue background truly reaches both screen edges.
-                        .requiredWidth(maxWidth + 32.dp)
-                        .offset(x = (-16).dp, y = 24.dp)
-                        // Extend the actual layout bounds past the display bottom so the
-                        // background is not clipped to the safe-area content height.
-                        .drawBehind {
-                            // The tinted queue overlay itself bleeds 16dp past each side
-                            // and 32dp past the bottom; the song rows remain transparent.
-                            val bleed = 16.dp.toPx()
-                            drawRect(
-                                color = Color(0xFF4A2942).copy(alpha = 0.88f),
-                                topLeft = Offset(-bleed, 0f),
-                                size = Size(size.width + bleed * 2, size.height + 32.dp.toPx())
-                            )
-                        }
+                        // The root player column no longer adds horizontal or bottom padding,
+                        // so this background occupies the full screen width and reaches the bottom.
+                        .fillMaxWidth()
+                        .background(Color(0xFF4A2942).copy(alpha = 0.88f))
                 ) {
                     com.example.ui.queue.QueueView(
                         queue = playbackInfo.queue,
