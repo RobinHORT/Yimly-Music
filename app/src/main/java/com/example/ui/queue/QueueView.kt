@@ -259,11 +259,15 @@ fun QueueView(
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(12.dp))
-                            .border(1.dp, SurfaceBorderDark, RoundedCornerShape(12.dp))
+                            .then(
+                                if (compactMode) Modifier
+                                else Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .border(1.dp, SurfaceBorderDark, RoundedCornerShape(12.dp))
+                            )
                             .clickable { onPlayItem(actualIndex) }
                             .testTag("queue_item_$actualIndex"),
-                        color = SurfaceCardDark
+                        color = if (compactMode) Color.Transparent else SurfaceCardDark
                     ) {
                         Row(
                             modifier = Modifier
