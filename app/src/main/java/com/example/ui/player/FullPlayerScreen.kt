@@ -13,6 +13,10 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.calculateTopPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -240,10 +244,13 @@ fun FullPlayerScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .safeDrawingPadding()
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
+            // Keep the header below the status bar without shrinking the queue's
+            // available height; the queue background can now bleed past the bottom edge.
+            Spacer(modifier = Modifier.height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding()))
+
             // Header: lyrics toggle on the left, track details centred, collapse on the right.
             Row(
                 modifier = Modifier
@@ -578,12 +585,13 @@ fun FullPlayerScreen(
                         // so the queue background truly reaches both screen edges.
                         .requiredWidth(maxWidth + 32.dp)
                         .offset(x = (-16).dp, y = 24.dp)
-                        // Draw beyond the measured bottom edge as well as the side edges.
-                        // The queue list itself keeps its normal bounds and scrolling.
+                        // Extend the actual layout bounds past the display bottom so the
+                        // background is not clipped to the safe-area content height.
+                        .requiredHeight(maxHeight)
                         .drawBehind {
                             drawRect(
                                 color = Color(0xFF4A2942).copy(alpha = 0.88f),
-                                size = Size(size.width, size.height + 32.dp.toPx())
+                                size = Size(size.width, size.height)
                             )
                         }
                 ) {
