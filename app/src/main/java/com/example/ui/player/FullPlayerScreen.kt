@@ -1,6 +1,8 @@
 package com.example.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredWidth
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -571,10 +574,18 @@ fun FullPlayerScreen(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        // Extend the queue panel past the content's horizontal and bottom insets.
-                        .width(maxWidth + 32.dp)
+                        // requiredWidth bypasses the Column's reduced max-width constraint,
+                        // so the queue background truly reaches both screen edges.
+                        .requiredWidth(maxWidth + 32.dp)
                         .offset(x = (-16).dp, y = 24.dp)
-                        .background(Color(0xFF4A2942).copy(alpha = 0.88f))
+                        // Draw beyond the measured bottom edge as well as the side edges.
+                        // The queue list itself keeps its normal bounds and scrolling.
+                        .drawBehind {
+                            drawRect(
+                                color = Color(0xFF4A2942).copy(alpha = 0.88f),
+                                size = Size(size.width, size.height + 32.dp.toPx())
+                            )
+                        }
                 ) {
                     com.example.ui.queue.QueueView(
                         queue = playbackInfo.queue,
