@@ -198,9 +198,12 @@ fun FullPlayerScreen(
             modifier = Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        Color(0xFFBE185D).copy(alpha = 0.28f),
-                        Color(0xFF9D174D).copy(alpha = 0.38f),
-                        BackgroundDark.copy(alpha = 0.58f)
+                        // Match Yimly Karaoke's full-player cover-art overlay exactly:
+                        // translucent pink at the top, deeper rose through the middle,
+                        // and dark plum at the bottom.
+                        Color(0xFFBE185D).copy(alpha = 0.48f),
+                        Color(0xFF9D174D).copy(alpha = 0.58f),
+                        Color(0xFF230C1D).copy(alpha = 0.72f)
                     )
                 )
             )
