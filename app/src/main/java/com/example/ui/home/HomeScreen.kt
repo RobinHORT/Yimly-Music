@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -67,7 +68,10 @@ import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
 import com.example.ui.theme.YimlyPinkGlow
-import java.util.Calendar
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun HomeScreen(
@@ -93,13 +97,17 @@ fun HomeScreen(
     onAddToPlaylist: (Song) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
-    val greeting = remember {
-        val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
-        when (hour) {
-            in 4..11 -> "Good morning"
-            in 12..17 -> "Good afternoon"
-            else -> "Good evening"
+    val currentTimeMillis by produceState(initialValue = System.currentTimeMillis()) {
+        while (true) {
+            value = System.currentTimeMillis()
+            delay(1000)
         }
+    }
+    val clockText = remember(currentTimeMillis) {
+        SimpleDateFormat("h:mm a", Locale.getDefault()).format(Date(currentTimeMillis))
+    }
+    val dateText = remember(currentTimeMillis) {
+        SimpleDateFormat("EEEE, d MMMM yyyy", Locale.getDefault()).format(Date(currentTimeMillis))
     }
 
     LazyColumn(
@@ -108,108 +116,27 @@ fun HomeScreen(
             .testTag("home_screen"),
         contentPadding = PaddingValues(bottom = 120.dp)
     ) {
-        // 1. Header with Yimly Branding & Greeting
+        // 1. Clock and date
         item {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 16.dp, end = 16.dp, top = 20.dp, bottom = 12.dp)
+                    .padding(horizontal = 20.dp, vertical = 24.dp),
+                horizontalAlignment = Alignment.Start
             ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    YimlyHeaderBrand(
-                        badgeSize = 40.dp,
-                        showSubtitle = true
-                    )
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
                 Text(
-                    text = greeting,
-                    style = MaterialTheme.typography.headlineMedium,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = TextPrimaryDark
+                    text = clockText,
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimaryDark,
+                    modifier = Modifier.testTag("home_clock")
                 )
-                if (userProfile != null) {
-                    Text(
-                        text = "Welcome back, ${userProfile.displayName ?: userProfile.username}",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = TextSecondaryDark
-                    )
-                }
-            }
-        }
-
-        // 2. Hero Banner Card with Yimly Microphone Branding
-        item {
-            YimlyCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 6.dp)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(136.dp)
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    SurfaceElevatedDark,
-                                    SurfaceCardDark
-                                )
-                            )
-                        )
-                ) {
-                    // Ambient Yimly Glow & Micro Backdrop
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(end = 12.dp)
-                            .size(110.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        YimlyMicIcon(
-                            tint = YimlyPink.copy(alpha = 0.15f),
-                            modifier = Modifier.size(96.dp)
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier
-                            .align(Alignment.CenterStart)
-                            .padding(18.dp)
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(6.dp),
-                            color = YimlyPink
-                        ) {
-                            Text(
-                                text = "YIMLY KARAOKE STREAMING",
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Black,
-                                letterSpacing = 1.sp,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                            )
-                        }
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Stream Everywhere",
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = TextPrimaryDark
-                        )
-                        Text(
-                            text = "High Fidelity • Synced Lyrics",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = TextSecondaryDark
-                        )
-                    }
-                }
+                Text(
+                    text = dateText,
+                    style = MaterialTheme.typography.titleMedium,
+                    color = TextSecondaryDark,
+                    modifier = Modifier.testTag("home_date")
+                )
             }
         }
 
