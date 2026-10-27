@@ -143,7 +143,8 @@ fun FullPlayerScreen(
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPositionMs by remember { mutableFloatStateOf(0f) }
-    // Measure the queue position so its tint can be drawn by the full-screen root.
+    // Measure both positions in the same root coordinate space before drawing the queue tint.
+    var playerRootTopPx by remember { mutableFloatStateOf(Float.NaN) }
     var queueOverlayTopPx by remember { mutableFloatStateOf(Float.NaN) }
 
     val currentPos = if (isUserSeeking) seekPositionMs.toLong() else currentPositionMs
@@ -192,6 +193,9 @@ fun FullPlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(BackgroundDark)
+            .onGloballyPositioned { coordinates ->
+                playerRootTopPx = coordinates.positionInRoot().y
+            }
             .testTag("full_player_screen")
     ) {
         // Use the album art as a clearly visible, full-screen backdrop, with the same
@@ -225,7 +229,8 @@ fun FullPlayerScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .drawBehind {
-                    val top = queueOverlayTopPx
+                    // Convert from Compose-root coordinates into this layer's local coordinates.
+                    val top = queueOverlayTopPx - playerRootTopPx
                     if (top.isFinite()) {
                         val clampedTop = top.coerceIn(0f, size.height)
                         drawRect(
