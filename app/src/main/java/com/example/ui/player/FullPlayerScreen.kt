@@ -1,6 +1,13 @@
 package com.example.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -51,6 +58,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -152,6 +161,40 @@ fun FullPlayerScreen(
             .testTag("full_player_screen")
     ) {
         val artworkSize = minOf(maxWidth * 0.58f, maxHeight * 0.29f, 220.dp)
+
+        // Mirror Karaoke's cover-art breathing, sweeping pink border, and soft glow.
+        // The animation is active only while playback is running; pausing returns
+        // the artwork to its resting size and glow without touching the audio pipeline.
+        val artworkTransition = rememberInfiniteTransition(label = "artworkReactiveEffect")
+        val artworkPulse by artworkTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.035f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(900, easing = FastOutSlowInEasing),
+                repeatMode = AnimationRepeatMode.Reverse
+            ),
+            label = "artworkPulse"
+        )
+        val borderSweep by artworkTransition.animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(6500, easing = LinearEasing),
+                repeatMode = AnimationRepeatMode.Restart
+            ),
+            label = "artworkBorderSweep"
+        )
+        val glowPulse by artworkTransition.animateFloat(
+            initialValue = 0.12f,
+            targetValue = 0.48f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(780, easing = FastOutSlowInEasing),
+                repeatMode = AnimationRepeatMode.Reverse
+            ),
+            label = "artworkGlowPulse"
+        )
+        val artworkShape = RoundedCornerShape(20.dp)
+        val artworkIsActive = playbackInfo.isPlaying
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -256,7 +299,18 @@ fun FullPlayerScreen(
             Box(
                 modifier = Modifier
                     .size(artworkSize)
-                    .clip(RoundedCornerShape(20.dp))
+                    .graphicsLayer {
+                        val scale = if (artworkIsActive) artworkPulse else 1f
+                        scaleX = scale
+                        scaleY = scale
+                    }
+                    .shadow(
+                        elevation = if (artworkIsActive) (10f + glowPulse * 18f).dp else 6.dp,
+                        shape = artworkShape,
+                        ambientColor = YimlyPink.copy(alpha = if (artworkIsActive) 0.18f + glowPulse * 0.34f else 0.08f),
+                        spotColor = YimlyPink.copy(alpha = if (artworkIsActive) 0.20f + glowPulse * 0.40f else 0.08f)
+                    )
+                    .clip(artworkShape)
                     .background(SurfaceCardDark)
                     .align(Alignment.CenterHorizontally)
             ) {
@@ -266,7 +320,13 @@ fun FullPlayerScreen(
                         model = song.artworkUrl,
                         contentDescription = song.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                val scale = if (artworkIsActive) artworkPulse else 1f
+                                scaleX = scale
+                                scaleY = scale
+                            }
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize().background(SurfaceCardDark), contentAlignment = Alignment.Center) {
@@ -304,6 +364,30 @@ fun FullPlayerScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
+
+                // Rotating conic-gradient border, matching Karaoke's pink radar sweep.
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            // Artwork is square, so rotating this border rotates only the gradient visually.
+                            rotationZ = if (artworkIsActive) borderSweep else 0f
+                        }
+                        .border(
+                            width = 3.dp,
+                            brush = Brush.sweepGradient(
+                                colors = listOf(
+                                    Color(0x29F472B6),
+                                    Color(0x38F472B6),
+                                    Color(0xB8F9A8D4),
+                                    Color(0xE6FFF5FB),
+                                    Color(0x99F472B6),
+                                    Color(0x29F472B6)
+                                )
+                            ),
+                            shape = artworkShape
+                        )
+                )
             }
 
             // 3. BOTTOM HALF — Queue + Controls (Fixed)
