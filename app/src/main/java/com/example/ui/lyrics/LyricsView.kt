@@ -270,9 +270,9 @@ fun LyricsView(
                     fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
                     color = YimlyPink.copy(alpha = 0.96f),
                     textAlign = TextAlign.Center,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    maxLines = 3,
+                    softWrap = true,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
                     modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
                 )
             }
@@ -306,9 +306,9 @@ fun LyricsView(
                         color = currentLineColor.copy(alpha = 0.96f),
                         textAlign = TextAlign.Center,
                         lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
-                        maxLines = 1,
-                        softWrap = false,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        maxLines = 3,
+                        softWrap = true,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
                         modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
                     )
                 }
