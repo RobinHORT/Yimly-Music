@@ -2,6 +2,7 @@ package com.example.ui.player
 
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -588,9 +589,13 @@ fun FullPlayerScreen(
                         // Extend the actual layout bounds past the display bottom so the
                         // background is not clipped to the safe-area content height.
                         .drawBehind {
+                            // The tinted queue overlay itself bleeds 16dp past each side
+                            // and 32dp past the bottom; the song rows remain transparent.
+                            val bleed = 16.dp.toPx()
                             drawRect(
                                 color = Color(0xFF4A2942).copy(alpha = 0.88f),
-                                size = Size(size.width, size.height)
+                                topLeft = Offset(-bleed, 0f),
+                                size = Size(size.width + bleed * 2, size.height + 32.dp.toPx())
                             )
                         }
                 ) {
