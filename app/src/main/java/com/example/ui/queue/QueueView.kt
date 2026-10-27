@@ -115,6 +115,7 @@ fun QueueView(
                     color = TextPrimaryDark
                 )
                 if (compactMode && upcomingSongs.isNotEmpty()) {
+                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
                         text = "${upcomingSongs.size}",
                         style = MaterialTheme.typography.labelMedium,
