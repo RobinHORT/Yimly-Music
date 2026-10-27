@@ -1,6 +1,9 @@
 package com.example.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -60,6 +63,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -420,26 +425,76 @@ fun FullPlayerScreen(
                 ) {
                     // Progress Scrubber Slider & Duration labels
                     Column(modifier = Modifier.fillMaxWidth()) {
-                        Slider(
-                            value = currentPos.toFloat().coerceIn(0f, totalDuration.toFloat().coerceAtLeast(1f)),
-                            onValueChange = {
-                                isUserSeeking = true
-                                seekPositionMs = it
-                            },
-                            onValueChangeFinished = {
-                                isUserSeeking = false
-                                onSeekTo(seekPositionMs.toLong())
-                            },
-                            valueRange = 0f..totalDuration.toFloat().coerceAtLeast(1f),
-                            colors = SliderDefaults.colors(
-                                thumbColor = YimlyPink,
-                                activeTrackColor = YimlyPink,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.38f),
-                                activeTickColor = YimlyPink,
-                                inactiveTickColor = Color.White.copy(alpha = 0.38f)
-                            ),
-                            modifier = Modifier.fillMaxWidth().height(3.dp).testTag("player_progress_slider")
-                        )
+                        // Draw the visible scrubber ourselves: Material Slider keeps a
+                        // minimum visual track/thumb size even when its layout height is reduced.
+                        // The 28dp container preserves a comfortable touch target while the
+                        // rendered track itself stays a slim 3dp line.
+                        val seekDuration = totalDuration.toFloat().coerceAtLeast(1f)
+                        val seekFraction = (currentPos.toFloat() / seekDuration).coerceIn(0f, 1f)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(28.dp)
+                                .testTag("player_progress_slider")
+                                .pointerInput(totalDuration) {
+                                    detectTapGestures { position ->
+                                        val fraction = (position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                                        val target = fraction * seekDuration
+                                        isUserSeeking = true
+                                        seekPositionMs = target
+                                        onSeekTo(target.toLong())
+                                        isUserSeeking = false
+                                    }
+                                }
+                                .pointerInput(totalDuration) {
+                                    detectDragGestures(
+                                        onDragStart = { position ->
+                                            val fraction = (position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                                            isUserSeeking = true
+                                            seekPositionMs = fraction * seekDuration
+                                        },
+                                        onDragEnd = {
+                                            isUserSeeking = false
+                                            onSeekTo(seekPositionMs.toLong())
+                                        },
+                                        onDragCancel = {
+                                            isUserSeeking = false
+                                        },
+                                        onDrag = { change, _ ->
+                                            val fraction = (change.position.x / size.width.coerceAtLeast(1)).coerceIn(0f, 1f)
+                                            seekPositionMs = fraction * seekDuration
+                                            change.consume()
+                                        }
+                                    )
+                                },
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Canvas(modifier = Modifier.fillMaxWidth().height(10.dp)) {
+                                val trackHeight = 3.dp.toPx()
+                                val centerY = size.height / 2f
+                                val thumbRadius = 3.5.dp.toPx()
+                                val horizontalInset = thumbRadius
+                                val trackWidth = (size.width - horizontalInset * 2f).coerceAtLeast(0f)
+                                val playedWidth = trackWidth * seekFraction
+                                drawLine(
+                                    color = Color.White.copy(alpha = 0.32f),
+                                    start = Offset(horizontalInset, centerY),
+                                    end = Offset(horizontalInset + trackWidth, centerY),
+                                    strokeWidth = trackHeight
+                                )
+                                drawLine(
+                                    color = YimlyPink,
+                                    start = Offset(horizontalInset, centerY),
+                                    end = Offset(horizontalInset + playedWidth, centerY),
+                                    strokeWidth = trackHeight
+                                )
+                                drawCircle(
+                                    color = YimlyPink,
+                                    radius = thumbRadius,
+                                    center = Offset(horizontalInset + playedWidth, centerY)
+                                )
+                            }
+                        }
 
                         Row(
                             modifier = Modifier
