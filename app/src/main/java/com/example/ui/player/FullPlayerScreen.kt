@@ -215,10 +215,10 @@ fun FullPlayerScreen(
         // Keep the cover image still; the edge glow pulses without a rotating square.
         val artworkTransition = rememberInfiniteTransition(label = "artworkBorderEffect")
         val borderGlow by artworkTransition.animateFloat(
-            initialValue = 0.48f,
+            initialValue = 0.18f,
             targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(900, easing = FastOutSlowInEasing),
+                animation = tween(700, easing = FastOutSlowInEasing),
                 repeatMode = AnimationRepeatMode.Reverse
             ),
             label = "artworkBorderGlow"
