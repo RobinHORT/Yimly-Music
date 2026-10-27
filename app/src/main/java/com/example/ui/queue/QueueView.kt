@@ -109,11 +109,18 @@ fun QueueView(
                     Spacer(modifier = Modifier.width(6.dp))
                 }
                 Text(
-                    text = if (compactMode) "Up Next${if (upcomingSongs.isNotEmpty()) " ${upcomingSongs.size}" else ""}" else "Play Queue",
-                    style = if (compactMode) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
+                    text = if (compactMode) "Up Next" else "Play Queue",
+                    style = if (compactMode) MaterialTheme.typography.titleMedium else MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimaryDark
                 )
+                if (compactMode && upcomingSongs.isNotEmpty()) {
+                    Text(
+                        text = "${upcomingSongs.size}",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextSecondaryDark
+                    )
+                }
             }
 
             if (upcomingSongs.isNotEmpty() && !compactMode) {
