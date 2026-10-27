@@ -571,8 +571,7 @@ fun FullPlayerScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(Color(0xFF160B16).copy(alpha = 0.72f))
+                        .background(Color(0xFF4A2942).copy(alpha = 0.88f))
                 ) {
                     com.example.ui.queue.QueueView(
                         queue = playbackInfo.queue,
