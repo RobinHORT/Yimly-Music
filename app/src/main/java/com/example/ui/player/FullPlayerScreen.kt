@@ -185,22 +185,23 @@ fun FullPlayerScreen(
             .background(BackgroundDark)
             .testTag("full_player_screen")
     ) {
-        // Keep the current album art as a continuous, subdued backdrop across the player and queue.
+        // Use the album art as a clearly visible, full-screen backdrop, with the same
+        // plum/pink treatment as the artwork overlay. Keep the queue separately tinted below.
         if (!song.artworkUrl.isNullOrBlank()) {
             AsyncImage(
                 model = song.artworkUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.22f }
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.92f }
             )
         }
         Box(
             modifier = Modifier.fillMaxSize().background(
                 Brush.verticalGradient(
                     colors = listOf(
-                        BackgroundDark.copy(alpha = 0.70f),
-                        Color(0xFF1B0B18).copy(alpha = 0.82f),
-                        BackgroundDark.copy(alpha = 0.94f)
+                        Color(0xFFBE185D).copy(alpha = 0.28f),
+                        Color(0xFF9D174D).copy(alpha = 0.38f),
+                        BackgroundDark.copy(alpha = 0.58f)
                     )
                 )
             )
@@ -208,19 +209,8 @@ fun FullPlayerScreen(
 
         val artworkSize = minOf(maxWidth * 0.58f, maxHeight * 0.29f, 220.dp)
 
-        // Mirror Karaoke's cover-art breathing, sweeping pink border, and soft glow.
-        // The animation is active only while playback is running; pausing returns
-        // the artwork to its resting size and glow without touching the audio pipeline.
-        val artworkTransition = rememberInfiniteTransition(label = "artworkReactiveEffect")
-        val artworkPulse by artworkTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.035f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(900, easing = FastOutSlowInEasing),
-                repeatMode = AnimationRepeatMode.Reverse
-            ),
-            label = "artworkPulse"
-        )
+        // Keep the cover image still. Only the pink border sweeps and pulses while playing.
+        val artworkTransition = rememberInfiniteTransition(label = "artworkBorderEffect")
         val borderSweep by artworkTransition.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
@@ -230,14 +220,14 @@ fun FullPlayerScreen(
             ),
             label = "artworkBorderSweep"
         )
-        val glowPulse by artworkTransition.animateFloat(
-            initialValue = 0.12f,
-            targetValue = 0.48f,
+        val borderGlow by artworkTransition.animateFloat(
+            initialValue = 0.48f,
+            targetValue = 1f,
             animationSpec = infiniteRepeatable(
-                animation = tween(780, easing = FastOutSlowInEasing),
+                animation = tween(900, easing = FastOutSlowInEasing),
                 repeatMode = AnimationRepeatMode.Reverse
             ),
-            label = "artworkGlowPulse"
+            label = "artworkBorderGlow"
         )
         val artworkShape = RoundedCornerShape(20.dp)
         val artworkIsActive = playbackInfo.isPlaying
@@ -346,12 +336,6 @@ fun FullPlayerScreen(
                 modifier = Modifier
                     .size(artworkSize)
                     .clickable { showFullscreenLyrics = true }
-                    .shadow(
-                        elevation = if (artworkIsActive) (10f + glowPulse * 18f).dp else 6.dp,
-                        shape = artworkShape,
-                        ambientColor = YimlyPink.copy(alpha = if (artworkIsActive) 0.18f + glowPulse * 0.34f else 0.08f),
-                        spotColor = YimlyPink.copy(alpha = if (artworkIsActive) 0.20f + glowPulse * 0.40f else 0.08f)
-                    )
                     .clip(artworkShape)
                     .background(SurfaceCardDark)
                     .align(Alignment.CenterHorizontally)
@@ -362,13 +346,7 @@ fun FullPlayerScreen(
                         model = song.artworkUrl,
                         contentDescription = song.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                val scale = if (artworkIsActive) artworkPulse else 1f
-                                scaleX = scale
-                                scaleY = scale
-                            }
+                        modifier = Modifier.fillMaxSize()
                     )
                 } else {
                     Box(modifier = Modifier.fillMaxSize().background(SurfaceCardDark), contentAlignment = Alignment.Center) {
@@ -382,9 +360,9 @@ fun FullPlayerScreen(
                         modifier = Modifier.fillMaxSize().background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    Color(0xFFBE185D).copy(alpha = 0.20f),
-                                    Color(0xFF9D174D).copy(alpha = 0.28f),
-                                    BackgroundDark.copy(alpha = 0.42f)
+                                    Color(0xFFBE185D).copy(alpha = 0.48f),
+                                    Color(0xFF9D174D).copy(alpha = 0.58f),
+                                    BackgroundDark.copy(alpha = 0.72f)
                                 )
                             )
                         )
@@ -418,12 +396,12 @@ fun FullPlayerScreen(
                             width = 3.dp,
                             brush = Brush.sweepGradient(
                                 colors = listOf(
-                                    Color(0x29F472B6),
-                                    Color(0x38F472B6),
-                                    Color(0xB8F9A8D4),
-                                    Color(0xE6FFF5FB),
-                                    Color(0x99F472B6),
-                                    Color(0x29F472B6)
+                                    YimlyPink.copy(alpha = if (artworkIsActive) 0.20f + borderGlow * 0.22f else 0.20f),
+                                    YimlyPink.copy(alpha = if (artworkIsActive) 0.28f + borderGlow * 0.26f else 0.28f),
+                                    Color(0xFFF9A8D4).copy(alpha = if (artworkIsActive) 0.55f + borderGlow * 0.35f else 0.55f),
+                                    Color(0xFFFFF5FB).copy(alpha = if (artworkIsActive) 0.65f + borderGlow * 0.30f else 0.65f),
+                                    YimlyPink.copy(alpha = if (artworkIsActive) 0.42f + borderGlow * 0.32f else 0.42f),
+                                    YimlyPink.copy(alpha = if (artworkIsActive) 0.20f + borderGlow * 0.22f else 0.20f)
                                 )
                             ),
                             shape = artworkShape
