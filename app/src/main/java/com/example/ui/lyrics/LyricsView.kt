@@ -261,10 +261,10 @@ fun LyricsView(
         }
 
         if (lines.isEmpty() && floatingFocusMode) {
-            // Untimed/plain lyrics still respect the single-line floating focus layout.
+            // Untimed/plain lyrics wrap naturally in the available focus area.
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
-                    text = lyricsData?.plainLyrics?.lineSequence()?.firstOrNull().orEmpty(),
+                    text = lyricsData?.plainLyrics.orEmpty(),
                     fontSize = config.currentLineFontSizeSp.sp,
                     fontFamily = composeFontFamily,
                     fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
