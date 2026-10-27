@@ -348,10 +348,10 @@ fun FullPlayerScreen(
                         model = song.artworkUrl,
                         contentDescription = song.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(17.dp))
                     )
                 } else {
-                    Box(modifier = Modifier.fillMaxSize().background(SurfaceCardDark), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(17.dp)).background(SurfaceCardDark), contentAlignment = Alignment.Center) {
                         YimlyMicIcon(tint = TextSecondaryDark, modifier = Modifier.size(80.dp))
                     }
                 }
@@ -359,7 +359,7 @@ fun FullPlayerScreen(
                 // Keep artwork natural normally; apply the focus tint only while lyrics are shown.
                 if (showLyrics) {
                     Box(
-                        modifier = Modifier.fillMaxSize().background(
+                        modifier = Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(17.dp)).background(
                             Brush.verticalGradient(
                                 colors = listOf(
                                     Color(0xFFBE185D).copy(alpha = 0.48f),
@@ -380,10 +380,10 @@ fun FullPlayerScreen(
                         isPlaying = playbackInfo.isPlaying,
                         showFocusControls = false,
                         floatingFocusMode = true,
-                        modifier = Modifier.fillMaxSize()
+                        modifier = Modifier.fillMaxSize().padding(3.dp).clip(RoundedCornerShape(17.dp))
                     )
                     // Tapping the lyric itself opens the same fullscreen lyrics view as the artwork.
-                    Box(modifier = Modifier.fillMaxSize().clickable { showFullscreenLyrics = true })
+                    Box(modifier = Modifier.fillMaxSize().padding(3.dp).clickable { showFullscreenLyrics = true })
                 }
 
                 // Rotating conic-gradient border, matching Karaoke's pink radar sweep.
