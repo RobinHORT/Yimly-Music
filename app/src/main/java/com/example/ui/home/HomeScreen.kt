@@ -119,25 +119,57 @@ fun HomeScreen(
     ) {
         // 1. Clock and date
         item {
-            Column(
+            Surface(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 20.dp, vertical = 24.dp),
-                horizontalAlignment = Alignment.Start
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                shape = RoundedCornerShape(24.dp),
+                color = SurfaceDark,
+                border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorderDark)
             ) {
-                Text(
-                    text = clockText,
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimaryDark,
-                    modifier = Modifier.testTag("home_clock")
-                )
-                Text(
-                    text = dateText,
-                    style = MaterialTheme.typography.titleMedium,
-                    color = TextSecondaryDark,
-                    modifier = Modifier.testTag("home_date")
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(
+                            Brush.linearGradient(
+                                colors = listOf(
+                                    YimlyPink.copy(alpha = 0.20f),
+                                    NeonCyan.copy(alpha = 0.08f),
+                                    SurfaceDark
+                                )
+                            )
+                        )
+                        .padding(horizontal = 20.dp, vertical = 22.dp)
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.Start,
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            text = dateText.uppercase(Locale.getDefault()),
+                            style = MaterialTheme.typography.labelMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 1.3.sp,
+                            color = YimlyPink,
+                            modifier = Modifier.testTag("home_date")
+                        )
+                        Text(
+                            text = clockText,
+                            style = MaterialTheme.typography.displayLarge,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = (-1.5).sp,
+                            color = TextPrimaryDark,
+                            modifier = Modifier.testTag("home_clock")
+                        )
+                        Text(
+                            text = "YOUR MUSIC, YOUR MOMENT",
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Medium,
+                            letterSpacing = 1.5.sp,
+                            color = TextSecondaryDark
+                        )
+                    }
+                }
             }
         }
 
@@ -411,7 +443,7 @@ fun HomeScreen(
         // 10. All Songs Feed
         if (allSongs.isNotEmpty()) {
             item {
-                SectionHeader(title = "Made for You")
+                SectionHeader(title = "Songs")
             }
             items(allSongs.take(8)) { song ->
                 SongItemRow(
