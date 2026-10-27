@@ -10,6 +10,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -570,7 +571,9 @@ fun FullPlayerScreen(
                 Box(
                     modifier = Modifier
                         .weight(1f)
-                        .fillMaxWidth()
+                        // Extend the queue panel past the content's horizontal and bottom insets.
+                        .width(maxWidth + 32.dp)
+                        .offset(x = (-16).dp, y = 24.dp)
                         .background(Color(0xFF4A2942).copy(alpha = 0.88f))
                 ) {
                     com.example.ui.queue.QueueView(
