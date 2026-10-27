@@ -98,6 +98,7 @@ fun QueueView(
         coroutineScope {
             var idleJob: Job? = null
             var isAutoRecentering = false
+            var skipNextIdleCountdown = false
 
             snapshotFlow { listState.isScrollInProgress }
                 .distinctUntilChanged()
@@ -106,33 +107,20 @@ fun QueueView(
                         // Our own animation also marks the list as scrolling. Do not cancel
                         // that animation; only user-initiated scrolling should reset the timer.
                         if (!isAutoRecentering) idleJob?.cancel()
+                    } else if (skipNextIdleCountdown) {
+                        // Do not immediately schedule another timer when our animation ends.
+                        skipNextIdleCountdown = false
                     } else {
-                        // If the active song is already aligned at the top, there is nothing
-                        // to recenter. This also prevents a timer from being scheduled again
-                        // when our own automatic scroll finishes.
-                        if (
-                            currentIndex !in queue.indices ||
-                            (listState.firstVisibleItemIndex == currentIndex &&
-                                listState.firstVisibleItemScrollOffset == 0)
-                        ) {
-                            idleJob?.cancel()
-                            return@collect
-                        }
-
                         idleJob?.cancel()
                         idleJob = launch {
                             delay(4_000)
-                            if (
-                                !listState.isScrollInProgress &&
-                                currentIndex in queue.indices &&
-                                (listState.firstVisibleItemIndex != currentIndex ||
-                                    listState.firstVisibleItemScrollOffset != 0)
-                            ) {
+                            if (!listState.isScrollInProgress && currentIndex in queue.indices) {
                                 isAutoRecentering = true
                                 try {
                                     listState.animateScrollToItem(currentIndex)
                                 } finally {
                                     isAutoRecentering = false
+                                    skipNextIdleCountdown = true
                                 }
                             }
                         }
