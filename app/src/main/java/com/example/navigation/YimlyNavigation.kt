@@ -301,15 +301,9 @@ fun YimlyNavigation(
                                 Screen.Settings.route -> "Settings"
                                 else -> "Yimly"
                             },
-                            queueSize = playbackInfo.queue.size,
                             onOpenDrawer = {
                                 coroutineScope.launch { drawerState.open() }
                             },
-                            onNavigateToQueue = {
-                                if (playbackInfo.currentSong != null) {
-                                    isPlayerExpanded = true
-                                }
-                            }
                         )
                     }
                 },
@@ -441,7 +435,7 @@ fun YimlyNavigation(
                             playlists = playlists,
                             currentSong = playbackInfo.currentSong,
                             isPlaying = playbackInfo.isPlaying,
-                            onSongClick = { song, list -> viewModel.playSong(song, list) },
+                            onSongClick = { song, list -> viewModel.playSong(song, list, list.indexOfFirst { it.id == song.id }.coerceAtLeast(0)) },
                             onAlbumClick = { album -> navController.navigate(Screen.AlbumDetail.createRoute(album.id)) },
                             onArtistClick = { artist -> navController.navigate(Screen.ArtistDetail.createRoute(artist.id)) },
                             onPlaylistClick = { playlist -> navController.navigate(Screen.PlaylistDetail.createRoute(playlist.id)) },
