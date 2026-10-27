@@ -104,9 +104,9 @@ fun QueueView(
                         imageVector = Icons.Default.QueueMusic,
                         contentDescription = null,
                         tint = YimlyPink,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(20.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text(
                     text = if (compactMode) "Up Next" else "Play Queue",
@@ -115,11 +115,12 @@ fun QueueView(
                     color = TextPrimaryDark
                 )
                 if (compactMode && upcomingSongs.isNotEmpty()) {
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = "${upcomingSongs.size}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = TextSecondaryDark
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Normal,
+                        color = TextSecondaryDark.copy(alpha = 0.70f)
                     )
                 }
             }

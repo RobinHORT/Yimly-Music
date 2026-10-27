@@ -215,7 +215,8 @@ fun FullPlayerScreen(
             )
         )
 
-        val artworkSize = minOf(maxWidth * 0.58f, maxHeight * 0.32f, 220.dp)
+        val artworkSize = minOf(maxWidth * 0.56f, maxHeight * 0.28f, 210.dp)
+        val sectionGap = 16.dp
 
         // Keep the cover image still; the edge glow pulses without a rotating square.
         val artworkTransition = rememberInfiniteTransition(label = "artworkBorderEffect")
@@ -231,20 +232,17 @@ fun FullPlayerScreen(
         val artworkShape = RoundedCornerShape(20.dp)
         val artworkIsActive = playbackInfo.isPlaying
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier.fillMaxSize()
         ) {
             // Keep the header below the status bar without shrinking the queue's
             // available height; the queue background can now bleed past the bottom edge.
-            Spacer(modifier = Modifier.height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding()))
+            Spacer(modifier = Modifier.height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 4.dp))
 
             // Header: lyrics toggle on the left, track details centred, collapse on the right.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 4.dp),
+                    .padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
@@ -333,8 +331,8 @@ fun FullPlayerScreen(
                 }
             }
 
-            // Consistent breathing room between the header and artwork.
-            Spacer(modifier = Modifier.height(12.dp))
+            // 1. Consistent gap between header and artwork
+            Spacer(modifier = Modifier.height(sectionGap))
 
             // Artwork is constrained by available width and height to preserve room for controls and queue.
             Box(
@@ -411,21 +409,17 @@ fun FullPlayerScreen(
                 )
             }
 
-            // 3. BOTTOM HALF — Queue + Controls (Fixed)
+            // 2. Matching gap between cover art and playback controls
+            Spacer(modifier = Modifier.height(sectionGap))
+
+            // Fixed Controls. Track details are already shown in the header,
+            // so keep this card focused on seek and playback controls.
             Column(
                 modifier = Modifier
-                    .weight(1f)
                     .fillMaxWidth()
-                    .padding(top = 12.dp)
+                    .padding(horizontal = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Fixed Controls. Track details are already shown in the header,
-                // so keep this card focused on seek and playback controls.
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 24.dp, vertical = 4.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
                     // Progress Scrubber Slider & Duration labels
                     Column(modifier = Modifier.fillMaxWidth()) {
                         // Draw the visible scrubber ourselves: Material Slider keeps a
@@ -615,28 +609,27 @@ fun FullPlayerScreen(
                         }
                     }
                 }
-                // Match the gap above the controls so the controls and queue feel distinct.
-                Spacer(modifier = Modifier.height(12.dp))
+            // 3. Matching gap between playback controls and the queue section
+            Spacer(modifier = Modifier.height(sectionGap))
 
-                // Scrollable Queue
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .fillMaxWidth()
-                        .background(Color(0xFF4A2942).copy(alpha = 0.88f))
-                ) {
-                    com.example.ui.queue.QueueView(
-                        queue = playbackInfo.queue,
-                        currentIndex = playbackInfo.currentQueueIndex,
-                        isPlaying = playbackInfo.isPlaying,
-                        onPlayItem = onPlayQueueItem,
-                        onRemoveItem = onRemoveFromQueue,
-                        onReorderItem = onReorderQueue,
-                        onClearQueue = onClearQueue,
-                        modifier = Modifier.fillMaxSize(),
-                        compactMode = true
-                    )
-                }
+            // Scrollable Queue
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxWidth()
+                    .background(Color(0xFF4A2942).copy(alpha = 0.88f))
+            ) {
+                com.example.ui.queue.QueueView(
+                    queue = playbackInfo.queue,
+                    currentIndex = playbackInfo.currentQueueIndex,
+                    isPlaying = playbackInfo.isPlaying,
+                    onPlayItem = onPlayQueueItem,
+                    onRemoveItem = onRemoveFromQueue,
+                    onReorderItem = onReorderQueue,
+                    onClearQueue = onClearQueue,
+                    modifier = Modifier.fillMaxSize(),
+                    compactMode = true
+                )
             }
         }
     }
