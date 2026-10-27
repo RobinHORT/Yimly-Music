@@ -2,7 +2,6 @@ package com.example.ui.player
 
 import androidx.compose.foundation.background
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -213,17 +212,8 @@ fun FullPlayerScreen(
 
         val artworkSize = minOf(maxWidth * 0.58f, maxHeight * 0.32f, 220.dp)
 
-        // Keep the cover image still. Only the pink border sweeps and pulses while playing.
+        // Keep the cover image still; the edge glow pulses without a rotating square.
         val artworkTransition = rememberInfiniteTransition(label = "artworkBorderEffect")
-        val borderSweep by artworkTransition.animateFloat(
-            initialValue = 0f,
-            targetValue = 360f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(6500, easing = LinearEasing),
-                repeatMode = AnimationRepeatMode.Restart
-            ),
-            label = "artworkBorderSweep"
-        )
         val borderGlow by artworkTransition.animateFloat(
             initialValue = 0.48f,
             targetValue = 1f,
@@ -391,15 +381,11 @@ fun FullPlayerScreen(
                     Box(modifier = Modifier.fillMaxSize().padding(7.dp).clickable { showFullscreenLyrics = true })
                 }
 
-                // Rotating conic-gradient border, matching Karaoke's pink radar sweep.
+                // Static conic-gradient edge; its brightness pulses while playing, without rotating the square.
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .padding(3.dp)
-                        .graphicsLayer {
-                            // Rotate only the inset border layer; the album image is outside this layer.
-                            rotationZ = if (artworkIsActive) borderSweep else 0f
-                        }
                         .border(
                             width = 2.dp,
                             brush = Brush.sweepGradient(
