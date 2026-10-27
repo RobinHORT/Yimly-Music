@@ -53,6 +53,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import coil.compose.AsyncImage
 import com.example.data.models.Song
@@ -92,7 +93,7 @@ fun QueueView(
         if (!compactMode || currentIndex !in queue.indices) return@LaunchedEffect
         snapshotFlow { listState.isScrollInProgress }
             .distinctUntilChanged()
-            .collect { scrolling ->
+            .collectLatest { scrolling ->
                 if (!scrolling) {
                     delay(4_000)
                     if (!listState.isScrollInProgress && currentIndex in queue.indices) {
