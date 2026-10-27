@@ -635,6 +635,7 @@ fun YimlyNavigation(
 
         // Full Screen Player Modal / Slide-up
         AnimatedVisibility(
+            modifier = Modifier.fillMaxSize(),
             visible = isPlayerExpanded && playbackInfo.currentSong != null,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
