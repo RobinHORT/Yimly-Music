@@ -173,7 +173,7 @@ fun FullPlayerScreen(
             onToggleShuffle = onToggleShuffle,
             onCycleRepeatMode = onCycleRepeatMode,
             onSeekTo = onSeekTo,
-            onOpenSettings = { showLyricsSettings = true },
+            onOpenSettings = { showFullscreenLyrics = false; showLyricsSettings = true },
             onLyricsOffsetChange = onLyricsOffsetChange,
             onSaveLyricsConfig = onSaveLyricsConfig
         )
