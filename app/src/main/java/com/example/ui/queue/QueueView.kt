@@ -275,22 +275,25 @@ fun QueueView(
                                 .padding(horizontal = if (compactMode) 6.dp else 8.dp, vertical = if (compactMode) 3.dp else 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            // Up / Down Reorder
-                            Column {
-                                if (relIndex > 0) {
-                                    IconButton(
-                                        onClick = { onReorderItem(actualIndex, actualIndex - 1) },
-                                        modifier = Modifier.size(24.dp).testTag("move_up_$actualIndex")
-                                    ) {
-                                        Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up", tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
+                            // Reorder arrows remain available in the full queue, but are hidden
+                            // in the compact expanded-player queue to keep the artwork aligned first.
+                            if (!compactMode) {
+                                Column {
+                                    if (relIndex > 0) {
+                                        IconButton(
+                                            onClick = { onReorderItem(actualIndex, actualIndex - 1) },
+                                            modifier = Modifier.size(24.dp).testTag("move_up_$actualIndex")
+                                        ) {
+                                            Icon(Icons.Default.KeyboardArrowUp, contentDescription = "Move up", tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
+                                        }
                                     }
-                                }
-                                if (relIndex < upcomingSongs.size - 1) {
-                                    IconButton(
-                                        onClick = { onReorderItem(actualIndex, actualIndex + 1) },
-                                        modifier = Modifier.size(24.dp).testTag("move_down_$actualIndex")
-                                    ) {
-                                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down", tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
+                                    if (relIndex < upcomingSongs.size - 1) {
+                                        IconButton(
+                                            onClick = { onReorderItem(actualIndex, actualIndex + 1) },
+                                            modifier = Modifier.size(24.dp).testTag("move_down_$actualIndex")
+                                        ) {
+                                            Icon(Icons.Default.KeyboardArrowDown, contentDescription = "Move down", tint = TextSecondaryDark, modifier = Modifier.size(16.dp))
+                                        }
                                     }
                                 }
                             }
