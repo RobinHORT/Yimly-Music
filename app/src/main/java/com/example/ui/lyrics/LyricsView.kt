@@ -260,7 +260,23 @@ fun LyricsView(
         }
         }
 
-        if (lines.isEmpty()) {
+        if (lines.isEmpty() && floatingFocusMode) {
+            // Untimed/plain lyrics still respect the single-line floating focus layout.
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = lyricsData?.plainLyrics?.lineSequence()?.firstOrNull().orEmpty(),
+                    fontSize = config.currentLineFontSizeSp.sp,
+                    fontFamily = composeFontFamily,
+                    fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+                    color = YimlyPink.copy(alpha = 0.96f),
+                    textAlign = TextAlign.Center,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
+                )
+            }
+        } else if (lines.isEmpty()) {
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
@@ -276,7 +292,7 @@ fun LyricsView(
         } else if (viewMode == 0 && floatingFocusMode) {
             // Floating focus mode for the expanded player: one lyric line, no card,
             // border, panel, previous lines, or upcoming lines.
-            val currentLine = slotState.currentIndex.takeIf { it >= 0 }?.let(lines::getOrNull)
+            val currentLine = slotState.currentIndex.takeIf { it >= 0 }?.let { lines.getOrNull(it) }
             Box(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
