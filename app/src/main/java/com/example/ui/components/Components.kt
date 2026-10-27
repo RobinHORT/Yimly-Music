@@ -1097,9 +1097,7 @@ fun SectionHeader(
 @Composable
 fun YimlyTopBar(
     title: String = "Yimly",
-    queueSize: Int = 0,
     onOpenDrawer: () -> Unit,
-    onNavigateToQueue: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -1112,44 +1110,24 @@ fun YimlyTopBar(
                 .fillMaxWidth()
                 .padding(horizontal = 8.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
+            horizontalArrangement = Arrangement.Start
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(
-                    onClick = onOpenDrawer,
-                    modifier = Modifier.testTag("menu_drawer_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Open Menu",
-                        tint = MaterialTheme.colorScheme.onSurface
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = YimlyPink
-                )
-            }
-
-            TextButton(
-                onClick = onNavigateToQueue,
-                modifier = Modifier.testTag("queue_button")
+            IconButton(
+                onClick = onOpenDrawer,
+                modifier = Modifier.testTag("menu_drawer_button")
             ) {
                 Icon(
-                    imageVector = Icons.Default.QueueMusic,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = YimlyPink
-                )
-                Spacer(modifier = Modifier.width(6.dp))
-                Text(
-                    text = "Queue${if (queueSize > 0) " ($queueSize)" else ""}",
-                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
-                    color = MaterialTheme.colorScheme.onSurface
+                    imageVector = Icons.Default.Menu,
+                    contentDescription = "Open Menu",
+                    tint = MaterialTheme.colorScheme.onSurface
                 )
             }
+            Spacer(modifier = Modifier.width(4.dp))
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = YimlyPink
+            )
         }
     }
 }
