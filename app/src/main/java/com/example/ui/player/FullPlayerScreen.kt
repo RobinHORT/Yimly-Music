@@ -333,6 +333,9 @@ fun FullPlayerScreen(
                 }
             }
 
+            // Consistent breathing room between the header and artwork.
+            Spacer(modifier = Modifier.height(12.dp))
+
             // Artwork is constrained by available width and height to preserve room for controls and queue.
             Box(
                 modifier = Modifier
@@ -413,7 +416,7 @@ fun FullPlayerScreen(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxWidth()
-                    .padding(top = 0.dp)
+                    .padding(top = 12.dp)
             ) {
                 // Fixed Controls. Track details are already shown in the header,
                 // so keep this card focused on seek and playback controls.
@@ -612,7 +615,8 @@ fun FullPlayerScreen(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.height(2.dp))
+                // Match the gap above the controls so the controls and queue feel distinct.
+                Spacer(modifier = Modifier.height(12.dp))
 
                 // Scrollable Queue
                 Box(
