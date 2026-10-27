@@ -94,6 +94,7 @@ fun LyricsView(
     onToggleFormatMode: (() -> Unit)? = null,
     isPlaying: Boolean = true,
     showFocusControls: Boolean = true,
+    floatingFocusMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var viewMode by remember { mutableStateOf(0) } // 0 = Focus Mode, 1 = Full Synced List
@@ -271,6 +272,30 @@ fun LyricsView(
                     textAlign = TextAlign.Center,
                     lineHeight = 28.sp
                 )
+            }
+        } else if (viewMode == 0 && floatingFocusMode) {
+            // Floating focus mode for the expanded player: one lyric line, no card,
+            // border, panel, previous lines, or upcoming lines.
+            val currentLine = slotState.currentIndex.takeIf { it >= 0 }?.let(lines::getOrNull)
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                currentLine?.let { line ->
+                    Text(
+                        text = formatLyricText(line.text, config.textCase),
+                        fontSize = config.currentLineFontSizeSp.sp,
+                        fontFamily = composeFontFamily,
+                        fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+                        color = currentLineColor.copy(alpha = 0.96f),
+                        textAlign = TextAlign.Center,
+                        lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
+                    )
+                }
             }
         } else if (viewMode == 0) {
             // Focus Mode: Supports configurable visible lines (1, 3, 5, 7)
