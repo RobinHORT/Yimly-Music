@@ -121,6 +121,7 @@ fun FullPlayerScreen(
 
     var showLyricsSettings by remember { mutableStateOf(false) }
     var showLyrics by remember { mutableStateOf(false) }
+    var showFullscreenLyrics by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
@@ -154,12 +155,57 @@ fun FullPlayerScreen(
         )
     }
 
+    if (showFullscreenLyrics) {
+        FullscreenLyricsDialog(
+            song = song,
+            lyricsData = lyricsData,
+            currentPositionMs = currentPos,
+            durationMs = totalDuration,
+            isPlaying = playbackInfo.isPlaying,
+            isShuffle = playbackInfo.isShuffle,
+            repeatMode = playbackInfo.repeatMode,
+            songOffsetMs = songOffsetMs,
+            lyricsConfig = lyricsConfig,
+            onDismiss = { showFullscreenLyrics = false },
+            onTogglePlayPause = onTogglePlayPause,
+            onPrevious = onPrevious,
+            onNext = onNext,
+            onToggleShuffle = onToggleShuffle,
+            onCycleRepeatMode = onCycleRepeatMode,
+            onSeekTo = onSeekTo,
+            onOpenSettings = { showLyricsSettings = true },
+            onLyricsOffsetChange = onLyricsOffsetChange,
+            onSaveLyricsConfig = onSaveLyricsConfig
+        )
+    }
+
     BoxWithConstraints(
         modifier = modifier
             .fillMaxSize()
             .background(BackgroundDark)
             .testTag("full_player_screen")
     ) {
+        // Keep the current album art as a continuous, subdued backdrop across the player and queue.
+        if (!song.artworkUrl.isNullOrBlank()) {
+            AsyncImage(
+                model = song.artworkUrl,
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.22f }
+            )
+        }
+        Box(
+            modifier = Modifier.fillMaxSize().background(
+                Brush.verticalGradient(
+                    colors = listOf(
+                        BackgroundDark.copy(alpha = 0.70f),
+                        Color(0xFF1B0B18).copy(alpha = 0.82f),
+                        BackgroundDark.copy(alpha = 0.94f)
+                    )
+                )
+            )
+        )
+
         val artworkSize = minOf(maxWidth * 0.58f, maxHeight * 0.29f, 220.dp)
 
         // Mirror Karaoke's cover-art breathing, sweeping pink border, and soft glow.
@@ -299,6 +345,7 @@ fun FullPlayerScreen(
             Box(
                 modifier = Modifier
                     .size(artworkSize)
+                    .clickable { showFullscreenLyrics = true }
                     .shadow(
                         elevation = if (artworkIsActive) (10f + glowPulse * 18f).dp else 6.dp,
                         shape = artworkShape,
@@ -329,23 +376,19 @@ fun FullPlayerScreen(
                     }
                 }
 
-                // Pink translucent gradient overlay
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
+                // Keep artwork natural normally; apply the focus tint only while lyrics are shown.
+                if (showLyrics) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().background(
                             Brush.verticalGradient(
                                 colors = listOf(
-                                    Color(0xFFBE185D).copy(alpha = 0.48f),
-                                    Color(0xFF9D174D).copy(alpha = 0.58f),
-                                    BackgroundDark.copy(alpha = 0.90f)
+                                    Color(0xFFBE185D).copy(alpha = 0.20f),
+                                    Color(0xFF9D174D).copy(alpha = 0.28f),
+                                    BackgroundDark.copy(alpha = 0.42f)
                                 )
                             )
                         )
-                )
-
-                // Overlaid synchronised lyrics view
-                if (showLyrics) {
+                    )
                     LyricsView(
                         lyricsData = lyricsData,
                         currentPositionMs = currentPos,
@@ -356,8 +399,11 @@ fun FullPlayerScreen(
                         onOffsetChange = onLyricsOffsetChange,
                         isPlaying = playbackInfo.isPlaying,
                         showFocusControls = false,
+                        floatingFocusMode = true,
                         modifier = Modifier.fillMaxSize()
                     )
+                    // Tapping the lyric itself opens the same fullscreen lyrics view as the artwork.
+                    Box(modifier = Modifier.fillMaxSize().clickable { showFullscreenLyrics = true })
                 }
 
                 // Rotating conic-gradient border, matching Karaoke's pink radar sweep.
@@ -541,7 +587,13 @@ fun FullPlayerScreen(
                 Spacer(modifier = Modifier.height(2.dp))
 
                 // Scrollable Queue
-                Box(modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(Color(0xFF160B16).copy(alpha = 0.72f))
+                ) {
                     com.example.ui.queue.QueueView(
                         queue = playbackInfo.queue,
                         currentIndex = playbackInfo.currentQueueIndex,
