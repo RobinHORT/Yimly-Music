@@ -587,7 +587,6 @@ fun FullPlayerScreen(
                         .offset(x = (-16).dp, y = 24.dp)
                         // Extend the actual layout bounds past the display bottom so the
                         // background is not clipped to the safe-area content height.
-                        .requiredHeight(maxHeight)
                         .drawBehind {
                             drawRect(
                                 color = Color(0xFF4A2942).copy(alpha = 0.88f),
