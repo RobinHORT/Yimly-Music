@@ -12,7 +12,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.calculateTopPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -61,11 +60,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -143,9 +137,6 @@ fun FullPlayerScreen(
 
     var isUserSeeking by remember { mutableStateOf(false) }
     var seekPositionMs by remember { mutableFloatStateOf(0f) }
-    // Measure both positions in the same root coordinate space before drawing the queue tint.
-    var playerRootTopPx by remember { mutableFloatStateOf(Float.NaN) }
-    var queueOverlayTopPx by remember { mutableFloatStateOf(Float.NaN) }
 
     val currentPos = if (isUserSeeking) seekPositionMs.toLong() else currentPositionMs
     val totalDuration = if (playbackInfo.durationMs > 0) playbackInfo.durationMs else song.durationMs
@@ -193,9 +184,6 @@ fun FullPlayerScreen(
         modifier = modifier
             .fillMaxSize()
             .background(BackgroundDark)
-            .onGloballyPositioned { coordinates ->
-                playerRootTopPx = coordinates.positionInRoot().y
-            }
             .testTag("full_player_screen")
     ) {
         // Use the album art as a clearly visible, full-screen backdrop, with the same
@@ -221,25 +209,6 @@ fun FullPlayerScreen(
                     )
                 )
             )
-        )
-
-        // Draw the queue tint in the full-screen root coordinate space, not inside
-        // the queue child. This avoids the queue parent's padding and clipping edges.
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawBehind {
-                    // Convert from Compose-root coordinates into this layer's local coordinates.
-                    val top = queueOverlayTopPx - playerRootTopPx
-                    if (top.isFinite()) {
-                        val clampedTop = top.coerceIn(0f, size.height)
-                        drawRect(
-                            color = Color(0xFF4A2942).copy(alpha = 0.88f),
-                            topLeft = Offset(0f, clampedTop),
-                            size = Size(size.width, size.height - clampedTop)
-                        )
-                    }
-                }
         )
 
         val artworkSize = minOf(maxWidth * 0.58f, maxHeight * 0.32f, 220.dp)
@@ -607,9 +576,7 @@ fun FullPlayerScreen(
                     modifier = Modifier
                         .weight(1f)
                         .fillMaxWidth()
-                        .onGloballyPositioned { coordinates ->
-                            queueOverlayTopPx = coordinates.positionInRoot().y
-                        }
+                        .background(Color(0xFF4A2942).copy(alpha = 0.88f))
                 ) {
                     com.example.ui.queue.QueueView(
                         queue = playbackInfo.queue,

@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -24,6 +28,7 @@ import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.QueueMusic
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -78,23 +83,38 @@ fun QueueView(
     Column(
         modifier = modifier
             .fillMaxSize()
-            .padding(horizontal = if (compactMode) 0.dp else 8.dp, vertical = 8.dp)
             .testTag("queue_view")
     ) {
         // Queue Header with Clear button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = if (compactMode) 2.dp else 8.dp),
+                .padding(
+                    start = if (compactMode) 16.dp else 8.dp,
+                    end = if (compactMode) 16.dp else 8.dp,
+                    top = if (compactMode) 10.dp else 8.dp,
+                    bottom = if (compactMode) 6.dp else 8.dp
+                ),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = if (compactMode) "Up Next" else "Play Queue",
-                style = if (compactMode) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.Bold,
-                color = TextPrimaryDark
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (compactMode) {
+                    Icon(
+                        imageVector = Icons.Default.QueueMusic,
+                        contentDescription = null,
+                        tint = YimlyPink,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                Text(
+                    text = if (compactMode) "Up Next${if (upcomingSongs.isNotEmpty()) " ${upcomingSongs.size}" else ""}" else "Play Queue",
+                    style = if (compactMode) MaterialTheme.typography.titleSmall else MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = TextPrimaryDark
+                )
+            }
 
             if (upcomingSongs.isNotEmpty() && !compactMode) {
                 Button(
@@ -118,6 +138,12 @@ fun QueueView(
 
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                start = if (compactMode) 16.dp else 8.dp,
+                end = if (compactMode) 16.dp else 8.dp,
+                top = 0.dp,
+                bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 16.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(if (compactMode) 4.dp else 8.dp)
         ) {
             // 1. Currently Playing Header & Card
@@ -272,7 +298,7 @@ fun QueueView(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = if (compactMode) 6.dp else 8.dp, vertical = if (compactMode) 3.dp else 6.dp),
+                                .padding(horizontal = if (compactMode) 0.dp else 8.dp, vertical = if (compactMode) 4.dp else 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             // Reorder arrows remain available in the full queue, but are hidden
