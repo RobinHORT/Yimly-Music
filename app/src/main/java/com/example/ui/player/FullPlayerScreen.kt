@@ -432,11 +432,13 @@ fun FullPlayerScreen(
                             },
                             valueRange = 0f..totalDuration.toFloat().coerceAtLeast(1f),
                             colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
+                                thumbColor = YimlyPink,
                                 activeTrackColor = YimlyPink,
-                                inactiveTrackColor = SurfaceBorderDark
+                                inactiveTrackColor = Color.White.copy(alpha = 0.38f),
+                                activeTickColor = YimlyPink,
+                                inactiveTickColor = Color.White.copy(alpha = 0.38f)
                             ),
-                            modifier = Modifier.fillMaxWidth().height(24.dp).testTag("player_progress_slider")
+                            modifier = Modifier.fillMaxWidth().height(18.dp).testTag("player_progress_slider")
                         )
 
                         Row(
@@ -448,12 +450,12 @@ fun FullPlayerScreen(
                             Text(
                                 text = formatTime(currentPos),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondaryDark
+                                color = Color.White.copy(alpha = 0.78f)
                             )
                             Text(
                                 text = formatTime(totalDuration),
                                 style = MaterialTheme.typography.bodySmall,
-                                color = TextSecondaryDark
+                                color = Color.White.copy(alpha = 0.78f)
                             )
                         }
                     }
@@ -473,7 +475,7 @@ fun FullPlayerScreen(
                                 Icon(
                                     imageVector = Icons.Default.Shuffle,
                                     contentDescription = "Shuffle",
-                                    tint = if (playbackInfo.isShuffle) YimlyPink else TextSecondaryDark,
+                                    tint = if (playbackInfo.isShuffle) YimlyPink else Color.White.copy(alpha = 0.82f),
                                     modifier = Modifier.size(22.dp)
                                 )
                                 if (playbackInfo.isShuffle) {
@@ -495,7 +497,7 @@ fun FullPlayerScreen(
                             Icon(
                                 imageVector = Icons.Default.SkipPrevious,
                                 contentDescription = "Previous",
-                                tint = TextPrimaryDark,
+                                tint = Color.White.copy(alpha = 0.88f),
                                 modifier = Modifier.size(32.dp)
                             )
                         }
@@ -505,7 +507,7 @@ fun FullPlayerScreen(
                             modifier = Modifier
                                 .size(60.dp)
                                 .clip(CircleShape)
-                                .background(YimlyPink)
+                                 .background(Color.White)
                                 .clickable(onClick = onTogglePlayPause)
                                 .testTag("full_play_pause_btn"),
                             contentAlignment = Alignment.Center
@@ -513,7 +515,7 @@ fun FullPlayerScreen(
                             Icon(
                                 imageVector = if (playbackInfo.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                                 contentDescription = if (playbackInfo.isPlaying) "Pause" else "Play",
-                                tint = Color.White,
+                                tint = Color(0xFF8E1B5A),
                                 modifier = Modifier.size(34.dp)
                             )
                         }
@@ -526,7 +528,7 @@ fun FullPlayerScreen(
                             Icon(
                                 imageVector = Icons.Default.SkipNext,
                                 contentDescription = "Next",
-                                tint = TextPrimaryDark,
+                                tint = Color.White.copy(alpha = 0.88f),
                                 modifier = Modifier.size(32.dp)
                             )
                         }
@@ -540,7 +542,7 @@ fun FullPlayerScreen(
                                 Icon(
                                     imageVector = if (playbackInfo.repeatMode == RepeatMode.ONE) Icons.Default.RepeatOne else Icons.Default.Repeat,
                                     contentDescription = "Repeat",
-                                    tint = if (playbackInfo.repeatMode != RepeatMode.OFF) YimlyPink else TextSecondaryDark,
+                                    tint = if (playbackInfo.repeatMode != RepeatMode.OFF) YimlyPink else Color.White.copy(alpha = 0.82f),
                                     modifier = Modifier.size(22.dp)
                                 )
                                 if (playbackInfo.repeatMode != RepeatMode.OFF) {
