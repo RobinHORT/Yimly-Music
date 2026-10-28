@@ -457,8 +457,10 @@ class PlaybackManager(
                 )
                 updatePlaybackInfo()
             } catch (e: kotlinx.coroutines.CancellationException) {
-                isTransitioning = false
-                releaseTransitionWakeLock()
+                if (requestId == playbackRequestId) {
+                    isTransitioning = false
+                    releaseTransitionWakeLock()
+                }
                 throw e
             } catch (e: Exception) {
                 Log.e("PlaybackManager", "Error playing song: ${song.title}", e)
@@ -683,6 +685,9 @@ class PlaybackManager(
     }
 
     fun release() {
+        playbackRequestId++
+        networkRecoveryJob?.cancel()
+        networkRecoveryJob = null
         isTransitioning = false
         releaseTransitionWakeLock()
         _mediaSession?.release()
