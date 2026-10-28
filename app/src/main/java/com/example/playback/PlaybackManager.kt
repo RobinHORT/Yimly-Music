@@ -218,7 +218,7 @@ class PlaybackManager(
                 val attempt = ++networkRecoveryAttempts
                 val requestIdAtFailure = playbackRequestId
                 val songIdAtFailure = info.currentSong.id
-                val delayMs = NETWORK_RECOVERY_BASE_DELAY_MS shl (attempt - 1)
+                val delayMs = NETWORK_RECOVERY_BASE_DELAY_MS * (1L shl (attempt - 1))
                 networkRecoveryJob?.cancel()
                 Log.w(
                     "PlaybackManager",
