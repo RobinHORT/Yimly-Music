@@ -266,14 +266,14 @@ fun FullPlayerScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.size(48.dp).testTag("favorite_toggle_btn")
+                    onClick = onCollapse,
+                    modifier = Modifier.size(48.dp).testTag("collapse_player_btn")
                 ) {
                     Icon(
-                        imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = if (song.isFavorite) "Remove from favorites" else "Add to favorites",
-                        tint = if (song.isFavorite) YimlyPink else TextPrimaryDark,
-                        modifier = Modifier.size(26.dp)
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Collapse",
+                        tint = TextPrimaryDark,
+                        modifier = Modifier.size(32.dp)
                     )
                 }
 
@@ -301,14 +301,14 @@ fun FullPlayerScreen(
                 }
 
                 IconButton(
-                    onClick = onCollapse,
-                    modifier = Modifier.size(48.dp).testTag("collapse_player_btn")
+                    onClick = onToggleFavorite,
+                    modifier = Modifier.size(48.dp).testTag("favorite_toggle_btn")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Collapse",
-                        tint = TextPrimaryDark,
-                        modifier = Modifier.size(32.dp)
+                        imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                        contentDescription = if (song.isFavorite) "Remove from favorites" else "Add to favorites",
+                        tint = if (song.isFavorite) YimlyPink else TextPrimaryDark,
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
