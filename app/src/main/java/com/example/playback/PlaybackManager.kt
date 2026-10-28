@@ -1,6 +1,7 @@
 package com.example.playback
 
 import android.app.Service
+import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -19,6 +20,7 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import com.example.data.api.NetworkModule
 import com.example.YimlyApplication
+import com.example.MainActivity
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
 import com.example.data.repository.MusicRepository
@@ -144,6 +146,17 @@ class PlaybackManager(
                     YimlySessionCallback(this)
                 )
                 .setId("yimly_session_${System.identityHashCode(this)}_${System.nanoTime()}")
+                .setSessionActivity(
+                    PendingIntent.getActivity(
+                        context,
+                        1002,
+                        Intent(context, MainActivity::class.java).apply {
+                            putExtra(MainActivity.EXTRA_OPEN_NOW_PLAYING, true)
+                            flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        },
+                        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+                    )
+                )
                 .build()
                 _mediaSession = session
                 session
