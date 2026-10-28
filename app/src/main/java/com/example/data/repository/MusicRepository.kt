@@ -842,7 +842,15 @@ class MusicRepository(
                             val plSongs = apiService.getPlaylistSongs(pl.id.trim())
                             musicDao.syncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
                             markPlaylistSynced(pl.id.trim())
-                        } catch (_: Exception) {}
+                        } catch (e: Exception) {
+                            // Keep the existing cached playlist tracks when a refresh fails,
+                            // but make the failure visible for diagnosis.
+                            Log.w(
+                                "MusicRepository",
+                                "Failed to refresh songs for playlist ${pl.id.trim()}; keeping cached playlist data",
+                                e
+                            )
+                        }
                     }
                 }
             }
