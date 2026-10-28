@@ -1,6 +1,8 @@
 package com.example
 
 import android.os.Bundle
+import android.content.Intent
+import androidx.compose.runtime.mutableStateOf
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -16,6 +18,23 @@ import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.YimlyTheme
 
 class MainActivity : ComponentActivity() {
+    private val openNowPlayingRequest = mutableStateOf(false)
+
+    companion object { const val EXTRA_OPEN_NOW_PLAYING = "com.example.EXTRA_OPEN_NOW_PLAYING" }
+
+    private fun consumeNotificationIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false) == true) {
+            openNowPlayingRequest.value = true
+            intent.removeExtra(EXTRA_OPEN_NOW_PLAYING)
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeNotificationIntent(intent)
+    }
+
 
     private val viewModel: MainViewModel by viewModels {
         val app = application as YimlyApplication
@@ -31,6 +50,7 @@ class MainActivity : ComponentActivity() {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        consumeNotificationIntent(intent)
 
         setContent {
             YimlyTheme {
@@ -38,7 +58,7 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = BackgroundDark
                 ) {
-                    YimlyNavigation(viewModel = viewModel)
+                    YimlyNavigation(viewModel = viewModel, openNowPlayingRequest = openNowPlayingRequest.value, onNowPlayingRequestConsumed = { openNowPlayingRequest.value = false })
                 }
             }
         }
