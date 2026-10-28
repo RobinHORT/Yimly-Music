@@ -1,39 +1,22 @@
 package com.example.ui.player
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
-import androidx.compose.material.icons.filled.Shuffle
-import androidx.compose.material.icons.filled.Repeat
-import androidx.compose.material.icons.filled.RepeatOne
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,7 +34,6 @@ import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
-import com.example.data.models.LyricsFormatMode
 import com.example.data.models.Song
 import com.example.playback.RepeatMode
 import com.example.ui.components.YimlyMicIcon
@@ -60,7 +42,6 @@ import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
-import com.example.ui.theme.YimlyPinkGlow
 
 @Composable
 fun FullscreenLyricsDialog(
@@ -84,16 +65,6 @@ fun FullscreenLyricsDialog(
     onLyricsOffsetChange: (Long) -> Unit,
     onSaveLyricsConfig: (LyricsDisplayConfig) -> Unit
 ) {
-    var isSeeking by remember { mutableStateOf(false) }
-    var seekPosition by remember { mutableFloatStateOf(0f) }
-    val displayedPosition = if (isSeeking) seekPosition.toLong() else currentPositionMs
-    val safeDuration = durationMs.coerceAtLeast(1L)
-
-    fun formatTime(ms: Long): String {
-        val seconds = ms.coerceAtLeast(0L) / 1000L
-        return "${seconds / 60}:${(seconds % 60).toString().padStart(2, '0')}"
-    }
-
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -192,7 +163,7 @@ fun FullscreenLyricsDialog(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.padding(top = 2.dp))
                         Text(
                             song.artist,
                             color = TextSecondaryDark,
@@ -210,93 +181,22 @@ fun FullscreenLyricsDialog(
                     }
                 }
 
-                Box(
-                    modifier = Modifier.weight(1f).fillMaxWidth()
-                        .clip(MaterialTheme.shapes.large)
-                        .background(BackgroundDark.copy(alpha = 0.30f))
-                        .padding(horizontal = 4.dp, vertical = 8.dp)
-                ) {
-                    LyricsView(
-                        lyricsData = lyricsData,
-                        currentPositionMs = displayedPosition,
-                        isPlaying = isPlaying,
-                        songOffsetMs = songOffsetMs,
-                        config = lyricsConfig,
-                        onSeekTo = onSeekTo,
-                        onOpenSettings = onOpenSettings,
-                        onOffsetChange = onLyricsOffsetChange,
-                        onToggleFormatMode = {
-                            val newMode = if (lyricsConfig.formatMode == LyricsFormatMode.ELRC) {
-                                LyricsFormatMode.LRC
-                            } else {
-                                LyricsFormatMode.ELRC
-                            }
-                            onSaveLyricsConfig(lyricsConfig.copy(formatMode = newMode))
-                        },
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-
-                Spacer(Modifier.height(12.dp))
-
-                Slider(
-                    value = displayedPosition.toFloat().coerceIn(0f, safeDuration.toFloat()),
-                    onValueChange = {
-                        isSeeking = true
-                        seekPosition = it
-                    },
-                    onValueChangeFinished = {
-                        isSeeking = false
-                        onSeekTo(seekPosition.toLong())
-                    },
-                    valueRange = 0f..safeDuration.toFloat(),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Color.White,
-                        activeTrackColor = YimlyPink,
-                        inactiveTrackColor = TextSecondaryDark.copy(alpha = 0.35f)
+                // Lyrics are deliberately rendered directly on the artwork backdrop:
+                // no lyric card, border, seek bar, or playback-control row.
+                LyricsView(
+                    lyricsData = lyricsData,
+                    currentPositionMs = currentPositionMs,
+                    isPlaying = isPlaying,
+                    songOffsetMs = songOffsetMs,
+                    config = lyricsConfig.copy(
+                        highlightCurrentLine = false,
+                        currentLineColorHex = "#FFFFFF"
                     ),
-                    modifier = Modifier.fillMaxWidth()
+                    onSeekTo = onSeekTo,
+                    onOpenSettings = onOpenSettings,
+                    onOffsetChange = onLyricsOffsetChange,
+                    modifier = Modifier.weight(1f).fillMaxWidth()
                 )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(formatTime(displayedPosition), color = TextSecondaryDark,
-                        style = MaterialTheme.typography.labelSmall)
-                    Text(formatTime(safeDuration), color = TextSecondaryDark,
-                        style = MaterialTheme.typography.labelSmall)
-                }
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 8.dp),
-                    horizontalArrangement = Arrangement.SpaceEvenly,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    IconButton(onClick = onPrevious, modifier = Modifier.size(54.dp)) {
-                        Icon(Icons.Default.SkipPrevious, contentDescription = "Previous",
-                            tint = TextPrimaryDark, modifier = Modifier.size(36.dp))
-                    }
-                    Box(
-                        modifier = Modifier.size(68.dp).clip(CircleShape).background(YimlyPink),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        IconButton(onClick = onTogglePlayPause, modifier = Modifier.fillMaxSize()) {
-                            Icon(
-                                imageVector = if (isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                contentDescription = if (isPlaying) "Pause" else "Play",
-                                tint = Color.White,
-                                modifier = Modifier.size(38.dp)
-                            )
-                        }
-                    }
-                    IconButton(onClick = onNext, modifier = Modifier.size(54.dp)) {
-                        Icon(Icons.Default.SkipNext, contentDescription = "Next",
-                            tint = TextPrimaryDark, modifier = Modifier.size(36.dp))
-                    }
-                }
             }
         }
     }
