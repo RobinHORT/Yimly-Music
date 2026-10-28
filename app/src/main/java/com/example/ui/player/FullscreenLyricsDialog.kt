@@ -10,6 +10,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Remove
+import androidx.compose.material3.LocalMinimumInteractiveComponentSize
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -42,6 +50,8 @@ import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
+import com.example.ui.theme.SurfaceBorderDark
+import com.example.ui.theme.SurfaceElevatedDark
 
 @Composable
 fun FullscreenLyricsDialog(
@@ -111,73 +121,32 @@ fun FullscreenLyricsDialog(
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
-                    IconButton(onClick = onDismiss, modifier = Modifier.size(48.dp)) {
-                        Icon(
-                            Icons.Default.ArrowBack,
-                            contentDescription = "Close full-screen lyrics",
-                            tint = TextPrimaryDark,
-                            modifier = Modifier.size(28.dp)
-                        )
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(44.dp)) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Close full-screen lyrics", tint = TextPrimaryDark, modifier = Modifier.size(28.dp))
                     }
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        "NOW SINGING",
-                        style = MaterialTheme.typography.labelMedium,
-                        letterSpacing = 2.sp,
-                        color = YimlyPink,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Spacer(Modifier.size(48.dp))
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Box(
-                        modifier = Modifier.size(62.dp).clip(MaterialTheme.shapes.medium)
-                            .background(BackgroundDark.copy(alpha = 0.65f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (!song.artworkUrl.isNullOrBlank()) {
-                            AsyncImage(
-                                model = song.artworkUrl,
-                                contentDescription = song.title,
-                                contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize()
-                            )
-                        } else {
-                            YimlyMicIcon(tint = YimlyPink, modifier = Modifier.size(30.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(song.title, color = TextPrimaryDark, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(song.artist, color = TextSecondaryDark, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides androidx.compose.ui.unit.Dp.Unspecified) {
+                        Row(
+                            modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(SurfaceElevatedDark)
+                                .border(1.dp, SurfaceBorderDark, RoundedCornerShape(20.dp)).padding(horizontal = 3.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            IconButton(onClick = { onLyricsOffsetChange(songOffsetMs - 200L) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Remove, contentDescription = "-0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                            }
+                            Box(modifier = Modifier.clip(RoundedCornerShape(12.dp)).clickable { onLyricsOffsetChange(0L) }.padding(horizontal = 5.dp, vertical = 4.dp), contentAlignment = Alignment.Center) {
+                                Text(text = if (songOffsetMs == 0L) "Sync" else String.format(java.util.Locale.US, "%+.1fs", songOffsetMs / 1000f), fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = if (songOffsetMs != 0L) YimlyPink else TextSecondaryDark)
+                            }
+                            IconButton(onClick = { onLyricsOffsetChange(songOffsetMs + 200L) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Add, contentDescription = "+0.2s", tint = TextPrimaryDark, modifier = Modifier.size(14.dp))
+                            }
                         }
-                    }
-
-                    Column(modifier = Modifier.weight(1f).padding(start = 14.dp)) {
-                        Text(
-                            song.title,
-                            color = TextPrimaryDark,
-                            fontWeight = FontWeight.Bold,
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(Modifier.padding(top = 2.dp))
-                        Text(
-                            song.artist,
-                            color = TextSecondaryDark,
-                            style = MaterialTheme.typography.bodyMedium,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            song.album,
-                            color = TextSecondaryDark.copy(alpha = 0.8f),
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
                     }
                 }
 
@@ -192,6 +161,8 @@ fun FullscreenLyricsDialog(
                         highlightCurrentLine = false,
                         currentLineColorHex = "#FFFFFF"
                     ),
+                    showFocusControls = false,
+                    floatingFocusMode = true,
                     onSeekTo = onSeekTo,
                     onOpenSettings = onOpenSettings,
                     onOffsetChange = onLyricsOffsetChange,
