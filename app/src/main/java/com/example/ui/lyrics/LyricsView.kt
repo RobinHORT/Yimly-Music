@@ -433,7 +433,7 @@ fun LyricsView(
                                     text = formatLyricText(preLyricIndicator, config.textCase),
                                     fontSize = config.currentLineFontSizeSp.sp,
                                     fontFamily = composeFontFamily,
-                                    fontWeight = if (config.fontWeightBold) FontWeight.Bold else FontWeight.Normal,
+                                    fontWeight = FontWeight.Bold,
                                     color = TextPrimaryDark,
                                     textAlign = textAlign,
                                     lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
@@ -443,12 +443,12 @@ fun LyricsView(
                     }
 
                     // Next Lines (Shared Other Line Size & Opacity)
-                    nextLines.forEach { next ->
+                    nextLines.forEachIndexed { nextIndex, next ->
                         Text(
                             text = formatLyricText(next.text, config.textCase),
                             fontSize = config.otherLineFontSizeSp.sp,
                             fontFamily = composeFontFamily,
-                            fontWeight = FontWeight.Normal,
+                            fontWeight = if (nextIndex == 0) FontWeight.Normal else FontWeight.Light,
                             color = TextPrimaryDark.copy(alpha = config.otherLinesOpacity),
                             textAlign = textAlign,
                             modifier = Modifier
