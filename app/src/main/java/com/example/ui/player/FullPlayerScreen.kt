@@ -233,22 +233,34 @@ fun FullPlayerScreen(
         )
         val artworkShape = RoundedCornerShape(20.dp)
         val artworkIsActive = playbackInfo.isPlaying
-        var dragOffsetSum by remember { mutableFloatStateOf(0f) }
+        var dragOffsetX by remember { mutableFloatStateOf(0f) }
+        var dragOffsetY by remember { mutableFloatStateOf(0f) }
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .pointerInput(Unit) {
+                .pointerInput(onPrevious, onNext, onCollapse) {
                     detectDragGestures(
-                        onDragStart = { dragOffsetSum = 0f },
-                        onDragEnd = {
-                            if (dragOffsetSum > 80f) {
-                                onCollapse()
-                            }
-                            dragOffsetSum = 0f
+                        onDragStart = {
+                            dragOffsetX = 0f
+                            dragOffsetY = 0f
                         },
-                        onDragCancel = { dragOffsetSum = 0f },
+                        onDragEnd = {
+                            // Horizontal swipes control track changes; vertical down still collapses.
+                            when {
+                                dragOffsetX > 90f && kotlin.math.abs(dragOffsetX) > kotlin.math.abs(dragOffsetY) * 1.2f -> onPrevious()
+                                dragOffsetX < -90f && kotlin.math.abs(dragOffsetX) > kotlin.math.abs(dragOffsetY) * 1.2f -> onNext()
+                                dragOffsetY > 80f && kotlin.math.abs(dragOffsetY) > kotlin.math.abs(dragOffsetX) -> onCollapse()
+                            }
+                            dragOffsetX = 0f
+                            dragOffsetY = 0f
+                        },
+                        onDragCancel = {
+                            dragOffsetX = 0f
+                            dragOffsetY = 0f
+                        },
                         onDrag = { change, dragAmount ->
-                            dragOffsetSum += dragAmount.y
+                            dragOffsetX += dragAmount.x
+                            dragOffsetY += dragAmount.y
                             change.consume()
                         }
                     )
