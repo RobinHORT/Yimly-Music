@@ -258,27 +258,27 @@ fun FullPlayerScreen(
             // available height; the queue background can now bleed past the bottom edge.
             Spacer(modifier = Modifier.height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 4.dp))
 
-            // Header: collapse on the left, track details centred, favorite on the right.
+            // Single compact header: collapse left, track details centred, and all quick actions on the right.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
+                    .padding(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = onCollapse,
-                    modifier = Modifier.size(48.dp).testTag("collapse_player_btn")
+                    modifier = Modifier.size(44.dp).testTag("collapse_player_btn")
                 ) {
                     Icon(
                         imageVector = Icons.Default.KeyboardArrowDown,
                         contentDescription = "Collapse",
                         tint = TextPrimaryDark,
-                        modifier = Modifier.size(32.dp)
+                        modifier = Modifier.size(30.dp)
                     )
                 }
 
                 Column(
-                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp),
+                    modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
@@ -300,49 +300,45 @@ fun FullPlayerScreen(
                     )
                 }
 
-                IconButton(
-                    onClick = onToggleFavorite,
-                    modifier = Modifier.size(48.dp).testTag("favorite_toggle_btn")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.End
                 ) {
-                    Icon(
-                        imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                        contentDescription = if (song.isFavorite) "Remove from favorites" else "Add to favorites",
-                        tint = if (song.isFavorite) YimlyPink else TextPrimaryDark,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
-            }
+                    IconButton(
+                        onClick = { showLyrics = !showLyrics },
+                        modifier = Modifier.size(36.dp).testTag("lyrics_toggle_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FormatQuote,
+                            contentDescription = "Toggle Lyrics",
+                            tint = if (showLyrics) YimlyPink else TextPrimaryDark,
+                            modifier = Modifier.size(23.dp)
+                        )
+                    }
 
-            // Lyrics and vocal/instrumental toggles sit together on the right below the title row.
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 16.dp, end = 20.dp),
-                horizontalArrangement = Arrangement.End,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = { showLyrics = !showLyrics },
-                    modifier = Modifier.size(44.dp).testTag("lyrics_toggle_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.FormatQuote,
-                        contentDescription = "Toggle Lyrics",
-                        tint = if (showLyrics) YimlyPink else TextPrimaryDark,
-                        modifier = Modifier.size(26.dp)
-                    )
-                }
+                    IconButton(
+                        onClick = onToggleInstrumental,
+                        modifier = Modifier.size(36.dp).testTag("instrumental_toggle_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = if (playbackInfo.isInstrumental) "Disable Instrumental" else "Enable Instrumental",
+                            tint = if (playbackInfo.isInstrumental) YimlyPink else TextPrimaryDark,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
 
-                IconButton(
-                    onClick = onToggleInstrumental,
-                    modifier = Modifier.size(44.dp).testTag("instrumental_toggle_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = if (playbackInfo.isInstrumental) "Disable Instrumental" else "Enable Instrumental",
-                        tint = if (playbackInfo.isInstrumental) YimlyPink else TextPrimaryDark,
-                        modifier = Modifier.size(24.dp)
-                    )
+                    IconButton(
+                        onClick = onToggleFavorite,
+                        modifier = Modifier.size(36.dp).testTag("favorite_toggle_btn")
+                    ) {
+                        Icon(
+                            imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                            contentDescription = if (song.isFavorite) "Remove from favorites" else "Add to favorites",
+                            tint = if (song.isFavorite) YimlyPink else TextPrimaryDark,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
 
