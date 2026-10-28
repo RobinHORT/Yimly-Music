@@ -80,7 +80,7 @@ import com.example.ui.theme.SurfaceElevatedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
-import com.example.ui.theme.toComposeFontFamily
+import com.example.ui.theme.LTKaraoke
 
 @Composable
 fun LyricsView(
@@ -110,7 +110,7 @@ fun LyricsView(
         LyricsParser.findActiveLyricSlots(lines, currentPositionMs, effectiveOffset)
     }
 
-    val composeFontFamily = config.fontFamily.toComposeFontFamily()
+    val composeFontFamily = LTKaraoke
 
     val currentLineColor = remember(config.currentLineColorHex) {
         try {
@@ -267,7 +267,7 @@ fun LyricsView(
                     text = lyricsData?.plainLyrics.orEmpty(),
                     fontSize = config.currentLineFontSizeSp.sp,
                     fontFamily = composeFontFamily,
-                    fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+                    fontWeight = FontWeight.Bold,
                     color = YimlyPink.copy(alpha = 0.96f),
                     textAlign = TextAlign.Center,
                                         modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
@@ -299,7 +299,7 @@ fun LyricsView(
                         text = formatLyricText(line.text, config.textCase),
                         fontSize = config.currentLineFontSizeSp.sp,
                         fontFamily = composeFontFamily,
-                        fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+                        fontWeight = FontWeight.Bold,
                         color = currentLineColor.copy(alpha = 0.96f),
                         textAlign = TextAlign.Center,
                         lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
@@ -344,7 +344,7 @@ fun LyricsView(
                             text = formatLyricText(prev.text, config.textCase),
                             fontSize = config.otherLineFontSizeSp.sp,
                             fontFamily = composeFontFamily,
-                            fontWeight = FontWeight.Normal,
+                            fontWeight = FontWeight.Light,
                             color = TextPrimaryDark.copy(alpha = config.otherLinesOpacity),
                             textAlign = textAlign,
                             modifier = Modifier
@@ -397,7 +397,7 @@ fun LyricsView(
                                         text = formatLyricText(preLyricIndicator, config.textCase),
                                         fontSize = config.currentLineFontSizeSp.sp,
                                         fontFamily = composeFontFamily,
-                                        fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+                                        fontWeight = FontWeight.Bold,
                                         color = currentLineColor,
                                         textAlign = textAlign,
                                         lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
@@ -522,7 +522,7 @@ fun LyricsView(
                                 text = formatLyricText(line.text, config.textCase),
                                 fontSize = animSize.sp,
                                 fontFamily = composeFontFamily,
-                                fontWeight = if (isCurrent && config.fontWeightBold) FontWeight.Bold else FontWeight.Normal,
+                                fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Light,
                                 color = animColor,
                                 modifier = Modifier.alpha(animAlpha),
                                 textAlign = textAlign
@@ -584,7 +584,7 @@ fun SynchronizedLyricContent(
                     inactiveColor = currentLineColor.copy(alpha = 0.35f),
                     fontSize = config.currentLineFontSizeSp.sp,
                     fontFamily = composeFontFamily,
-                    fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -594,7 +594,7 @@ fun SynchronizedLyricContent(
             text = formatLyricText(line.text, config.textCase),
             fontSize = config.currentLineFontSizeSp.sp,
             fontFamily = composeFontFamily,
-            fontWeight = if (config.fontWeightBold) FontWeight.ExtraBold else FontWeight.Bold,
+            fontWeight = FontWeight.Bold,
             color = currentLineColor,
             textAlign = textAlign,
             lineHeight = (config.currentLineFontSizeSp * 1.3f).sp,
