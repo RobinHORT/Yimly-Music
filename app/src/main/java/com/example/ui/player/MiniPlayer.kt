@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -38,6 +39,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -80,6 +83,20 @@ fun MiniPlayer(
             .clip(RoundedCornerShape(16.dp))
             .border(1.dp, SurfaceBorderDark, RoundedCornerShape(16.dp))
             .clickable(onClick = onMiniPlayerClick)
+            .pointerInput(onMiniPlayerClick) {
+                var verticalDrag = 0f
+                detectVerticalDragGestures(
+                    onVerticalDrag = { change, dragAmount ->
+                        verticalDrag += dragAmount
+                        change.consume()
+                    },
+                    onDragEnd = {
+                        if (verticalDrag < -48f) onMiniPlayerClick()
+                        verticalDrag = 0f
+                    },
+                    onDragCancel = { verticalDrag = 0f }
+                )
+            }
             .testTag("mini_player"),
         colors = CardDefaults.cardColors(containerColor = SurfaceElevatedDark),
         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
@@ -91,6 +108,19 @@ fun MiniPlayer(
                     .padding(horizontal = 10.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Expand indicator on the left, matching the expanded player's collapse arrow.
+                IconButton(
+                    onClick = onMiniPlayerClick,
+                    modifier = Modifier.size(36.dp).testTag("mini_expand_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.KeyboardArrowUp,
+                        contentDescription = "Expand player",
+                        tint = TextSecondaryDark,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+
                 // Album Art / Yimly Mic
                 Box(
                     modifier = Modifier
@@ -174,18 +204,6 @@ fun MiniPlayer(
                     )
                 }
 
-                // Expand indicator
-                IconButton(
-                    onClick = onMiniPlayerClick,
-                    modifier = Modifier.size(36.dp).testTag("mini_expand_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.KeyboardArrowUp,
-                        contentDescription = "Expand player",
-                        tint = TextSecondaryDark,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
             }
 
             // Bottom subtle Yimly progress bar
