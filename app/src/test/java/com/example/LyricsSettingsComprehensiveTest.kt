@@ -16,8 +16,6 @@ import com.example.data.models.formatLyricText
 import com.example.data.models.toTitleCase
 import com.example.ui.lyrics.LyricsSettingsDialog
 import com.example.ui.lyrics.LyricsView
-import com.example.ui.theme.SuperSaleFontFamily
-import com.example.ui.theme.toComposeFontFamily
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -53,21 +51,6 @@ class LyricsSettingsComprehensiveTest {
     }
 
     @Test
-    fun testFontFamilyMappingForAllOptions() {
-        val defaultFont = LyricFontFamily.DEFAULT.toComposeFontFamily()
-        val monoFont = LyricFontFamily.MONOSPACE.toComposeFontFamily()
-        val serifFont = LyricFontFamily.SERIF.toComposeFontFamily()
-        val cursiveFont = LyricFontFamily.CURSIVE.toComposeFontFamily()
-        val superSaleFont = LyricFontFamily.SUPER_SALE.toComposeFontFamily()
-
-        assertEquals(androidx.compose.ui.text.font.FontFamily.Default, defaultFont)
-        assertEquals(androidx.compose.ui.text.font.FontFamily.Monospace, monoFont)
-        assertEquals(androidx.compose.ui.text.font.FontFamily.Serif, serifFont)
-        assertEquals(androidx.compose.ui.text.font.FontFamily.Cursive, cursiveFont)
-        assertEquals(SuperSaleFontFamily, superSaleFont)
-    }
-
-    @Test
     fun testLyricsSettingsDialogFullSectionsAndTitleCaseSelection() {
         var savedConfig: LyricsDisplayConfig? = null
         val initialConfig = LyricsDisplayConfig(
@@ -89,18 +72,10 @@ class LyricsSettingsComprehensiveTest {
         // Section Headers
         composeTestRule.onNodeWithText("Lyrics Settings").assertExists()
         composeTestRule.onNodeWithText("Lyrics Display").assertExists()
-        composeTestRule.onNodeWithText("Font").assertExists()
         composeTestRule.onNodeWithText("Text Case").assertExists()
         composeTestRule.onNodeWithText("Current Line").assertExists()
         composeTestRule.onNodeWithText("Previous & Next Lines").assertExists()
         composeTestRule.onNodeWithText("Other").assertExists()
-
-        // Verify all 5 font family options exist
-        composeTestRule.onNodeWithText("Default").assertExists()
-        composeTestRule.onNodeWithText("Monospace").assertExists()
-        composeTestRule.onNodeWithText("Serif").assertExists()
-        composeTestRule.onNodeWithText("Cursive").assertExists()
-        composeTestRule.onNodeWithText("Super Sale").assertExists()
 
         // Verify all 4 text case options exist
         composeTestRule.onNodeWithText("Original").assertExists()
@@ -108,15 +83,13 @@ class LyricsSettingsComprehensiveTest {
         composeTestRule.onNodeWithText("lowercase").assertExists()
         composeTestRule.onNodeWithText("Title Case").assertExists()
 
-        // Select Title Case and Super Sale
-        composeTestRule.onNodeWithText("Super Sale").performScrollTo().performClick()
+        // Select Title Case
         composeTestRule.onNodeWithText("Title Case").performScrollTo().performClick()
 
         // Apply changes
         composeTestRule.onNodeWithText("Apply").performScrollTo().performClick()
 
         // Check saved config
-        assertEquals(LyricFontFamily.SUPER_SALE, savedConfig?.fontFamily)
         assertEquals(LyricTextCase.TITLE_CASE, savedConfig?.textCase)
     }
 

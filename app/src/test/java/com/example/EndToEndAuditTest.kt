@@ -11,7 +11,6 @@ import com.example.data.models.Playlist
 import com.example.data.models.Song
 import com.example.ui.components.PlaylistArtwork
 import com.example.ui.components.SongItemRow
-import com.example.ui.theme.toComposeFontFamily
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -261,10 +260,10 @@ class EndToEndAuditTest {
     }
 
     @Test
-    fun testLyricsCustomizationAllFiveFontOptionsAndSuperSaleSelection() {
+    fun testLyricsSettingsDialogSectionsAndTextCaseSelection() {
         var savedConfig: com.example.data.models.LyricsDisplayConfig? = null
         val initialConfig = com.example.data.models.LyricsDisplayConfig(
-            fontFamily = com.example.data.models.LyricFontFamily.DEFAULT
+            textCase = com.example.data.models.LyricTextCase.ORIGINAL
         )
 
         composeTestRule.setContent {
@@ -275,53 +274,46 @@ class EndToEndAuditTest {
             )
         }
 
-        // Verify all 5 font options exist and are displayed
-        composeTestRule.onNodeWithText("Default").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithText("Monospace").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithText("Serif").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithText("Cursive").performScrollTo().assertIsDisplayed()
-        composeTestRule.onNodeWithText("Super Sale").performScrollTo().assertIsDisplayed()
+        // Verify text case options exist and are displayed
+        composeTestRule.onNodeWithText("Original").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("UPPERCASE").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("lowercase").performScrollTo().assertIsDisplayed()
+        composeTestRule.onNodeWithText("Title Case").performScrollTo().assertIsDisplayed()
 
-        // Select Super Sale
-        composeTestRule.onNodeWithText("Super Sale").performScrollTo().performClick()
+        // Select UPPERCASE
+        composeTestRule.onNodeWithText("UPPERCASE").performScrollTo().performClick()
 
         // Click Apply
         composeTestRule.onNodeWithText("Apply").performScrollTo().performClick()
 
-        // Verify saved config received SUPER_SALE
-        assertEquals(com.example.data.models.LyricFontFamily.SUPER_SALE, savedConfig?.fontFamily)
+        // Verify saved config received UPPERCASE
+        assertEquals(com.example.data.models.LyricTextCase.UPPERCASE, savedConfig?.textCase)
     }
 
     @Test
-    fun testSuperSaleFontFamilyMappingAndLyricsViewApplication() {
+    fun testLyricsViewApplication() {
         val sampleLyrics = com.example.data.models.LyricsData(
             songId = "s1",
             lines = listOf(
-                com.example.data.models.LyricLine(text = "Super Sale Lyric Test", timeMs = 1000L)
+                com.example.data.models.LyricLine(text = "Lyric Test Line", timeMs = 1000L)
             ),
             isSynced = true
         )
 
-        val configWithSuperSale = com.example.data.models.LyricsDisplayConfig(
-            fontFamily = com.example.data.models.LyricFontFamily.SUPER_SALE
-        )
-
-        // Verify font family mapping extension
-        val composeFont = com.example.data.models.LyricFontFamily.SUPER_SALE.toComposeFontFamily()
-        assertEquals(com.example.ui.theme.SuperSaleFontFamily, composeFont)
+        val config = com.example.data.models.LyricsDisplayConfig()
 
         composeTestRule.setContent {
             com.example.ui.lyrics.LyricsView(
                 lyricsData = sampleLyrics,
                 currentPositionMs = 1000L,
                 songOffsetMs = 0L,
-                config = configWithSuperSale,
+                config = config,
                 onSeekTo = {},
                 onOpenSettings = {},
                 onOffsetChange = {}
             )
         }
 
-        composeTestRule.onNodeWithText("Super Sale Lyric Test").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Lyric Test Line").assertIsDisplayed()
     }
 }

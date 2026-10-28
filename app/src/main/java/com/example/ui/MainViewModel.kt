@@ -221,13 +221,23 @@ class MainViewModel(
         playbackManager.cycleRepeatMode()
     }
 
+    private val togglingSongIds = mutableSetOf<String>()
+
     fun toggleFavorite(songId: String) {
+        synchronized(togglingSongIds) {
+            if (songId in togglingSongIds) return
+            togglingSongIds.add(songId)
+        }
         viewModelScope.launch {
             try {
                 val newFav = musicRepository.toggleFavorite(songId)
                 playbackManager.updateFavoriteStatus(songId, newFav)
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to update favorite on server"
+            } finally {
+                synchronized(togglingSongIds) {
+                    togglingSongIds.remove(songId)
+                }
             }
         }
     }

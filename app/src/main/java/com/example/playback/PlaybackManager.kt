@@ -538,9 +538,15 @@ class PlaybackManager(
     }
 
     fun updateFavoriteStatus(songId: String, isFavorite: Boolean) {
-        coroutineScope.launch(Dispatchers.IO) {
-            musicRepository.toggleFavorite(songId)
+        val info = _playbackInfo.value
+        val updatedCurrentSong = info.currentSong?.takeIf { it.id == songId }?.copy(isFavorite = isFavorite) ?: info.currentSong
+        val updatedQueue = info.queue.map { song ->
+            if (song.id == songId) song.copy(isFavorite = isFavorite) else song
         }
+        _playbackInfo.value = info.copy(
+            currentSong = updatedCurrentSong,
+            queue = updatedQueue
+        )
     }
 
     fun toggleInstrumental() {
