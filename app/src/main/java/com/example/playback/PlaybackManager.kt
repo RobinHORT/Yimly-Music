@@ -68,6 +68,7 @@ class PlaybackManager(
     private var playbackRequestId: Long = 0L
     private var networkRecoveryJob: kotlinx.coroutines.Job? = null
     private var networkRecoveryAttempts: Int = 0
+    private var networkRecoverySongId: String? = null
 
     private companion object {
         const val MAX_NETWORK_RECOVERY_ATTEMPTS = 3
@@ -105,7 +106,6 @@ class PlaybackManager(
                         }
                         Player.STATE_READY -> {
                             isTransitioning = false
-                            networkRecoveryAttempts = 0
                             networkRecoveryJob?.cancel()
                             networkRecoveryJob = null
                             releaseTransitionWakeLock()
@@ -214,6 +214,12 @@ class PlaybackManager(
                 error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
 
         if (isTransientNetworkError && info.currentSong != null) {
+            // Bound retries per song, not per prepare cycle; STATE_READY alone must not
+            // reset the limit or repeated mid-stream disconnects could retry forever.
+            if (networkRecoverySongId != info.currentSong.id) {
+                networkRecoverySongId = info.currentSong.id
+                networkRecoveryAttempts = 0
+            }
             if (networkRecoveryAttempts < MAX_NETWORK_RECOVERY_ATTEMPTS) {
                 val attempt = ++networkRecoveryAttempts
                 val requestIdAtFailure = playbackRequestId
