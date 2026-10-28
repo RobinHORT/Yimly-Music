@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 @OptIn(UnstableApi::class)
@@ -65,6 +66,14 @@ class PlaybackManager(
 
     private var _player: ExoPlayer? = null
     private var playbackRequestId: Long = 0L
+    private var networkRecoveryJob: kotlinx.coroutines.Job? = null
+    private var networkRecoveryAttempts: Int = 0
+    private var networkRecoverySongId: String? = null
+
+    private companion object {
+        const val MAX_NETWORK_RECOVERY_ATTEMPTS = 3
+        const val NETWORK_RECOVERY_BASE_DELAY_MS = 1_000L
+    }
 
     val isPlayerInitialized: Boolean
         get() = _player != null
@@ -97,6 +106,8 @@ class PlaybackManager(
                         }
                         Player.STATE_READY -> {
                             isTransitioning = false
+                            networkRecoveryJob?.cancel()
+                            networkRecoveryJob = null
                             releaseTransitionWakeLock()
                         }
                         else -> {}
@@ -198,6 +209,59 @@ class PlaybackManager(
     fun handlePlayerError(error: PlaybackException) {
         releaseTransitionWakeLock()
         val info = _playbackInfo.value
+        val isTransientNetworkError =
+            error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
+                error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+
+        if (isTransientNetworkError && info.currentSong != null) {
+            // Bound retries per song, not per prepare cycle; STATE_READY alone must not
+            // reset the limit or repeated mid-stream disconnects could retry forever.
+            if (networkRecoverySongId != info.currentSong.id) {
+                networkRecoverySongId = info.currentSong.id
+                networkRecoveryAttempts = 0
+            }
+            if (networkRecoveryAttempts < MAX_NETWORK_RECOVERY_ATTEMPTS) {
+                val attempt = ++networkRecoveryAttempts
+                val requestIdAtFailure = playbackRequestId
+                val songIdAtFailure = info.currentSong.id
+                val delayMs = NETWORK_RECOVERY_BASE_DELAY_MS * (1L shl (attempt - 1))
+                networkRecoveryJob?.cancel()
+                Log.w(
+                    "PlaybackManager",
+                    "Transient network playback error (code=${error.errorCode}); retry ${attempt}/${MAX_NETWORK_RECOVERY_ATTEMPTS} in ${delayMs}ms"
+                )
+                networkRecoveryJob = coroutineScope.launch {
+                    delay(delayMs)
+                    val latest = _playbackInfo.value
+                    if (requestIdAtFailure != playbackRequestId ||
+                        latest.currentSong?.id != songIdAtFailure ||
+                        latest.currentQueueIndex !in latest.queue.indices
+                    ) {
+                        Log.d("PlaybackManager", "Skipping stale network recovery for song $songIdAtFailure")
+                        return@launch
+                    }
+                    networkRecoveryJob = null
+                    isTransitioning = true
+                    acquireTransitionWakeLock()
+                    playCurrentQueueIndex(targetInstrumental = latest.isInstrumental)
+                }
+                return
+            }
+            Log.e(
+                "PlaybackManager",
+                "Network playback recovery exhausted after $networkRecoveryAttempts retries (code=${error.errorCode})",
+                error
+            )
+        } else {
+            Log.e(
+                "PlaybackManager",
+                "Playback failed without automatic network retry (code=${error.errorCode}, message=${error.message})",
+                error
+            )
+        }
+
+        // Preserve the existing instrumental-to-vocal fallback after retry attempts
+        // are exhausted or when the failure is not a transient network error.
         if (info.isInstrumental) {
             Log.w("PlaybackManager", "Instrumental stream failed, falling back to vocal track: ${error.message}")
             val currentSong = info.currentSong
@@ -344,11 +408,16 @@ class PlaybackManager(
         val song = info.queue[info.currentQueueIndex]
         val wantInst = targetInstrumental ?: info.isInstrumental
         val requestId = ++playbackRequestId
-        
+
         coroutineScope.launch(Dispatchers.Main) {
+            var handedOffToPlayer = false
             try {
+                // Avoid acquiring a shared wake lock for a request that was already superseded
+                // before its main-dispatcher coroutine started.
+                if (requestId != playbackRequestId) return@launch
                 acquireTransitionWakeLock()
                 val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInst)
+                // A newer request owns the transition now; don't release its shared wake lock.
                 if (requestId != playbackRequestId) return@launch
                 val audioUrl = resolvedTrack.playableUrl
                 
@@ -386,6 +455,7 @@ class PlaybackManager(
                 }
                 p.prepare()
                 p.playWhenReady = true
+                handedOffToPlayer = true
                 _playbackInfo.value = _playbackInfo.value.copy(
                     isInstrumental = wantInst,
                     currentSong = song,
@@ -393,13 +463,24 @@ class PlaybackManager(
                 )
                 updatePlaybackInfo()
             } catch (e: kotlinx.coroutines.CancellationException) {
-                isTransitioning = false
-                releaseTransitionWakeLock()
+                if (requestId == playbackRequestId) {
+                    isTransitioning = false
+                    releaseTransitionWakeLock()
+                }
                 throw e
             } catch (e: Exception) {
                 Log.e("PlaybackManager", "Error playing song: ${song.title}", e)
-                isTransitioning = false
-                releaseTransitionWakeLock()
+                if (requestId == playbackRequestId) {
+                    isTransitioning = false
+                    releaseTransitionWakeLock()
+                }
+            } finally {
+                // A current request that failed before player handoff must clean up.
+                // Stale requests must never release a newer request's shared wake lock.
+                if (requestId == playbackRequestId && !handedOffToPlayer) {
+                    isTransitioning = false
+                    releaseTransitionWakeLock()
+                }
             }
         }
     }
@@ -610,6 +691,9 @@ class PlaybackManager(
     }
 
     fun release() {
+        playbackRequestId++
+        networkRecoveryJob?.cancel()
+        networkRecoveryJob = null
         isTransitioning = false
         releaseTransitionWakeLock()
         _mediaSession?.release()
