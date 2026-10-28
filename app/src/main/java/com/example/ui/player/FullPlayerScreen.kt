@@ -236,35 +236,7 @@ fun FullPlayerScreen(
         var dragOffsetX by remember { mutableFloatStateOf(0f) }
         var dragOffsetY by remember { mutableFloatStateOf(0f) }
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .pointerInput(onPrevious, onNext, onCollapse) {
-                    detectDragGestures(
-                        onDragStart = {
-                            dragOffsetX = 0f
-                            dragOffsetY = 0f
-                        },
-                        onDragEnd = {
-                            // Horizontal swipes control track changes; vertical down still collapses.
-                            when {
-                                dragOffsetX > 90f && kotlin.math.abs(dragOffsetX) > kotlin.math.abs(dragOffsetY) * 1.2f -> onPrevious()
-                                dragOffsetX < -90f && kotlin.math.abs(dragOffsetX) > kotlin.math.abs(dragOffsetY) * 1.2f -> onNext()
-                                dragOffsetY > 80f && kotlin.math.abs(dragOffsetY) > kotlin.math.abs(dragOffsetX) -> onCollapse()
-                            }
-                            dragOffsetX = 0f
-                            dragOffsetY = 0f
-                        },
-                        onDragCancel = {
-                            dragOffsetX = 0f
-                            dragOffsetY = 0f
-                        },
-                        onDrag = { change, dragAmount ->
-                            dragOffsetX += dragAmount.x
-                            dragOffsetY += dragAmount.y
-                            change.consume()
-                        }
-                    )
-                }
+            modifier = Modifier.fillMaxSize()
         ) {
             // Keep the header below the status bar without shrinking the queue's
             // available height; the queue background can now bleed past the bottom edge.
@@ -332,6 +304,32 @@ fun FullPlayerScreen(
             Box(
                 modifier = Modifier
                     .size(artworkSize)
+                    .pointerInput(onPrevious, onNext, onCollapse) {
+                        detectDragGestures(
+                            onDragStart = {
+                                dragOffsetX = 0f
+                                dragOffsetY = 0f
+                            },
+                            onDragEnd = {
+                                when {
+                                    dragOffsetX > 90f && kotlin.math.abs(dragOffsetX) > kotlin.math.abs(dragOffsetY) * 1.2f -> onPrevious()
+                                    dragOffsetX < -90f && kotlin.math.abs(dragOffsetX) > kotlin.math.abs(dragOffsetY) * 1.2f -> onNext()
+                                    dragOffsetY > 80f && kotlin.math.abs(dragOffsetY) > kotlin.math.abs(dragOffsetX) -> onCollapse()
+                                }
+                                dragOffsetX = 0f
+                                dragOffsetY = 0f
+                            },
+                            onDragCancel = {
+                                dragOffsetX = 0f
+                                dragOffsetY = 0f
+                            },
+                            onDrag = { change, dragAmount ->
+                                dragOffsetX += dragAmount.x
+                                dragOffsetY += dragAmount.y
+                                change.consume()
+                            }
+                        )
+                    }
                     .clickable { showFullscreenLyrics = true }
                     .clip(artworkShape)
                     .background(SurfaceCardDark)
