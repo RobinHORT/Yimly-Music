@@ -258,7 +258,7 @@ fun FullPlayerScreen(
             // available height; the queue background can now bleed past the bottom edge.
             Spacer(modifier = Modifier.height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 4.dp))
 
-            // Header: lyrics toggle on the left, instrumental toggle, track details centred, collapse on the right.
+            // Header: collapse on the left, track details centred, favorite on the right.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -266,26 +266,14 @@ fun FullPlayerScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
-                    onClick = { showLyrics = !showLyrics },
-                    modifier = Modifier.size(48.dp).testTag("lyrics_toggle_btn")
+                    onClick = onCollapse,
+                    modifier = Modifier.size(48.dp).testTag("collapse_player_btn")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.FormatQuote,
-                        contentDescription = "Toggle Lyrics",
-                        tint = if (showLyrics) YimlyPink else TextPrimaryDark,
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-
-                IconButton(
-                    onClick = onToggleInstrumental,
-                    modifier = Modifier.size(48.dp).testTag("instrumental_toggle_btn")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MusicNote,
-                        contentDescription = if (playbackInfo.isInstrumental) "Disable Instrumental" else "Enable Instrumental",
-                        tint = if (playbackInfo.isInstrumental) YimlyPink else TextPrimaryDark,
-                        modifier = Modifier.size(24.dp)
+                        imageVector = Icons.Default.KeyboardArrowDown,
+                        contentDescription = "Collapse",
+                        tint = TextPrimaryDark,
+                        modifier = Modifier.size(32.dp)
                     )
                 }
 
@@ -313,14 +301,47 @@ fun FullPlayerScreen(
                 }
 
                 IconButton(
-                    onClick = onCollapse,
-                    modifier = Modifier.size(48.dp).testTag("collapse_player_btn")
+                    onClick = onToggleFavorite,
+                    modifier = Modifier.size(48.dp).testTag("favorite_toggle_btn")
                 ) {
                     Icon(
-                        imageVector = Icons.Default.KeyboardArrowDown,
-                        contentDescription = "Collapse",
-                        tint = TextPrimaryDark,
-                        modifier = Modifier.size(32.dp)
+                        imageVector = if (song.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                        contentDescription = if (song.isFavorite) "Remove from favorites" else "Add to favorites",
+                        tint = if (song.isFavorite) YimlyPink else TextPrimaryDark,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+            }
+
+            // Lyrics and vocal/instrumental toggles sit together on the right below the title row.
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 20.dp),
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(
+                    onClick = { showLyrics = !showLyrics },
+                    modifier = Modifier.size(44.dp).testTag("lyrics_toggle_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FormatQuote,
+                        contentDescription = "Toggle Lyrics",
+                        tint = if (showLyrics) YimlyPink else TextPrimaryDark,
+                        modifier = Modifier.size(26.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onToggleInstrumental,
+                    modifier = Modifier.size(44.dp).testTag("instrumental_toggle_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = if (playbackInfo.isInstrumental) "Disable Instrumental" else "Enable Instrumental",
+                        tint = if (playbackInfo.isInstrumental) YimlyPink else TextPrimaryDark,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
             }
