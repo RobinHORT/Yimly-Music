@@ -97,7 +97,9 @@ import kotlinx.coroutines.launch
 fun YimlyNavigation(
     viewModel: MainViewModel,
     modifier: Modifier = Modifier,
-    navController: NavHostController = rememberNavController()
+    navController: NavHostController = rememberNavController(),
+    openNowPlayingRequest: Boolean = false,
+    onNowPlayingRequestConsumed: () -> Unit = {}
 ) {
     val authState by viewModel.authState.collectAsState()
     val userProfile by viewModel.userProfile.collectAsState()
@@ -135,6 +137,13 @@ fun YimlyNavigation(
         uiMessage?.let { msg ->
             snackbarHostState.showSnackbar(msg)
             viewModel.clearUiMessage()
+        }
+    }
+
+    LaunchedEffect(openNowPlayingRequest, authState, playbackInfo.currentSong) {
+        if (openNowPlayingRequest && authState is AuthState.Authenticated && playbackInfo.currentSong != null) {
+            isPlayerExpanded = true
+            onNowPlayingRequestConsumed()
         }
     }
 
