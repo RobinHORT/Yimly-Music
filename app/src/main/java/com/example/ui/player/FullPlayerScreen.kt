@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -33,6 +34,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Repeat
@@ -231,14 +233,32 @@ fun FullPlayerScreen(
         )
         val artworkShape = RoundedCornerShape(20.dp)
         val artworkIsActive = playbackInfo.isPlaying
+        var dragOffsetSum by remember { mutableFloatStateOf(0f) }
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(Unit) {
+                    detectDragGestures(
+                        onDragStart = { dragOffsetSum = 0f },
+                        onDragEnd = {
+                            if (dragOffsetSum > 80f) {
+                                onCollapse()
+                            }
+                            dragOffsetSum = 0f
+                        },
+                        onDragCancel = { dragOffsetSum = 0f },
+                        onDrag = { change, dragAmount ->
+                            dragOffsetSum += dragAmount.y
+                            change.consume()
+                        }
+                    )
+                }
         ) {
             // Keep the header below the status bar without shrinking the queue's
             // available height; the queue background can now bleed past the bottom edge.
             Spacer(modifier = Modifier.height(WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 4.dp))
 
-            // Header: lyrics toggle on the left, track details centred, collapse on the right.
+            // Header: lyrics toggle on the left, instrumental toggle, track details centred, collapse on the right.
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -254,6 +274,18 @@ fun FullPlayerScreen(
                         contentDescription = "Toggle Lyrics",
                         tint = if (showLyrics) YimlyPink else TextPrimaryDark,
                         modifier = Modifier.size(28.dp)
+                    )
+                }
+
+                IconButton(
+                    onClick = onToggleInstrumental,
+                    modifier = Modifier.size(48.dp).testTag("instrumental_toggle_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MusicNote,
+                        contentDescription = if (playbackInfo.isInstrumental) "Disable Instrumental" else "Enable Instrumental",
+                        tint = if (playbackInfo.isInstrumental) YimlyPink else TextPrimaryDark,
+                        modifier = Modifier.size(24.dp)
                     )
                 }
 
@@ -278,44 +310,6 @@ fun FullPlayerScreen(
                         overflow = TextOverflow.Ellipsis,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center
                     )
-                }
-
-                Box {
-                    IconButton(
-                        onClick = { menuExpanded = true },
-                        modifier = Modifier.size(40.dp).testTag("player_more_options_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.MoreVert,
-                            contentDescription = "Options",
-                            tint = TextPrimaryDark,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = menuExpanded,
-                        onDismissRequest = { menuExpanded = false },
-                        modifier = Modifier
-                            .background(SurfaceElevatedDark)
-                            .border(1.dp, SurfaceBorderDark, RoundedCornerShape(12.dp))
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(if (song.isFavorite) "Remove from Liked Songs" else "Save to Liked Songs", color = TextPrimaryDark) },
-                            onClick = { menuExpanded = false; onToggleFavorite() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Add to Playlist", color = TextPrimaryDark) },
-                            onClick = { menuExpanded = false; onAddToPlaylist(song) }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(if (playbackInfo.isInstrumental) "Instrumental: ON" else "Instrumental: OFF", color = TextPrimaryDark) },
-                            onClick = { menuExpanded = false; onToggleInstrumental() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text("Customize Lyrics", color = TextPrimaryDark) },
-                            onClick = { menuExpanded = false; showLyricsSettings = true }
-                        )
-                    }
                 }
 
                 IconButton(
@@ -349,10 +343,10 @@ fun FullPlayerScreen(
                         model = song.artworkUrl,
                         contentDescription = song.title,
                         contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().padding(7.dp).clip(RoundedCornerShape(15.dp))
+                        modifier = Modifier.fillMaxSize().clip(artworkShape)
                     )
                 } else {
-                    Box(modifier = Modifier.fillMaxSize().padding(7.dp).clip(RoundedCornerShape(15.dp)).background(SurfaceCardDark), contentAlignment = Alignment.Center) {
+                    Box(modifier = Modifier.fillMaxSize().background(SurfaceCardDark), contentAlignment = Alignment.Center) {
                         YimlyMicIcon(tint = TextSecondaryDark, modifier = Modifier.size(80.dp))
                     }
                 }
@@ -360,7 +354,7 @@ fun FullPlayerScreen(
                 // Keep artwork natural normally; apply the focus tint only while lyrics are shown.
                 if (showLyrics) {
                     Box(
-                        modifier = Modifier.fillMaxSize().padding(7.dp).clip(RoundedCornerShape(15.dp)).background(
+                        modifier = Modifier.fillMaxSize().clip(artworkShape).background(
                             Brush.verticalGradient(
                                 colors = listOf(
                                     Color(0xFFBE185D).copy(alpha = 0.48f),
@@ -381,10 +375,10 @@ fun FullPlayerScreen(
                         isPlaying = playbackInfo.isPlaying,
                         showFocusControls = false,
                         floatingFocusMode = true,
-                        modifier = Modifier.fillMaxSize().padding(7.dp).clip(RoundedCornerShape(15.dp))
+                        modifier = Modifier.fillMaxSize().clip(artworkShape)
                     )
                     // Tapping the lyric itself opens the same fullscreen lyrics view as the artwork.
-                    Box(modifier = Modifier.fillMaxSize().padding(7.dp).clickable { showFullscreenLyrics = true })
+                    Box(modifier = Modifier.fillMaxSize().clickable { showFullscreenLyrics = true })
                 }
 
                 // Static conic-gradient edge; its brightness pulses while playing, without rotating the square.
