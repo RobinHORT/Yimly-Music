@@ -1,6 +1,7 @@
 package com.example.ui.player
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -87,6 +88,24 @@ fun FullscreenLyricsDialog(
                 .fillMaxSize()
                 .background(BackgroundDark)
                 .clipToBounds()
+                .pointerInput(onPrevious, onNext) {
+                    var horizontalDrag = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = { horizontalDrag = 0f },
+                        onDragEnd = {
+                            when {
+                                horizontalDrag > 90f -> onPrevious()
+                                horizontalDrag < -90f -> onNext()
+                            }
+                            horizontalDrag = 0f
+                        },
+                        onDragCancel = { horizontalDrag = 0f },
+                        onHorizontalDrag = { change, dragAmount ->
+                            horizontalDrag += dragAmount
+                            change.consume()
+                        }
+                    )
+                }
         ) {
             if (!song.artworkUrl.isNullOrBlank()) {
                 AsyncImage(
