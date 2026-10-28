@@ -54,7 +54,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.models.LyricAlignment
-import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.LyricsFormatMode
@@ -64,7 +63,6 @@ import com.example.ui.theme.SurfaceElevatedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
-import com.example.ui.theme.toComposeFontFamily
 
 val COLOR_PRESETS = listOf(
     Pair("Pink", "#FF3366"),
@@ -90,9 +88,6 @@ fun LyricsSettingsDialog(
     var animDuration by remember { mutableIntStateOf(initialConfig.animationDurationMs) }
     var lineSpacing by remember { mutableFloatStateOf(initialConfig.lineSpacingDp) }
     var alignment by remember { mutableStateOf(initialConfig.alignment) }
-
-    // 2. Font state
-    var fontFamily by remember { mutableStateOf(initialConfig.fontFamily) }
 
     // 3. Text Case state
     var textCase by remember { mutableStateOf(initialConfig.textCase) }
@@ -304,48 +299,6 @@ fun LyricsSettingsDialog(
                                 )
                             )
                         }
-                    }
-                }
-
-                HorizontalDivider(color = SurfaceBorderDark, thickness = 1.dp)
-
-                // ==========================================
-                // 2. FONT SECTION
-                // ==========================================
-                Text(
-                    text = "Font",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimaryDark
-                )
-                Text(
-                    text = "Font Family",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = TextSecondaryDark
-                )
-                FlowRow(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    LyricFontFamily.values().forEach { font ->
-                        FilterChip(
-                            selected = fontFamily == font,
-                            onClick = { fontFamily = font },
-                            label = {
-                                Text(
-                                    text = font.displayName,
-                                    fontFamily = font.toComposeFontFamily(),
-                                    fontSize = 12.sp
-                                )
-                            },
-                            colors = FilterChipDefaults.filterChipColors(
-                                selectedContainerColor = YimlyPink,
-                                selectedLabelColor = Color.White,
-                                containerColor = SurfaceCardDark,
-                                labelColor = TextSecondaryDark
-                            )
-                        )
                     }
                 }
 
@@ -610,7 +563,7 @@ fun LyricsSettingsDialog(
                                 animationDurationMs = animDuration,
                                 lineSpacingDp = lineSpacing,
                                 alignment = alignment,
-                                fontFamily = fontFamily,
+                                fontFamily = com.example.data.models.LyricFontFamily.DEFAULT,
                                 textCase = textCase,
                                 currentLineFontSizeSp = currentSize,
                                 currentLineColorHex = currentColorHex,
