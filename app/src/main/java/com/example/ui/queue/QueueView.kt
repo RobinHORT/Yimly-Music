@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ClearAll
+import androidx.compose.material.icons.filled.FormatQuote
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
@@ -80,7 +81,11 @@ fun QueueView(
     onReorderItem: (Int, Int) -> Unit,
     onClearQueue: () -> Unit,
     modifier: Modifier = Modifier,
-    compactMode: Boolean = false
+    compactMode: Boolean = false,
+    onToggleLyrics: (() -> Unit)? = null,
+    lyricsEnabled: Boolean = false,
+    onToggleInstrumental: (() -> Unit)? = null,
+    isInstrumental: Boolean = false
 ) {
     val currentSong = queue.getOrNull(currentIndex)
     val upcomingSongs = if (currentIndex < queue.size - 1) {
@@ -162,6 +167,33 @@ fun QueueView(
                         fontWeight = FontWeight.Normal,
                         color = TextSecondaryDark.copy(alpha = 0.70f)
                     )
+                }
+            }
+
+            if (compactMode && onToggleLyrics != null && onToggleInstrumental != null) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    IconButton(
+                        onClick = onToggleLyrics,
+                        modifier = Modifier.size(40.dp).testTag("lyrics_toggle_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.FormatQuote,
+                            contentDescription = "Toggle Lyrics",
+                            tint = if (lyricsEnabled) YimlyPink else TextPrimaryDark,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                    IconButton(
+                        onClick = onToggleInstrumental,
+                        modifier = Modifier.size(40.dp).testTag("instrumental_toggle_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.MusicNote,
+                            contentDescription = if (isInstrumental) "Disable Instrumental" else "Enable Instrumental",
+                            tint = if (isInstrumental) YimlyPink else TextPrimaryDark,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
                 }
             }
 
