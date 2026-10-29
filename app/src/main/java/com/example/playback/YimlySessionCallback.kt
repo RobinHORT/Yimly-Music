@@ -543,20 +543,43 @@ class YimlySessionCallback(
                             .build()
                         resolvedItems.add(resolvedItem)
                     } else {
-                        if (item.localConfiguration?.uri != null || item.requestMetadata.mediaUri != null || mediaId.isNotBlank()) {
-                            resolvedItems.add(item)
+                        // Preserve only items that already have a real playable URI.
+                        // A non-empty mediaId alone is not enough: returning unresolved
+                        // library IDs here can leave Media3 with an item it cannot play.
+                        val fallbackUri = item.localConfiguration?.uri
+                            ?: item.requestMetadata.mediaUri
+                        if (fallbackUri != null) {
+                            resolvedItems.add(
+                                item.buildUpon()
+                                    .setUri(fallbackUri)
+                                    .build()
+                            )
+                        } else {
+                            android.util.Log.w(
+                                "YimlySessionCallback",
+                                "Skipping unresolved media item: mediaId=$mediaId"
+                            )
                         }
                     }
                 }
                 future.set(resolvedItems)
-            } catch (e: Throwable) {
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                future.cancel(false)
+                throw e
+            } catch (e: Exception) {
                 android.util.Log.e("YimlySessionCallback", "Error in onAddMediaItems: ${e.message}", e)
-                future.set(mediaItems)
+                // Do not return unresolved items as if they were playable.
+                future.set(mediaItems.filter { it.localConfiguration?.uri != null || it.requestMetadata.mediaUri != null })
             }
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                future.set(mediaItems)
+                if (cause is kotlinx.coroutines.CancellationException) {
+                    future.cancel(false)
+                } else {
+                    android.util.Log.e("YimlySessionCallback", "onAddMediaItems job failed", cause)
+                    future.set(mediaItems.filter { it.localConfiguration?.uri != null || it.requestMetadata.mediaUri != null })
+                }
             }
         }
         return future
