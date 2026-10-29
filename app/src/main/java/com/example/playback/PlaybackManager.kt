@@ -422,16 +422,20 @@ class PlaybackManager(
         val wantInst = targetInstrumental ?: info.isInstrumental
         val requestId = ++playbackRequestId
 
-        coroutineScope.launch(Dispatchers.Main) {
+        acquireTransitionWakeLock()
+
+        coroutineScope.launch(Dispatchers.IO) {
             var handedOffToPlayer = false
             try {
-                // Avoid acquiring a shared wake lock for a request that was already superseded
-                // before its main-dispatcher coroutine started.
-                if (requestId != playbackRequestId) return@launch
-                acquireTransitionWakeLock()
+                if (requestId != playbackRequestId) {
+                    releaseTransitionWakeLock()
+                    return@launch
+                }
                 val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInst)
-                // A newer request owns the transition now; don't release its shared wake lock.
-                if (requestId != playbackRequestId) return@launch
+                if (requestId != playbackRequestId) {
+                    releaseTransitionWakeLock()
+                    return@launch
+                }
                 val audioUrl = resolvedTrack.playableUrl
                 
                 val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
@@ -455,26 +459,31 @@ class PlaybackManager(
                     )
                     .build()
 
-                val p = ensurePlayerInitialized()
-                val isSameSong = p.currentMediaItem?.mediaId?.startsWith(song.id) == true
-                val currentPos = if (isSameSong && p.playbackState != Player.STATE_ENDED) p.currentPosition.coerceAtLeast(0L) else 0L
+                withContext(Dispatchers.Main) {
+                    if (requestId != playbackRequestId) {
+                        return@withContext
+                    }
+                    val p = ensurePlayerInitialized()
+                    val isSameSong = p.currentMediaItem?.mediaId?.startsWith(song.id) == true
+                    val currentPos = if (isSameSong && p.playbackState != Player.STATE_ENDED) p.currentPosition.coerceAtLeast(0L) else 0L
 
-                val activeIndex = p.currentMediaItemIndex
-                if (isSameSong && activeIndex in 0 until p.mediaItemCount) {
-                    p.replaceMediaItem(activeIndex, mediaItem)
-                    p.seekTo(activeIndex, currentPos)
-                } else {
-                    p.setMediaItem(mediaItem, currentPos)
+                    val activeIndex = p.currentMediaItemIndex
+                    if (isSameSong && activeIndex in 0 until p.mediaItemCount) {
+                        p.replaceMediaItem(activeIndex, mediaItem)
+                        p.seekTo(activeIndex, currentPos)
+                    } else {
+                        p.setMediaItem(mediaItem, currentPos)
+                    }
+                    p.prepare()
+                    p.playWhenReady = true
+                    handedOffToPlayer = true
+                    _playbackInfo.value = _playbackInfo.value.copy(
+                        isInstrumental = wantInst,
+                        currentSong = song,
+                        hasInstrumental = if (!wantInst && targetInstrumental == false && !song.hasInstrumentalEffective) false else song.hasInstrumentalEffective
+                    )
+                    updatePlaybackInfo()
                 }
-                p.prepare()
-                p.playWhenReady = true
-                handedOffToPlayer = true
-                _playbackInfo.value = _playbackInfo.value.copy(
-                    isInstrumental = wantInst,
-                    currentSong = song,
-                    hasInstrumental = if (!wantInst && targetInstrumental == false && !song.hasInstrumentalEffective) false else song.hasInstrumentalEffective
-                )
-                updatePlaybackInfo()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 if (requestId == playbackRequestId) {
                     isTransitioning = false
@@ -488,8 +497,6 @@ class PlaybackManager(
                     releaseTransitionWakeLock()
                 }
             } finally {
-                // A current request that failed before player handoff must clean up.
-                // Stale requests must never release a newer request's shared wake lock.
                 if (requestId == playbackRequestId && !handedOffToPlayer) {
                     isTransitioning = false
                     releaseTransitionWakeLock()
