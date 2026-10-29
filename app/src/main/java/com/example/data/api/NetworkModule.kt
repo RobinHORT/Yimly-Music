@@ -40,6 +40,14 @@ class NetworkModule(
         .retryOnConnectionFailure(true)
         .build()
 
+    val mediaOkHttpClient: OkHttpClient = OkHttpClient.Builder()
+        .addInterceptor(authInterceptor)
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
+
     val apiService: YimlyApiService by lazy {
         Retrofit.Builder()
             .baseUrl(PreferencesManager.DEFAULT_SERVER_URL.let { if (it.endsWith("/")) it else "$it/" })

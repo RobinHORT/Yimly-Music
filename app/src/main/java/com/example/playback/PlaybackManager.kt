@@ -85,8 +85,8 @@ class PlaybackManager(
 
     fun ensurePlayerInitialized(): ExoPlayer {
         _player?.let { return it }
-        val networkModule = NetworkModule(PreferencesManager(context))
-        val dataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(networkModule.okHttpClient)
+        val networkModule = NetworkModule(preferencesManager, scope = coroutineScope)
+        val dataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(networkModule.mediaOkHttpClient)
         val newPlayer = ExoPlayer.Builder(context)
             .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
             .build().apply {

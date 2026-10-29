@@ -14,12 +14,27 @@ import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsDisplayConfig
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "yimly_preferences")
 
 class PreferencesManager(private val context: Context) {
+
+    init {
+        CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
+            context.dataStore.data.collect { preferences ->
+                val token = preferences[KEY_AUTH_TOKEN]
+                AuthTokenHolder.token = if (token.isNullOrBlank()) null else token
+                val url = preferences[KEY_SERVER_URL] ?: DEFAULT_SERVER_URL
+                ServerUrlConfig.activeServerUrl = url
+            }
+        }
+    }
 
     companion object {
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
@@ -174,6 +189,11 @@ class PreferencesManager(private val context: Context) {
         isAdmin: Boolean = false,
         rememberMe: Boolean = true
     ) {
+        if (rememberMe) {
+            AuthTokenHolder.token = token
+        } else {
+            AuthTokenHolder.token = null
+        }
         context.dataStore.edit { preferences ->
             preferences[KEY_REMEMBER_ME] = rememberMe
             if (rememberMe) {
@@ -199,6 +219,7 @@ class PreferencesManager(private val context: Context) {
     }
 
     suspend fun clearAuthSession() {
+        AuthTokenHolder.token = null
         context.dataStore.edit { preferences ->
             preferences.remove(KEY_AUTH_TOKEN)
             preferences.remove(KEY_USER_ID)
@@ -279,4 +300,9 @@ class PreferencesManager(private val context: Context) {
 object ServerUrlConfig {
     @Volatile
     var activeServerUrl: String = PreferencesManager.DEFAULT_SERVER_URL
+}
+
+object AuthTokenHolder {
+    @Volatile
+    var token: String? = null
 }
