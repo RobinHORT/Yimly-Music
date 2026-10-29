@@ -496,32 +496,69 @@ class YimlySessionCallback(
         controller: MediaSession.ControllerInfo,
         mediaItems: List<MediaItem>
     ): ListenableFuture<List<MediaItem>> {
-        val item = mediaItems.firstOrNull() ?: return Futures.immediateFuture(mediaItems)
-        val mediaId = item.mediaId
+        val future = SettableFuture.create<List<MediaItem>>()
+        val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val resolvedItems = mutableListOf<MediaItem>()
+                for (item in mediaItems) {
+                    val mediaId = item.mediaId
+                    val parts = mediaId.split("|")
+                    val songId = when {
+                        mediaId.startsWith("playlist_song|") && parts.size >= 3 -> parts[2]
+                        mediaId.startsWith("favorite_song|") && parts.size >= 2 -> parts[1]
+                        mediaId.startsWith("recent_song|") && parts.size >= 2 -> parts[1]
+                        mediaId.startsWith("all_song|") && parts.size >= 2 -> parts[1]
+                        else -> null
+                    }
+                    val song = if (songId != null) {
+                        playbackManager.musicRepository.getSongById(songId)
+                    } else {
+                        null
+                    }
 
-        val parts = mediaId.split("|")
-        val (type, songId, playlistId) = when {
-            mediaId.startsWith("playlist_song|") && parts.size >= 3 -> {
-                Triple("playlist_song", parts[2], parts[1])
-            }
-            mediaId.startsWith("favorite_song|") && parts.size >= 2 -> {
-                Triple("favorite_song", parts[1], null)
-            }
-            mediaId.startsWith("recent_song|") && parts.size >= 2 -> {
-                Triple("recent_song", parts[1], null)
-            }
-            mediaId.startsWith("all_song|") && parts.size >= 2 -> {
-                Triple("all_song", parts[1], null)
-            }
-            else -> {
-                Triple("raw", mediaId, null)
+                    if (song != null) {
+                        val resolvedTrack = playbackManager.musicRepository.resolvePlayableTrack(song, false)
+                        val audioUrl = resolvedTrack.playableUrl
+                        val artworkUri = playbackManager.getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
+                        val parsedAudioUri = Uri.parse(audioUrl)
+
+                        val resolvedItem = MediaItem.Builder()
+                            .setMediaId(mediaId)
+                            .setUri(parsedAudioUri)
+                            .setRequestMetadata(
+                                MediaItem.RequestMetadata.Builder()
+                                    .setMediaUri(parsedAudioUri)
+                                    .build()
+                            )
+                            .setMediaMetadata(
+                                MediaMetadata.Builder()
+                                    .setTitle(song.title)
+                                    .setArtist(song.artist)
+                                    .setAlbumTitle(song.album)
+                                    .setArtworkUri(artworkUri)
+                                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                                    .setIsPlayable(true)
+                                    .build()
+                            )
+                            .build()
+                        resolvedItems.add(resolvedItem)
+                    } else {
+                        if (item.localConfiguration?.uri != null || item.requestMetadata.mediaUri != null || mediaId.isNotBlank()) {
+                            resolvedItems.add(item)
+                        }
+                    }
+                }
+                future.set(resolvedItems)
+            } catch (e: Throwable) {
+                android.util.Log.e("YimlySessionCallback", "Error in onAddMediaItems: ${e.message}", e)
+                future.set(mediaItems)
             }
         }
-
-        if (songId != null) {
-            playbackManager.playSongFromAuto(songId, type, playlistId)
+        job.invokeOnCompletion { cause ->
+            if (cause != null && !future.isDone) {
+                future.set(mediaItems)
+            }
         }
-
-        return Futures.immediateFuture(emptyList())
+        return future
     }
 }
