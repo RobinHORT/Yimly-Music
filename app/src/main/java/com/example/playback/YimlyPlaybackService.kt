@@ -73,15 +73,31 @@ class YimlyPlaybackService : MediaLibraryService() {
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val app = application as? YimlyApplication
-        val manager = app?.playbackManager
-        if (manager?.isTransitioning == true) {
+        val manager = (application as? YimlyApplication)?.playbackManager
+        val player = manager?.mediaSession?.player
+
+        // Do not tear down the media service while a track is being resolved or
+        // prepared. During this window ExoPlayer can still report STATE_IDLE even
+        // though playWhenReady is true and the queue transition is in progress.
+        val hasQueuedTrack = manager?.playbackInfo?.value?.let { info ->
+            info.currentSong != null && info.currentQueueIndex in info.queue.indices
+        } == true
+        val playbackRequested = player?.playWhenReady == true
+        val transitioning = manager?.isTransitioning == true
+
+        if (hasQueuedTrack && (playbackRequested || transitioning)) {
+            android.util.Log.d(
+                "YimlyPlaybackService",
+                "Task removed; keeping playback service alive (playWhenReady=$playbackRequested, transitioning=$transitioning, state=${player?.playbackState})"
+            )
             return
         }
-        val player = manager?.mediaSession?.player
-        if (player == null || !player.playWhenReady || player.playbackState == androidx.media3.common.Player.STATE_IDLE || player.playbackState == androidx.media3.common.Player.STATE_ENDED) {
-            stopSelf()
-        }
+
+        android.util.Log.d(
+            "YimlyPlaybackService",
+            "Task removed with no active playback request; stopping service"
+        )
+        stopSelf()
     }
 
     private fun createNotificationChannel() {
