@@ -29,7 +29,11 @@ class PreferencesManager(private val context: Context) {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
             context.dataStore.data.collect { preferences ->
                 val token = preferences[KEY_AUTH_TOKEN]
-                AuthTokenHolder.token = if (token.isNullOrBlank()) null else token
+                val timestamp = preferences[KEY_AUTH_TIMESTAMP] ?: 0L
+                val rememberMe = preferences[KEY_REMEMBER_ME] ?: true
+                if (rememberMe) {
+                    AuthTokenHolder.updateFromPersistence(token, timestamp)
+                }
                 val url = preferences[KEY_SERVER_URL] ?: DEFAULT_SERVER_URL
                 ServerUrlConfig.activeServerUrl = url
             }
@@ -39,6 +43,7 @@ class PreferencesManager(private val context: Context) {
     companion object {
         private val KEY_SERVER_URL = stringPreferencesKey("server_url")
         private val KEY_AUTH_TOKEN = stringPreferencesKey("auth_token")
+        private val KEY_AUTH_TIMESTAMP = longPreferencesKey("auth_timestamp")
         private val KEY_USER_ID = stringPreferencesKey("user_id")
         private val KEY_USERNAME = stringPreferencesKey("username")
         private val KEY_USER_EMAIL = stringPreferencesKey("user_email")
@@ -173,8 +178,10 @@ class PreferencesManager(private val context: Context) {
     }
 
     suspend fun setServerUrl(url: String) {
+        val cleanUrl = url.trimEnd('/')
+        ServerUrlConfig.activeServerUrl = cleanUrl
         context.dataStore.edit { preferences ->
-            preferences[KEY_SERVER_URL] = url.trimEnd('/')
+            preferences[KEY_SERVER_URL] = cleanUrl
         }
     }
 
@@ -189,6 +196,7 @@ class PreferencesManager(private val context: Context) {
         isAdmin: Boolean = false,
         rememberMe: Boolean = true
     ) {
+        val now = System.currentTimeMillis()
         if (rememberMe) {
             AuthTokenHolder.token = token
         } else {
@@ -196,6 +204,7 @@ class PreferencesManager(private val context: Context) {
         }
         context.dataStore.edit { preferences ->
             preferences[KEY_REMEMBER_ME] = rememberMe
+            preferences[KEY_AUTH_TIMESTAMP] = now
             if (rememberMe) {
                 preferences[KEY_AUTH_TOKEN] = token
                 preferences[KEY_USER_ID] = userId
@@ -219,8 +228,10 @@ class PreferencesManager(private val context: Context) {
     }
 
     suspend fun clearAuthSession() {
+        val now = System.currentTimeMillis()
         AuthTokenHolder.token = null
         context.dataStore.edit { preferences ->
+            preferences[KEY_AUTH_TIMESTAMP] = now
             preferences.remove(KEY_AUTH_TOKEN)
             preferences.remove(KEY_USER_ID)
             preferences.remove(KEY_USERNAME)
@@ -304,5 +315,38 @@ object ServerUrlConfig {
 
 object AuthTokenHolder {
     @Volatile
-    var token: String? = null
+    var lastUpdatedEpochMs: Long = 0L
+        private set
+
+    @Volatile
+    private var _token: String? = null
+
+    var token: String?
+        get() = _token
+        set(value) {
+            val clean = if (value.isNullOrBlank()) null else value
+            val now = System.currentTimeMillis()
+            synchronized(this) {
+                _token = clean
+                lastUpdatedEpochMs = now
+            }
+        }
+
+    fun updateFromPersistence(persistedToken: String?, persistedTimestamp: Long) {
+        val clean = if (persistedToken.isNullOrBlank()) null else persistedToken
+        synchronized(this) {
+            if (persistedTimestamp >= lastUpdatedEpochMs) {
+                _token = clean
+                lastUpdatedEpochMs = persistedTimestamp
+            }
+        }
+    }
+
+    fun reset() {
+        synchronized(this) {
+            _token = null
+            lastUpdatedEpochMs = 0L
+        }
+    }
 }
+

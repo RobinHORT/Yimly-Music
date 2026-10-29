@@ -2,6 +2,7 @@ package com.example.data.api
 
 import com.example.data.datastore.AuthTokenHolder
 import com.example.data.datastore.PreferencesManager
+import com.example.data.datastore.ServerUrlConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,24 +19,15 @@ class AuthInterceptor(
 ) : Interceptor {
 
     @Volatile
-    private var cachedToken: String? = null
-
-    @Volatile
-    private var cachedServerUrl: String = PreferencesManager.DEFAULT_SERVER_URL
+    private var cachedServerUrl: String = ServerUrlConfig.activeServerUrl
 
     private val effectiveScope = scope ?: CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     init {
         effectiveScope.launch {
-            preferencesManager.authTokenFlow.collect { token ->
-                val clean = if (token.isNullOrBlank()) null else token
-                cachedToken = clean
-                AuthTokenHolder.token = clean
-            }
-        }
-        effectiveScope.launch {
             preferencesManager.serverUrlFlow.collect { url ->
                 cachedServerUrl = url
+                ServerUrlConfig.activeServerUrl = url
             }
         }
     }
@@ -45,15 +37,19 @@ class AuthInterceptor(
         val originalUrl = originalRequest.url
 
         val token = tokenProvider?.invoke()?.takeIf { it.isNotBlank() }
-            ?: cachedToken
             ?: AuthTokenHolder.token
 
-        val serverUrl = cachedServerUrl
-        val dynamicBaseUrl = serverUrl.toHttpUrlOrNull()
+        val defaultBaseUrl = PreferencesManager.DEFAULT_SERVER_URL.toHttpUrlOrNull()
+        val serverUrl = ServerUrlConfig.activeServerUrl.takeIf { it.isNotBlank() }
+            ?: cachedServerUrl.takeIf { it.isNotBlank() }
+            ?: PreferencesManager.DEFAULT_SERVER_URL
+        val dynamicBaseUrl = serverUrl.toHttpUrlOrNull() ?: defaultBaseUrl
 
         val requestBuilder = originalRequest.newBuilder()
 
-        val isBackendRequest = isBackendUrl(originalUrl, dynamicBaseUrl)
+        val isDefaultBackend = defaultBaseUrl != null && isBackendUrl(originalUrl, defaultBaseUrl)
+        val isDynamicBackend = dynamicBaseUrl != null && isBackendUrl(originalUrl, dynamicBaseUrl)
+        val isBackendRequest = isDefaultBackend || isDynamicBackend
 
         if (isBackendRequest && dynamicBaseUrl != null) {
             val newUrl = originalUrl.newBuilder()

@@ -227,4 +227,165 @@ class AuthInterceptorAndStreamingTest {
         assertEquals(30000, mediaClient.writeTimeoutMillis)
         assertEquals(15000, mediaClient.connectTimeoutMillis)
     }
+
+    @Test
+    fun testAuthCacheRaceStaleEmissionDoesNotOverwriteLogin() {
+        AuthTokenHolder.token = "newer_login_token"
+        val loginTimestamp = AuthTokenHolder.lastUpdatedEpochMs
+
+        // Simulate lagging emission from an earlier disk read (older timestamp)
+        AuthTokenHolder.updateFromPersistence("stale_token_from_disk", loginTimestamp - 5000L)
+        assertEquals("Newer in-memory login token must not be overwritten by older persistence emission",
+            "newer_login_token", AuthTokenHolder.token)
+
+        // Simulate empty/null emission from older disk state
+        AuthTokenHolder.updateFromPersistence(null, loginTimestamp - 1000L)
+        assertEquals("Newer in-memory login token must not be overwritten by older empty emission",
+            "newer_login_token", AuthTokenHolder.token)
+    }
+
+    @Test
+    fun testAuthCacheRaceStaleEmissionDoesNotOverwriteLogout() {
+        AuthTokenHolder.token = "active_session_token"
+        // User logs out
+        AuthTokenHolder.token = null
+        val logoutTimestamp = AuthTokenHolder.lastUpdatedEpochMs
+
+        // Simulate lagging emission containing the old token from before logout committed
+        AuthTokenHolder.updateFromPersistence("active_session_token", logoutTimestamp - 2000L)
+        assertNull("Stale persistence emission must not resurrect an expired/logged-out session",
+            AuthTokenHolder.token)
+    }
+
+    @Test
+    fun testColdStartLoadsPersistedToken() {
+        AuthTokenHolder.reset()
+        assertEquals(0L, AuthTokenHolder.lastUpdatedEpochMs)
+        assertNull(AuthTokenHolder.token)
+
+        // On cold start, persistence emits the stored token
+        AuthTokenHolder.updateFromPersistence("persisted_cold_start_jwt", 1000L)
+        assertEquals("Cold-start persistence read must initialize token when no in-memory mutation has occurred",
+            "persisted_cold_start_jwt", AuthTokenHolder.token)
+    }
+
+    @Test
+    fun testDynamicServerSwitchingRetrofitRewriteAndAuth() = kotlinx.coroutines.runBlocking {
+        AuthTokenHolder.token = "dynamic_switch_user_token"
+        preferencesManager.setServerUrl("http://custom-lan-host:8080")
+
+        val interceptor = AuthInterceptor(
+            preferencesManager = preferencesManager,
+            tokenProvider = null,
+            scope = null
+        )
+
+        var capturedRequest: Request? = null
+        val client = OkHttpClient.Builder()
+            .addInterceptor(interceptor)
+            .addInterceptor { chain ->
+                capturedRequest = chain.request()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("[]".toResponseBody())
+                    .build()
+            }
+            .build()
+
+        // Retrofit generates requests with default server URL
+        val req = Request.Builder()
+            .url("https://yimly.robinhort.link/api/songs")
+            .build()
+
+        client.newCall(req).execute().close()
+
+        assertNotNull(capturedRequest)
+        // Request URL must be rewritten to dynamic custom host, scheme, and port
+        assertEquals("http", capturedRequest?.url?.scheme)
+        assertEquals("custom-lan-host", capturedRequest?.url?.host)
+        assertEquals(8080, capturedRequest?.url?.port)
+        assertEquals("/api/songs", capturedRequest?.url?.encodedPath)
+        // Authorization header must be attached
+        assertEquals("Bearer dynamic_switch_user_token", capturedRequest?.header("Authorization"))
+    }
+
+    @Test
+    fun testDynamicServerSwitchingExoPlayerDirectAudio() = kotlinx.coroutines.runBlocking {
+        AuthTokenHolder.token = "media_stream_user_token"
+        preferencesManager.setServerUrl("http://custom-lan-host:8080")
+
+        val interceptor = AuthInterceptor(
+            preferencesManager = preferencesManager,
+            tokenProvider = null,
+            scope = null
+        )
+
+        var capturedRequest: Request? = null
+        val client = OkHttpClient.Builder()
+            .addInterceptor(interceptor)
+            .addInterceptor { chain ->
+                capturedRequest = chain.request()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("raw_audio_bytes".toResponseBody())
+                    .build()
+            }
+            .build()
+
+        // ExoPlayer generates audio request with current active server URL
+        val req = Request.Builder()
+            .url("http://custom-lan-host:8080/api/songs/456/audio?type=main")
+            .build()
+
+        client.newCall(req).execute().close()
+
+        assertNotNull(capturedRequest)
+        assertEquals("http://custom-lan-host:8080/api/songs/456/audio?type=main", capturedRequest?.url.toString())
+        assertEquals("Bearer media_stream_user_token", capturedRequest?.header("Authorization"))
+        assertEquals("audio/*, */*", capturedRequest?.header("Accept"))
+    }
+
+    @Test
+    fun testDynamicServerSwitchingPreservesExternalCDN() = kotlinx.coroutines.runBlocking {
+        AuthTokenHolder.token = "media_stream_user_token"
+        preferencesManager.setServerUrl("http://custom-lan-host:8080")
+
+        val interceptor = AuthInterceptor(
+            preferencesManager = preferencesManager,
+            tokenProvider = null,
+            scope = null
+        )
+
+        var capturedRequest: Request? = null
+        val client = OkHttpClient.Builder()
+            .addInterceptor(interceptor)
+            .addInterceptor { chain ->
+                capturedRequest = chain.request()
+                Response.Builder()
+                    .request(chain.request())
+                    .protocol(Protocol.HTTP_1_1)
+                    .code(200)
+                    .message("OK")
+                    .body("raw_audio_bytes".toResponseBody())
+                    .build()
+            }
+            .build()
+
+        // External signed CDN URL
+        val req = Request.Builder()
+            .url("https://s3.amazonaws.com/music-storage/song.flac?X-Amz-Signature=secret123")
+            .build()
+
+        client.newCall(req).execute().close()
+
+        assertNotNull(capturedRequest)
+        assertEquals("https://s3.amazonaws.com/music-storage/song.flac?X-Amz-Signature=secret123", capturedRequest?.url.toString())
+        assertNull("External CDN URL must never receive Authorization bearer token", capturedRequest?.header("Authorization"))
+    }
 }
