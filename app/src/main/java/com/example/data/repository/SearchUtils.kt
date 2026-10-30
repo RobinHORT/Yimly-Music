@@ -57,41 +57,47 @@ object SearchUtils {
     }
 
     /**
-     * Calculates relevance score for a song against a normalized query and query tokens.
-     * Priority:
-     * 1. Exact song-title match (score 100)
-     * 2. Song-title prefix match (score 80)
-     * 3. Song-title partial match (score 60)
-     * 4. Artist match (score 40)
-     * 5. Album match (score 20)
-     * 6. Genre match (score 10)
+     * Scores song matches consistently for both phrase and multi-token queries.
+     * A complete title-token match outranks matches found only in artist, album,
+     * or genre metadata. Phrase matches receive the strongest scores.
      */
     fun getSongRelevanceScore(song: Song, query: String): Int {
         val normalizedQuery = normalize(query)
         if (normalizedQuery.isBlank()) return 0
 
-        val normTitle = normalize(song.title)
-        val normArtist = normalize(song.artist)
-        val normAlbum = normalize(song.album)
-        val normGenre = normalize(song.genre)
+        val tokens = normalizedQuery.split(" ").filter { it.isNotBlank() }
+        if (tokens.isEmpty()) return 0
 
-        if (normTitle == normalizedQuery) return 100
-        if (normTitle.startsWith(normalizedQuery)) return 80
-        if (normTitle.contains(normalizedQuery)) return 60
-        if (normArtist.contains(normalizedQuery)) return 40
-        if (normAlbum.contains(normalizedQuery)) return 20
-        if (normGenre.contains(normalizedQuery)) return 10
+        val title = normalize(song.title)
+        val artist = normalize(song.artist)
+        val album = normalize(song.album)
+        val genre = normalize(song.genre)
 
-        // Multi-token fallback check
-        val queryTokens = normalizedQuery.split(" ").filter { it.isNotBlank() }
-        if (queryTokens.isNotEmpty()) {
-            if (queryTokens.all { normTitle.contains(it) }) return 50
-            if (queryTokens.all { normArtist.contains(it) }) return 35
-            if (queryTokens.all { normAlbum.contains(it) }) return 18
-            if (queryTokens.all { normGenre.contains(it) }) return 8
-        }
+        if (title == normalizedQuery) return 100
+        if (title.startsWith(normalizedQuery)) return 90
+        if (title.contains(normalizedQuery)) return 80
+
+        if (tokens.all { title.contains(it) }) return 70
+        if (tokens.all { artist.contains(it) }) return 40
+        if (tokens.all { album.contains(it) }) return 20
+        if (tokens.all { genre.contains(it) }) return 10
+
+        // Search matching permits query terms to span song metadata fields.
+        val combined = normalize("$title $artist $album $genre")
+        if (tokens.all { combined.contains(it) }) return 5
 
         return 0
+    }
+
+    /**
+     * The shared production ordering used by MusicRepository and unit tests.
+     */
+    fun sortSongsByRelevance(songs: List<Song>, query: String): List<Song> {
+        return songs.sortedWith(
+            compareByDescending<Song> { getSongRelevanceScore(it, query) }
+                .thenBy { it.title.lowercase(Locale.ROOT) }
+                .thenBy { it.id }
+        )
     }
 
     fun matchesArtist(artist: Artist, query: String): Boolean {
