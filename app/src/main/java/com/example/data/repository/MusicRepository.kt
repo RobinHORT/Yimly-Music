@@ -357,7 +357,8 @@ class MusicRepository(
                 } else if (context != null && uriString.startsWith("content://", ignoreCase = true)) {
                     try {
                         val uri = android.net.Uri.parse(uriString)
-                        mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"                        imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                        imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     } catch (e: Exception) {
                         Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
                     }
