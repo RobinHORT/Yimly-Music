@@ -468,7 +468,10 @@ class MusicRepository(
             allPlaylists
         ) { songs, albums, artists, playlists ->
             val matchingSongs = songs.filter { SearchUtils.matchesSong(it, cleanQuery) }
-                .sortedBy { it.title.lowercase() }
+                .sortedWith(
+                    compareByDescending<Song> { SearchUtils.getSongRelevanceScore(it, cleanQuery) }
+                        .thenBy { it.title.lowercase() }
+                )
             val matchingArtists = artists.filter { SearchUtils.matchesArtist(it, cleanQuery) }
                 .sortedBy { it.name.lowercase() }
             val matchingAlbums = albums.filter { SearchUtils.matchesAlbum(it, cleanQuery) }
