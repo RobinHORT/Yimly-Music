@@ -177,8 +177,7 @@ class MusicRepository(
     val allPlaylists: Flow<List<Playlist>> = musicDao.getAllPlaylists().map { list -> list.map { it.toPlaylist() } }
 
     suspend fun getSongById(id: String): Song? = withContext(Dispatchers.IO) {
-        try {
-            val remoteSong = apiService.getSongById(id)
+        try {            val remoteSong = apiService.getSongById(id)
             musicDao.upsertSongs(listOf(remoteSong.toEntity()))
             remoteSong
         } catch (_: Exception) {
@@ -357,8 +356,7 @@ class MusicRepository(
                 } else if (context != null && uriString.startsWith("content://", ignoreCase = true)) {
                     try {
                         val uri = android.net.Uri.parse(uriString)
-                        mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                        imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"                        imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     } catch (e: Exception) {
                         Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
                     }
@@ -467,11 +465,10 @@ class MusicRepository(
             allArtists,
             allPlaylists
         ) { songs, albums, artists, playlists ->
-            val matchingSongs = songs.filter { SearchUtils.matchesSong(it, cleanQuery) }
-                .sortedWith(
-                    compareByDescending<Song> { SearchUtils.getSongRelevanceScore(it, cleanQuery) }
-                        .thenBy { it.title.lowercase() }
-                )
+            val matchingSongs = SearchUtils.sortSongsByRelevance(
+                songs.filter { SearchUtils.matchesSong(it, cleanQuery) },
+                cleanQuery
+            )
             val matchingArtists = artists.filter { SearchUtils.matchesArtist(it, cleanQuery) }
                 .sortedBy { it.name.lowercase() }
             val matchingAlbums = albums.filter { SearchUtils.matchesAlbum(it, cleanQuery) }
@@ -537,8 +534,7 @@ class MusicRepository(
                         songId = cleanSongId,
                         format = LyricsFormatMode.ELRC.name,
                         rawLyrics = rawTextToUse,
-                        filePath = song.effectiveElrcPath ?: song.effectiveLrcPath
-                    )
+                        filePath = song.effectiveElrcPath ?: song.effectiveLrcPath                    )
                 )
                 // Clean standard LRC without word tags
                 val strippedLrc = LyricsFormatUtils.convertElrcToLrc(rawTextToUse)
@@ -718,7 +714,6 @@ class MusicRepository(
 
         return Pair(accumulatedSongs, isComplete)
     }
-
     suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
         val token = preferencesManager?.authTokenFlow?.firstOrNull()
         if (preferencesManager != null && token.isNullOrBlank()) {
@@ -897,8 +892,7 @@ class MusicRepository(
 
             // 1. Remove bracketed / parenthesized instrumental or karaoke tags
             cleaned = cleaned.replace(
-                Regex("(?i)\\s*[\\[\\(](?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental\\s+mix|instrumental|karaoke\\s+version|karaoke|backing\\s+track|off\\s+vocal|vocal\\s+off|inst\\.|inst)[\\]\\)]"),
-                ""
+                Regex("(?i)\\s*[\\[\\(](?:official\\s+)?(?:instrumental\\s+version|version\\s+instrumental|instrumental\\s+audio|instrumental\\s+track|instrumental\\s+mix|instrumental|karaoke\\s+version|karaoke|backing\\s+track|off\\s+vocal|vocal\\s+off|inst\\.|inst)[\\]\\)]"),                ""
             )
             // 2. Remove dash separated instrumental or karaoke tags
             cleaned = cleaned.replace(
@@ -1077,8 +1071,7 @@ class MusicRepository(
                         artistMap.getOrPut(key) { mutableListOf() }.add(song)
                         canonicalNames.putIfAbsent(key, rawArtist)
                     } else {
-                        for (individual in individualArtists) {
-                            val key = individual.lowercase()
+                        for (individual in individualArtists) {                            val key = individual.lowercase()
                             artistMap.getOrPut(key) { mutableListOf() }.add(song)
                             canonicalNames.putIfAbsent(key, individual)
                         }
