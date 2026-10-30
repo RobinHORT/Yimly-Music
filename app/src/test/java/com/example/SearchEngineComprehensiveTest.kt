@@ -120,17 +120,45 @@ class SearchEngineComprehensiveTest {
     }
 
     @Test
-    fun testDeterministicTieBreaker() {
-        val sA = Song(id = "sa", title = "Alpha Song", artist = "Band", album = "Album", durationSeconds = 200L)
-        val sB = Song(id = "sb", title = "Alpha Tune", artist = "Band", album = "Album", durationSeconds = 200L)
-
-        val query = "Alpha"
-        val list = listOf(sB, sA).sortedWith(
-            compareByDescending<Song> { SearchUtils.getSongRelevanceScore(it, query) }
-                .thenBy { it.title.lowercase() }
+    fun testProductionOrderingPrioritizesAllTitleTokensOverMetadataMatches() {
+        val titleMatch = Song(
+            id = "title",
+            title = "Don't Stop",
+            artist = "Queen",
+            album = "Jazz",
+            durationSeconds = 200L
+        )
+        val artistOnly = Song(
+            id = "artist",
+            title = "Other Song",
+            artist = "Don't Stop Band",
+            album = "Album",
+            durationSeconds = 200L
         )
 
-        assertEquals("Alpha Song", list[0].title)
-        assertEquals("Alpha Tune", list[1].title)
+        val ordered = SearchUtils.sortSongsByRelevance(
+            listOf(artistOnly, titleMatch),
+            "dont stop"
+        )
+
+        assertEquals("title", ordered.first().id)
+        assertTrue(
+            SearchUtils.getSongRelevanceScore(titleMatch, "dont stop") >
+                SearchUtils.getSongRelevanceScore(artistOnly, "dont stop")
+        )
+    }
+
+    @Test
+    fun testProductionOrderingUsesStableTitleAndIdTieBreakers() {
+        val sA = Song(id = "sa", title = "Alpha Song", artist = "Band", album = "Album", durationSeconds = 200L)
+        val sB = Song(id = "sb", title = "Alpha Tune", artist = "Band", album = "Album", durationSeconds = 200L)
+        val sameTitleZ = Song(id = "z", title = "Alpha Song", artist = "Band", album = "Album", durationSeconds = 200L)
+
+        val ordered = SearchUtils.sortSongsByRelevance(
+            listOf(sB, sameTitleZ, sA),
+            "Alpha"
+        )
+
+        assertEquals(listOf("sa", "z", "sb"), ordered.map { it.id })
     }
 }
