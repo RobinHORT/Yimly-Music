@@ -671,67 +671,45 @@ class MusicRepository(
         }
     }
 
+    /**
+     * The server's GET /api/songs endpoint returns one complete JSON array.
+     * It does not implement page/limit pagination. Do not send page parameters
+     * or infer completeness from a page size: a truncated/empty response must
+     * never trigger stale-cache deletion.
+     */
     private suspend fun fetchAllRemoteSongs(): Pair<List<Song>?, Boolean> {
-        val accumulatedSongs = mutableListOf<Song>()
-        val seenIds = mutableSetOf<String>()
-        var currentPage = 1
-        val pageSize = 100
-        val maxPages = 1000
-        var isComplete = true
-
-        while (currentPage <= maxPages) {
-            val pageSongsRaw = try {
-                apiService.getSongs(page = currentPage, limit = pageSize)
-            } catch (e: Exception) {
-                if (e is retrofit2.HttpException && e.code() == 401) {
-                    Log.w("MusicRepository", "Unauthorized request (HTTP 401) on page $currentPage. Token is likely expired or invalid.")
-                } else {
-                    Log.e("MusicRepository", "Failed to fetch songs page $currentPage: ${e.message}")
-                }
-                if (currentPage == 1) {
-                    return Pair(null, false)
-                } else {
-                    isComplete = false
-                    break
-                }
+        val response = try {
+            apiService.getSongs()
+        } catch (e: Exception) {
+            if (e is retrofit2.HttpException && e.code() == 401) {
+                Log.w("MusicRepository", "Unauthorized song catalogue request (HTTP 401); preserving cached library.")
+            } else {
+                Log.e("MusicRepository", "Failed to fetch song catalogue: ${e.message}", e)
             }
-
-            val pageSongs = try {
-                parseSongPage(pageSongsRaw)
-            } catch (e: Exception) {
-                Log.e("MusicRepository", "Invalid song API response on page $currentPage: ${e.message}", e)
-                if (currentPage == 1) {
-                    return Pair(null, false)
-                } else {
-                    isComplete = false
-                    break
-                }
-            }
-
-            if (pageSongs.isEmpty()) {
-                break
-            }
-
-            var newItemsCount = 0
-            for (song in pageSongs) {
-                if (song.id.isNotBlank() && seenIds.add(song.id.trim())) {
-                    accumulatedSongs.add(song)
-                    newItemsCount++
-                }
-            }
-
-            if (newItemsCount == 0) {
-                break
-            }
-
-            if (pageSongs.size < pageSize) {
-                break
-            }
-
-            currentPage++
+            return Pair(null, false)
         }
 
-        return Pair(accumulatedSongs, isComplete)
+        val songs = try {
+            parseSongPage(response)
+        } catch (e: Exception) {
+            Log.e("MusicRepository", "Invalid song catalogue response; preserving cached library: ${e.message}", e)
+            return Pair(null, false)
+        }
+
+        val uniqueSongs = songs
+            .filter { it.id.isNotBlank() && it.title.isNotBlank() }
+            .distinctBy { it.id.trim() }
+
+        if (uniqueSongs.isEmpty()) {
+            Log.w("MusicRepository", "Song catalogue response was empty; treating sync as incomplete and preserving cached songs.")
+            return Pair(emptyList(), false)
+        }
+
+        Log.i(
+            "MusicRepository",
+            "Fetched complete song catalogue response: received=${songs.size}, unique=${uniqueSongs.size}"
+        )
+        return Pair(uniqueSongs, true)
     }
     suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
         val token = preferencesManager?.authTokenFlow?.firstOrNull()
