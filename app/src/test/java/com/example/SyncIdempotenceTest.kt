@@ -433,6 +433,26 @@ class SyncIdempotenceTest {
             return mapOf("success" to true)
         }
 
+        override suspend fun resolveDownloader(request: com.example.data.models.DownloaderResolveRequest): com.example.data.models.DownloaderResolveResponse {
+            return com.example.data.models.DownloaderResolveResponse(emptyList())
+        }
+
+        override suspend fun startDownload(request: com.example.data.models.DownloaderStartRequest): com.example.data.models.DownloaderStartResponse {
+            return com.example.data.models.DownloaderStartResponse("job_1", "Started", 1, "Library", "/path")
+        }
+
+        override suspend fun getDownloadJob(jobId: String): com.example.data.models.DownloaderJobResponse {
+            return com.example.data.models.DownloaderJobResponse(id = jobId, status = "completed", tracks = emptyList())
+        }
+
+        override suspend fun retryDownloadJob(jobId: String): Map<String, Any> {
+            return mapOf("success" to true)
+        }
+
+        override suspend fun getDownloaderSettings(): com.example.data.models.DownloaderSettingsResponse {
+            return com.example.data.models.DownloaderSettingsResponse("lib_1", "Library")
+        }
+
         override suspend fun getSession(code: String): com.example.data.models.YimlySession {
             throw NotImplementedError()
         }

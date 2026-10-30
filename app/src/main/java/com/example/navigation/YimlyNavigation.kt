@@ -123,6 +123,8 @@ fun YimlyNavigation(
     val isLoading by viewModel.isLoading.collectAsState()
     val authError by viewModel.authError.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
+    val downloadProgressMap by viewModel.downloadProgressMap.collectAsState()
+    val downloadStatusMap by viewModel.downloadStatusMap.collectAsState()
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -498,7 +500,23 @@ fun YimlyNavigation(
                             onPlayNext = { song -> viewModel.playNext(song) },
                             onAddToQueue = { song -> viewModel.addToQueue(song) },
                             onAddToNowPlaying = { song -> viewModel.addToQueue(song) },
-                            onAddToPlaylist = { song -> songToAddToPlaylist = song }
+                            onAddToPlaylist = { song -> songToAddToPlaylist = song },
+                            onDownloadExternalSong = { track -> viewModel.downloadExternalTrack(track) },
+                            onAddExternalSongToPlaylist = { track ->
+                                viewModel.downloadExternalTrack(track) { songId ->
+                                    if (songId != null) {
+                                        coroutineScope.launch {
+                                            val song = viewModel.getSongById(songId)
+                                                ?: viewModel.allSongs.value.firstOrNull { it.id == songId }
+                                            if (song != null) {
+                                                songToAddToPlaylist = song
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                            downloadProgressMap = downloadProgressMap,
+                            downloadStatusMap = downloadStatusMap
                         )
                     }
 

@@ -32,6 +32,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
@@ -125,6 +126,139 @@ class MainViewModel(
             }
         }
         .stateIn(viewModelScope, SharingStarted.Lazily, SearchResult())
+
+    // Downloader State
+    private val downloadingTrackKeys = mutableSetOf<String>()
+    private val _downloadProgressMap = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val downloadProgressMap: StateFlow<Map<String, Int>> = _downloadProgressMap.asStateFlow()
+
+    private val _downloadStatusMap = MutableStateFlow<Map<String, String>>(emptyMap())
+    val downloadStatusMap: StateFlow<Map<String, String>> = _downloadStatusMap.asStateFlow()
+
+    fun downloadExternalTrack(track: com.example.data.models.ExternalTrack, onComplete: ((String?) -> Unit)? = null) {
+        val key = "${track.title}|${track.artist}".lowercase()
+        synchronized(downloadingTrackKeys) {
+            if (key in downloadingTrackKeys) return
+            downloadingTrackKeys.add(key)
+        }
+
+        viewModelScope.launch {
+            try {
+                // Snapshot existing song IDs before download to avoid selecting an older duplicate
+                val preExistingIds = mutableSetOf<String>()
+                try {
+                    musicRepository.rawAllSongs.collect { songs ->
+                        preExistingIds.addAll(songs.map { it.id })
+                        throw kotlinx.coroutines.CancellationException()
+                    }
+                } catch (_: kotlinx.coroutines.CancellationException) {}
+
+                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Resolving library...")
+                val settings = musicRepository.getDownloaderSettings()
+                val libraryId = settings.libraryId ?: "1"
+
+                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Starting download...")
+                val startResp = musicRepository.startDownload(libraryId, listOf(track))
+                val jobId = startResp.jobId
+
+                // Poll job with timeout (maximum 120 iterations * 1.5s = 3 minutes)
+                var isDone = false
+                var pollCount = 0
+                val maxPolls = 120
+                var hasAttemptedRetry = false
+
+                while (!isDone && pollCount < maxPolls) {
+                    kotlinx.coroutines.delay(1500L)
+                    pollCount++
+                    try {
+                        val job = musicRepository.getDownloadJob(jobId)
+                        val jobTrack = job.tracks.firstOrNull()
+                        if (jobTrack != null) {
+                            val prog = jobTrack.progress
+                            val stat = jobTrack.status
+                            _downloadProgressMap.value = _downloadProgressMap.value + (key to prog)
+                            _downloadStatusMap.value = _downloadStatusMap.value + (key to "$stat ($prog%)")
+
+                            if (stat == "completed" || job.status == "completed") {
+                                isDone = true
+                                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Indexing...")
+
+                                // Wait for server library indexing (poll sync up to 8 times)
+                                var newlyIndexedId: String? = null
+                                for (syncAttempt in 1..8) {
+                                    kotlinx.coroutines.delay(1500L)
+                                    musicRepository.syncWithBackend()
+                                    var currentSongs: List<Song> = emptyList()
+                                    try {
+                                        musicRepository.rawAllSongs.collect { sList ->
+                                            currentSongs = sList
+                                            throw kotlinx.coroutines.CancellationException()
+                                        }
+                                    } catch (_: kotlinx.coroutines.CancellationException) {}
+
+                                    // Prioritize song matching title and artist that was NOT present before download
+                                    val newSong = currentSongs.firstOrNull { s ->
+                                        s.id !in preExistingIds &&
+                                            s.title.equals(track.title, ignoreCase = true) &&
+                                            s.artist.equals(track.artist, ignoreCase = true)
+                                    } ?: currentSongs.firstOrNull { s ->
+                                        s.title.equals(track.title, ignoreCase = true) &&
+                                            s.artist.equals(track.artist, ignoreCase = true)
+                                    }
+
+                                    if (newSong != null) {
+                                        newlyIndexedId = newSong.id
+                                        break
+                                    }
+                                }
+
+                                _downloadProgressMap.value = _downloadProgressMap.value + (key to 100)
+                                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
+                                _uiMessage.value = "Downloaded '${track.title}' successfully"
+                                onComplete?.invoke(newlyIndexedId)
+                            } else if (stat == "failed" || job.status == "failed") {
+                                if (!hasAttemptedRetry) {
+                                    hasAttemptedRetry = true
+                                    _downloadStatusMap.value = _downloadStatusMap.value + (key to "Retrying failed track...")
+                                    try {
+                                        musicRepository.retryDownloadJob(jobId)
+                                    } catch (_: Exception) {
+                                        isDone = true
+                                        val err = jobTrack.error ?: "Download failed"
+                                        _uiMessage.value = "Failed to download '${track.title}': $err"
+                                        _downloadStatusMap.value = _downloadStatusMap.value + (key to "Failed: $err")
+                                        onComplete?.invoke(null)
+                                    }
+                                } else {
+                                    isDone = true
+                                    val err = jobTrack.error ?: "Download failed"
+                                    _uiMessage.value = "Failed to download '${track.title}': $err"
+                                    _downloadStatusMap.value = _downloadStatusMap.value + (key to "Failed: $err")
+                                    onComplete?.invoke(null)
+                                }
+                            }
+                        }
+                    } catch (_: Exception) {
+                        // Transient network fluctuation; continue polling until maxPolls
+                    }
+                }
+
+                if (!isDone && pollCount >= maxPolls) {
+                    _downloadStatusMap.value = _downloadStatusMap.value + (key to "Timed out")
+                    _uiMessage.value = "Download timed out for '${track.title}'"
+                    onComplete?.invoke(null)
+                }
+            } catch (e: Exception) {
+                _uiMessage.value = e.message ?: "Failed to start download"
+                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Error")
+                onComplete?.invoke(null)
+            } finally {
+                synchronized(downloadingTrackKeys) {
+                    downloadingTrackKeys.remove(key)
+                }
+            }
+        }
+    }
 
 
 
@@ -404,6 +538,8 @@ class MainViewModel(
     fun getSongsForArtist(artistName: String) = musicRepository.getSongsByArtist(artistName)
 
     fun getSongsForPlaylist(playlistId: String) = musicRepository.getSongsForPlaylist(playlistId)
+
+    suspend fun getSongById(songId: String): Song? = musicRepository.getSongById(songId) ?: allSongs.value.firstOrNull { it.id == songId }
 
     // Lyrics Actions
     fun saveLyricsConfig(config: LyricsDisplayConfig) {

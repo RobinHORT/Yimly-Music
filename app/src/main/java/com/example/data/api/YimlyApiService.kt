@@ -148,6 +148,21 @@ interface YimlyApiService {
     @PUT("api/songs/{id}/lyrics/offset")
     suspend fun updateLyricsOffset(@Path("id") id: String, @Body request: com.example.data.models.UpdateLyricsOffsetRequest): Map<String, Any>
 
+    @POST("api/downloader/resolve")
+    suspend fun resolveDownloader(@Body request: com.example.data.models.DownloaderResolveRequest): com.example.data.models.DownloaderResolveResponse
+
+    @POST("api/downloader/start")
+    suspend fun startDownload(@Body request: com.example.data.models.DownloaderStartRequest): com.example.data.models.DownloaderStartResponse
+
+    @GET("api/downloader/jobs/{jobId}")
+    suspend fun getDownloadJob(@Path("jobId") jobId: String): com.example.data.models.DownloaderJobResponse
+
+    @POST("api/downloader/jobs/{jobId}/retry-failed")
+    suspend fun retryDownloadJob(@Path("jobId") jobId: String): Map<String, Any>
+
+    @GET("api/downloader/settings")
+    suspend fun getDownloaderSettings(): com.example.data.models.DownloaderSettingsResponse
+
     // Sessions
     @GET("api/sessions/{code}")
     suspend fun getSession(@Path("code") code: String): YimlySession

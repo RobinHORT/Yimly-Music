@@ -161,4 +161,63 @@ class SearchEngineComprehensiveTest {
 
         assertEquals(listOf("sa", "z", "sb"), ordered.map { it.id })
     }
+
+    @Test
+    fun testExternalTrackFormattingAndDuration() {
+        val track = com.example.data.models.ExternalTrack(
+            title = "Bohemian Rhapsody",
+            artist = "Queen",
+            album = "A Night at the Opera",
+            durationSeconds = 354L,
+            artworkUrl = "https://example.com/art.jpg"
+        )
+        assertEquals("5:54", track.formattedDuration())
+        assertEquals(354000L, track.durationMs)
+    }
+
+    @Test
+    fun testDownloaderJobResponseJobIdParsing() {
+        val jobWithId = com.example.data.models.DownloaderJobResponse(
+            id = "job-uuid-1234",
+            rawJobId = null,
+            status = "downloading",
+            tracks = listOf(
+                com.example.data.models.DownloaderJobTrack(
+                    title = "Song A",
+                    artist = "Artist A",
+                    status = "downloading",
+                    progress = 45
+                )
+            )
+        )
+        assertEquals("job-uuid-1234", jobWithId.jobId)
+
+        val jobWithJobId = com.example.data.models.DownloaderJobResponse(
+            id = null,
+            rawJobId = "job-override-5678",
+            status = "completed"
+        )
+        assertEquals("job-override-5678", jobWithJobId.jobId)
+    }
+
+    @Test
+    fun testExternalTrackDeduplicationAgainstLibrarySongs() {
+        val librarySongs = listOf(
+            Song(id = "1", title = "Blinding Lights", artist = "The Weeknd", album = "After Hours", durationSeconds = 200L)
+        )
+        val externalTracks = listOf(
+            com.example.data.models.ExternalTrack(title = "blinding lights", artist = "the weeknd"),
+            com.example.data.models.ExternalTrack(title = "Save Your Tears", artist = "The Weeknd")
+        )
+
+        val filtered = externalTracks.filterNot { ext ->
+            librarySongs.any { lib ->
+                lib.title.equals(ext.title, ignoreCase = true) &&
+                    lib.artist.equals(ext.artist, ignoreCase = true)
+            }
+        }
+
+        assertEquals(1, filtered.size)
+        assertEquals("Save Your Tears", filtered.first().title)
+    }
 }

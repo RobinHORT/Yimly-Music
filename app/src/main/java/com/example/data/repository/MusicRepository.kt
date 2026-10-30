@@ -457,12 +457,36 @@ class MusicRepository(
         }
     }
 
+    suspend fun getDownloaderSettings(): com.example.data.models.DownloaderSettingsResponse = withContext(Dispatchers.IO) {
+        apiService.getDownloaderSettings()
+    }
+
+    suspend fun resolveExternalTracks(query: String): List<com.example.data.models.ExternalTrack> = withContext(Dispatchers.IO) {
+        try {
+            val response = apiService.resolveDownloader(com.example.data.models.DownloaderResolveRequest(urlOrQuery = query))
+            response.tracks
+        } catch (e: Exception) {
+            Log.e("MusicRepository", "Failed to resolve external tracks for query '$query': ${e.message}", e)
+            emptyList()
+        }
+    }
+
+    suspend fun startDownload(libraryId: String, tracks: List<com.example.data.models.ExternalTrack>): com.example.data.models.DownloaderStartResponse = withContext(Dispatchers.IO) {
+        apiService.startDownload(com.example.data.models.DownloaderStartRequest(libraryId = libraryId, tracks = tracks))
+    }
+
+    suspend fun getDownloadJob(jobId: String): com.example.data.models.DownloaderJobResponse = withContext(Dispatchers.IO) {
+        apiService.getDownloadJob(jobId)
+    }
+
+    suspend fun retryDownloadJob(jobId: String): Map<String, Any> = withContext(Dispatchers.IO) {
+        apiService.retryDownloadJob(jobId)
+    }
+
     fun searchFlow(query: String): Flow<SearchResult> {
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return kotlinx.coroutines.flow.flowOf(SearchResult())
 
-        // Query the server catalogue as well as the local cache. The cache alone can
-        // be incomplete (for example, before a full library sync has finished).
         val remoteSearch: Flow<SearchResult?> = flow {
             emit(
                 try {
@@ -474,17 +498,43 @@ class MusicRepository(
             )
         }
 
+        val externalSearch: Flow<List<com.example.data.models.ExternalTrack>> = flow {
+            emit(
+                try {
+                    resolveExternalTracks(cleanQuery)
+                } catch (e: Exception) {
+                    emptyList()
+                }
+            )
+        }
+
         return combine(
             rawAllSongs,
             allAlbums,
             allArtists,
             allPlaylists,
-            remoteSearch
-        ) { songs, albums, artists, playlists, remote ->
+            remoteSearch,
+            externalSearch
+        ) { args: Array<Any?> ->
+            val songs = args[0] as List<Song>
+            val albums = args[1] as List<Album>
+            val artists = args[2] as List<Artist>
+            val playlists = args[3] as List<Playlist>
+            val remote = args[4] as SearchResult?
+            @Suppress("UNCHECKED_CAST")
+            val external = args[5] as List<com.example.data.models.ExternalTrack>
+
             val localMatches = songs.filter { SearchUtils.matchesSong(it, cleanQuery) }
             val allSongMatches = (localMatches + remote?.songs.orEmpty())
                 .distinctBy { it.id.trim() }
             val matchingSongs = SearchUtils.sortSongsByRelevance(allSongMatches, cleanQuery)
+
+            // Deduplicate external tracks against existing library songs by normalized title and artist
+            val existingKeys = matchingSongs.map { "${SearchUtils.normalize(it.title)}|${SearchUtils.normalize(it.artist)}" }.toSet()
+            val filteredExternal = external.filter { ext ->
+                val key = "${SearchUtils.normalize(ext.title)}|${SearchUtils.normalize(ext.artist)}"
+                !existingKeys.contains(key)
+            }.distinctBy { "${SearchUtils.normalize(it.title)}|${SearchUtils.normalize(it.artist)}" }
 
             val remoteArtists = remote?.artists.orEmpty()
             val remoteAlbums = remote?.albums.orEmpty()
@@ -500,7 +550,8 @@ class MusicRepository(
                 songs = matchingSongs,
                 artists = matchingArtists,
                 albums = matchingAlbums,
-                playlists = matchingPlaylists
+                playlists = matchingPlaylists,
+                externalSongs = filteredExternal
             )
         }
     }

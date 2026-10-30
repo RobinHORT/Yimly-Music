@@ -21,10 +21,15 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -34,6 +39,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -52,6 +58,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.models.Album
 import com.example.data.models.Artist
+import com.example.data.models.ExternalTrack
 import com.example.data.models.Playlist
 import com.example.data.models.SearchResult
 import com.example.data.models.Song
@@ -86,6 +93,10 @@ fun SearchScreen(
     onAddToQueue: (Song) -> Unit = {},
     onAddToNowPlaying: (Song) -> Unit = onAddToQueue,
     onAddToPlaylist: (Song) -> Unit = {},
+    onDownloadExternalSong: (ExternalTrack) -> Unit = {},
+    onAddExternalSongToPlaylist: (ExternalTrack) -> Unit = {},
+    downloadProgressMap: Map<String, Int> = emptyMap(),
+    downloadStatusMap: Map<String, String> = emptyMap(),
     modifier: Modifier = Modifier
 ) {
     var selectedFilter by remember { mutableIntStateOf(0) } // 0 = All, 1 = Songs, 2 = Artists, 3 = Albums, 4 = Playlists
@@ -278,7 +289,8 @@ fun SearchScreen(
             val hasResults = searchResult.songs.isNotEmpty() ||
                     searchResult.artists.isNotEmpty() ||
                     searchResult.albums.isNotEmpty() ||
-                    searchResult.playlists.isNotEmpty()
+                    searchResult.playlists.isNotEmpty() ||
+                    searchResult.externalSongs.isNotEmpty()
 
             if (!hasResults) {
                 item {
@@ -439,6 +451,210 @@ fun SearchScreen(
                                     onPlayClick = { onPlaylistClick(playlist) }
                                 )
                             }
+                        }
+                    }
+                }
+
+                // External Search Results (Available for Download)
+                if (showSongs && searchResult.externalSongs.isNotEmpty()) {
+                    item {
+                        SectionHeader(title = "Available for Download (${searchResult.externalSongs.size})")
+                    }
+                    items(searchResult.externalSongs) { externalTrack ->
+                        val trackKey = "${externalTrack.title}|${externalTrack.artist}".lowercase()
+                        ExternalSongItemRow(
+                            track = externalTrack,
+                            status = downloadStatusMap[trackKey],
+                            progress = downloadProgressMap[trackKey],
+                            onDownloadClick = { onDownloadExternalSong(externalTrack) },
+                            onAddToPlaylistClick = { onAddExternalSongToPlaylist(externalTrack) },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun ExternalSongItemRow(
+    track: ExternalTrack,
+    status: String?,
+    progress: Int?,
+    onDownloadClick: () -> Unit,
+    onAddToPlaylistClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val isCompleted = status.equals("Completed", ignoreCase = true)
+    val isFailed = status?.startsWith("Failed", ignoreCase = true) == true
+    val isInProgress = status != null && !isCompleted && !isFailed
+
+    Surface(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .border(
+                width = 1.dp,
+                color = SurfaceBorderDark,
+                shape = RoundedCornerShape(14.dp)
+            )
+            .testTag("external_song_item_${track.title}"),
+        color = SurfaceCardDark
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            // Artwork
+            Box(
+                modifier = Modifier
+                    .size(48.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(SurfaceElevatedDark),
+                contentAlignment = Alignment.Center
+            ) {
+                if (!track.artworkUrl.isNullOrBlank()) {
+                    AsyncImage(
+                        model = track.artworkUrl,
+                        contentDescription = track.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    YimlyMicIcon(
+                        tint = YimlyPink,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            // Track details: Title, Artist, Album, Duration, Status
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = track.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = TextPrimaryDark,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    text = buildString {
+                        append(track.artist)
+                        if (track.album.isNotBlank()) {
+                            append(" • ")
+                            append(track.album)
+                        }
+                        val dur = track.formattedDuration()
+                        if (dur != "0:00") {
+                            append(" • ")
+                            append(dur)
+                        }
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = TextSecondaryDark,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (status != null) {
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = status,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = when {
+                            isCompleted -> Color(0xFF4CAF50)
+                            isFailed -> Color(0xFFFF5252)
+                            else -> YimlyPink
+                        },
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+
+            // Actions: + (Add to Playlist) & Download
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                // + button: starts download, waits for indexing, and opens Add to Playlist dialog
+                IconButton(
+                    onClick = onAddToPlaylistClick,
+                    enabled = !isInProgress,
+                    modifier = Modifier.testTag("add_to_playlist_external_${track.title}")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Add,
+                        contentDescription = "Add to playlist",
+                        tint = if (isInProgress) TextSecondaryDark else YimlyPink
+                    )
+                }
+
+                // Download / Status button
+                when {
+                    isCompleted -> {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Downloaded",
+                            tint = Color(0xFF4CAF50),
+                            modifier = Modifier
+                                .padding(8.dp)
+                                .size(24.dp)
+                                .testTag("download_completed_${track.title}")
+                        )
+                    }
+                    isInProgress -> {
+                        Box(
+                            modifier = Modifier
+                                .size(40.dp)
+                                .testTag("download_progress_${track.title}"),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            val p = progress ?: 0
+                            if (p > 0) {
+                                CircularProgressIndicator(
+                                    progress = { (p / 100f).coerceIn(0f, 1f) },
+                                    modifier = Modifier.size(22.dp),
+                                    color = YimlyPink,
+                                    strokeWidth = 2.5.dp
+                                )
+                            } else {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(22.dp),
+                                    color = YimlyPink,
+                                    strokeWidth = 2.5.dp
+                                )
+                            }
+                        }
+                    }
+                    isFailed -> {
+                        IconButton(
+                            onClick = onDownloadClick,
+                            modifier = Modifier.testTag("retry_download_external_${track.title}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Retry download",
+                                tint = Color(0xFFFF5252)
+                            )
+                        }
+                    }
+                    else -> {
+                        IconButton(
+                            onClick = onDownloadClick,
+                            modifier = Modifier.testTag("download_external_${track.title}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Download,
+                                contentDescription = "Download song",
+                                tint = YimlyPink
+                            )
                         }
                     }
                 }
