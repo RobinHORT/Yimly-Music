@@ -34,6 +34,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -459,22 +460,40 @@ class MusicRepository(
         val cleanQuery = query.trim()
         if (cleanQuery.isBlank()) return kotlinx.coroutines.flow.flowOf(SearchResult())
 
+        // Query the server catalogue as well as the local cache. The cache alone can
+        // be incomplete (for example, before a full library sync has finished).
+        val remoteSearch: Flow<SearchResult?> = flow {
+            emit(
+                try {
+                    withContext(Dispatchers.IO) { apiService.search(cleanQuery) }
+                } catch (error: Exception) {
+                    Log.w("MusicRepository", "Remote song search failed; using local cache", error)
+                    null
+                }
+            )
+        }
+
         return combine(
             rawAllSongs,
             allAlbums,
             allArtists,
-            allPlaylists
-        ) { songs, albums, artists, playlists ->
-            val matchingSongs = SearchUtils.sortSongsByRelevance(
-                songs.filter { SearchUtils.matchesSong(it, cleanQuery) },
-                cleanQuery
-            )
-            val matchingArtists = artists.filter { SearchUtils.matchesArtist(it, cleanQuery) }
-                .sortedBy { it.name.lowercase() }
-            val matchingAlbums = albums.filter { SearchUtils.matchesAlbum(it, cleanQuery) }
-                .sortedBy { it.title.lowercase() }
-            val matchingPlaylists = playlists.filter { SearchUtils.matchesPlaylist(it, cleanQuery) }
-                .sortedBy { it.name.lowercase() }
+            allPlaylists,
+            remoteSearch
+        ) { songs, albums, artists, playlists, remote ->
+            val localMatches = songs.filter { SearchUtils.matchesSong(it, cleanQuery) }
+            val allSongMatches = (localMatches + remote?.songs.orEmpty())
+                .distinctBy { it.id.trim() }
+            val matchingSongs = SearchUtils.sortSongsByRelevance(allSongMatches, cleanQuery)
+
+            val remoteArtists = remote?.artists.orEmpty()
+            val remoteAlbums = remote?.albums.orEmpty()
+            val remotePlaylists = remote?.playlists.orEmpty()
+            val matchingArtists = (remoteArtists + artists.filter { SearchUtils.matchesArtist(it, cleanQuery) })
+                .distinctBy { it.id }.sortedBy { it.name.lowercase() }
+            val matchingAlbums = (remoteAlbums + albums.filter { SearchUtils.matchesAlbum(it, cleanQuery) })
+                .distinctBy { it.id }.sortedBy { it.title.lowercase() }
+            val matchingPlaylists = (remotePlaylists + playlists.filter { SearchUtils.matchesPlaylist(it, cleanQuery) })
+                .distinctBy { it.id }.sortedBy { it.name.lowercase() }
 
             SearchResult(
                 songs = matchingSongs,
