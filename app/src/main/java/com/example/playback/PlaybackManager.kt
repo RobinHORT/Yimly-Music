@@ -988,6 +988,7 @@ class PlaybackManager(
     }
 
     fun release() {
+        persistPlaybackSnapshot(force = true)
         playbackRequestId++
         networkRecoveryJob?.cancel()
         networkRecoveryJob = null
