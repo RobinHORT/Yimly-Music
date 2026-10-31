@@ -71,6 +71,17 @@ class ExternalDownloaderCorrectionsTest {
         // ... (existing code)
 
         var retryDownloadCallCount = 0
+        var pollFailuresRemaining = 0
+        var downloadJobPollCount = 0
+        val playlistAddCalls = mutableListOf<Pair<String, String>>()
+
+        override suspend fun addSongToPlaylist(
+            id: String,
+            request: com.example.data.models.AddPlaylistSongRequest
+        ): Map<String, Any> {
+            playlistAddCalls.add(id to request.songId)
+            return mapOf("success" to true)
+        }
 
         override suspend fun getProfile(): UserProfile {
             return UserProfile(
@@ -110,6 +121,11 @@ class ExternalDownloaderCorrectionsTest {
         }
 
         override suspend fun getDownloadJob(jobId: String): DownloaderJobResponse {
+            downloadJobPollCount++
+            if (pollFailuresRemaining > 0) {
+                pollFailuresRemaining--
+                throw java.io.IOException("Temporary downloader polling failure")
+            }
             return jobResponse
         }
 
@@ -198,7 +214,7 @@ class ExternalDownloaderCorrectionsTest {
         }
 
         assertEquals("server_song_999", completedSongId)
-        val status = viewModel.downloadStatusMap.value["nightcall|kavinsky"]
+        val status = viewModel.downloadStatusMap.value["nightcall|kavinsky|drive|259"]
         assertEquals("Completed", status)
         assertEquals(1, fakeApi.startDownloadCallCount)
         assertEquals("configured_library_42", fakeApi.capturedLibraryId)
@@ -320,22 +336,34 @@ class ExternalDownloaderCorrectionsTest {
 
     @Test
     fun testDownloadThenAddPlaylistSequenceRetainsIdAndPreventsDuplicateDownload() = runBlocking {
-        // 1. Start with a missing song
-        val track = ExternalTrack(title = "Playlist Sequence Track", artist = "Sequence Artist")
+        val track = ExternalTrack(
+            title = "Playlist Sequence Track",
+            artist = "Sequence Artist",
+            durationSeconds = 180L
+        )
         fakeApi.jobResponse = DownloaderJobResponse(
             id = "job_sequence",
             status = "completed",
-            tracks = listOf(DownloaderJobTrack(title = "Playlist Sequence Track", artist = "Sequence Artist", status = "completed", progress = 100))
+            tracks = listOf(
+                DownloaderJobTrack(
+                    title = "Playlist Sequence Track",
+                    artist = "Sequence Artist",
+                    status = "completed",
+                    progress = 100
+                )
+            )
         )
         fakeApi.songs = listOf(
-            Song(id = "server_seq_123", title = "Playlist Sequence Track", artist = "Sequence Artist", durationSeconds = 180L)
+            Song(
+                id = "server_seq_123",
+                title = "Playlist Sequence Track",
+                artist = "Sequence Artist",
+                durationSeconds = 180L
+            )
         )
 
         var downloadResultId: String? = null
-        viewModel.downloadExternalTrack(track) { id ->
-            downloadResultId = id
-        }
-
+        viewModel.downloadExternalTrack(track) { id -> downloadResultId = id }
         var attempts = 0
         while (downloadResultId == null && attempts < 100) {
             pumpLooper(100L)
@@ -345,31 +373,19 @@ class ExternalDownloaderCorrectionsTest {
         assertEquals("server_seq_123", downloadResultId)
         assertEquals(1, fakeApi.startDownloadCallCount)
 
-        // 2. Press + (register playlist request) on the now-downloaded track
-        var playlistCallbackCalled = false
-        // Assuming we mock adding to playlist
         viewModel.registerPendingPlaylistAdd(track, "playlist_abc")
-        
-        // After indexing/downloading completes, verify if the song is added to playlist (MusicRepository.addSongToPlaylist)
-        // Since syncAndIndexTrack handles pendingPlaylistRequests, we need to ensure it's triggered.
-        // If it's already downloaded, downloadExternalTrack triggers syncAndIndexTrack or uses the cached ID?
-        // Wait, downloadExternalTrack for an already downloaded song calls onComplete immediately.
-        // My implementation in downloadExternalTrack:
-        // if (existing != null) { ... onComplete?.invoke(existing.id); return }
-        
-        // This means it doesn't call registerPendingPlaylistAdd logic automatically unless I trigger it in the ViewModel.
-        // Actually, registerPendingPlaylistAdd calls downloadExternalTrack.
-        // My previous MainViewModel.kt implementation was:
-        /*
-        fun registerPendingPlaylistAdd(track: ..., playlistId: String) {
-            ...
-            downloadExternalTrack(track)
+        var playlistAttempts = 0
+        while (fakeApi.playlistAddCalls.isEmpty() && playlistAttempts < 50) {
+            pumpLooper(100L)
+            kotlinx.coroutines.delay(10L)
+            playlistAttempts++
         }
-        */
-        // If downloadExternalTrack hits the `existing` case, it returns early.
-        // I need to make sure `registerPendingPlaylistAdd` handles the `existing` case by adding to playlist immediately.
-        
-        // Let me fix MainViewModel to handle the `existing` case in registerPendingPlaylistAdd as well.
+
+        assertEquals(1, fakeApi.playlistAddCalls.size)
+        assertEquals("playlist_abc", fakeApi.playlistAddCalls.single().first)
+        assertEquals("server_seq_123", fakeApi.playlistAddCalls.single().second)
+        assertEquals("A previously downloaded song must not be downloaded again", 1, fakeApi.startDownloadCallCount)
     }
+
 }
 
