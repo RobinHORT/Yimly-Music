@@ -324,6 +324,7 @@ class PlaybackManager(
             queue = finalQueue,
             currentQueueIndex = validIndex,
             currentSong = finalQueue[validIndex],
+            currentPositionMs = 0L,
             hasInstrumental = finalQueue[validIndex].hasInstrumentalEffective,
             isInstrumental = false
         )
@@ -412,9 +413,12 @@ class PlaybackManager(
             _playbackInfo.value = info.copy(
                 currentQueueIndex = index,
                 currentSong = info.queue[index],
+                currentPositionMs = 0L,
                 hasInstrumental = info.queue[index].hasInstrumentalEffective,
                 isInstrumental = false
             )
+            shuffleHistory.clear()
+            persistPlaybackSnapshot(force = true)
             playCurrentQueueIndex()
         }
     }
@@ -447,6 +451,7 @@ class PlaybackManager(
         _playbackInfo.value = info.copy(
             currentQueueIndex = nextIndex,
             currentSong = info.queue[nextIndex],
+            currentPositionMs = 0L,
             hasInstrumental = info.queue[nextIndex].hasInstrumentalEffective,
             isInstrumental = currentInst
         )
@@ -478,6 +483,7 @@ class PlaybackManager(
         _playbackInfo.value = info.copy(
             currentQueueIndex = prevIndex,
             currentSong = info.queue[prevIndex],
+            currentPositionMs = 0L,
             hasInstrumental = info.queue[prevIndex].hasInstrumentalEffective,
             isInstrumental = currentInst
         )
@@ -738,6 +744,7 @@ class PlaybackManager(
             queue = queue,
             currentQueueIndex = newIndex,
             currentSong = newSong,
+            currentPositionMs = if (removedCurrent) 0L else info.currentPositionMs,
             hasInstrumental = newSong?.hasInstrumentalEffective ?: false,
             isInstrumental = if (removedCurrent) false else info.isInstrumental
         )
@@ -785,6 +792,7 @@ class PlaybackManager(
             queue = newQueue,
             currentQueueIndex = newIndex,
             currentSong = newSong,
+            currentPositionMs = if (currentWasRemoved) 0L else info.currentPositionMs,
             hasInstrumental = newSong?.hasInstrumentalEffective ?: false,
             isInstrumental = if (currentWasRemoved) false else info.isInstrumental
         )
@@ -883,7 +891,7 @@ class PlaybackManager(
         val snapshot = PlaybackSnapshot(
             queue = info.queue,
             currentQueueIndex = info.currentQueueIndex,
-            currentPositionMs = (_player?.currentPosition ?: info.currentPositionMs).coerceAtLeast(0L),
+            currentPositionMs = info.currentPositionMs.coerceAtLeast(0L),
             isShuffle = info.isShuffle,
             repeatMode = info.repeatMode,
             isInstrumental = info.isInstrumental

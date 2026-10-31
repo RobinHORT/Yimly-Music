@@ -121,6 +121,7 @@ class MediaControlsIntegrationTest {
         playbackManager.setShuffle(true)
         playbackManager.next()
         assertTrue(playbackManager.playbackInfo.value.currentQueueIndex != 0)
+        playbackManager.seekTo(0L)
         playbackManager.previous()
         assertEquals(0, playbackManager.playbackInfo.value.currentQueueIndex)
     }
