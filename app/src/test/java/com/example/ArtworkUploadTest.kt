@@ -12,9 +12,11 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
 import okhttp3.RequestBody
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
@@ -111,6 +113,18 @@ class ArtworkUploadTest {
         assertNotNull(updated)
         assertNotNull(updated?.coverUrl)
         assertTrue(updated!!.coverUrl!!.contains("/api/playlists/72/cover"))
+    }
+
+    @Test
+    fun testConnectivityFlowReportsOfflineWithoutAndroidContext() = runBlocking {
+        val repositoryWithoutContext = MusicRepository(
+            apiService = mockApi,
+            musicDao = database.musicDao(),
+            preferencesManager = preferencesManager,
+            context = null
+        )
+
+        assertFalse(repositoryWithoutContext.networkConnectivityFlow().first())
     }
 
     @Test
