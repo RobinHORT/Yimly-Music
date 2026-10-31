@@ -586,8 +586,10 @@ class MusicRepository(
         try {
             val responseBody = apiService.getLyrics(cleanSongId)
             rawRemote = responseBody.string()
-        } catch (_: Exception) {
-            // Fallback
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Failed to fetch lyrics for $cleanSongId; using cached song lyrics", e)
         }
 
         val rawTextToUse = if (!rawRemote.isNullOrBlank()) rawRemote else song.lyricsText.takeIf { allowSongFallback }
@@ -651,7 +653,10 @@ class MusicRepository(
         try {
             val responseBody = apiService.getLyrics(songId)
             return@withContext responseBody.string()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            Log.w("MusicRepository", "Failed to fetch lyrics text for $songId", e)
             ""
         }
     }
@@ -678,6 +683,8 @@ class MusicRepository(
             }
             musicDao.deleteAllLyricResourcesForSong(songId.trim())
             Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -688,6 +695,8 @@ class MusicRepository(
             apiService.deleteLrc(songId)
             musicDao.deleteAllLyricResourcesForSong(songId.trim())
             Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -700,6 +709,8 @@ class MusicRepository(
             musicDao.cleanOrphanPlaylistSongs()
             musicDao.cleanOrphanPlayHistory()
             Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -709,20 +720,23 @@ class MusicRepository(
         try {
             val response = apiService.getLyricsOffset(songId)
             return@withContext response.lyricOffset
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            Log.w("MusicRepository", "Failed to fetch lyric offset for $songId", e)
             null
         }
     }
 
-    suspend fun updateLyricsOffset(songId: String, offsetMs: Long) = withContext(Dispatchers.IO) {
+    suspend fun updateLyricsOffset(songId: String, offsetMs: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             apiService.updateLyricsOffset(songId, com.example.data.models.UpdateLyricsOffsetRequest(offsetMs))
-            val song = getSongById(songId)
-            if (song != null) {
-                musicDao.upsertSong(song.copy(lyricOffset = offsetMs).toEntity())
-            }
+            musicDao.updateSongLyricOffset(songId.trim(), offsetMs)
+            Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
-            e.printStackTrace()
+            Result.failure(e)
         }
     }
 
