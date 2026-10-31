@@ -683,6 +683,8 @@ class MainViewModel(
                 musicRepository.updatePlaylist(playlistId, name, description, isPublic)
                 _uiMessage.value = "Playlist updated"
                 onComplete?.invoke()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to update playlist"
             }
@@ -693,8 +695,14 @@ class MainViewModel(
         viewModelScope.launch {
             try {
                 musicRepository.updatePlaylistArtwork(playlistId, uri)
-                musicRepository.refreshPlaylistDetail(playlistId, force = true)
-                _uiMessage.value = "Artwork updated"
+                val refreshResult = musicRepository.refreshPlaylistDetail(playlistId, force = true)
+                _uiMessage.value = if (refreshResult.isSuccess) {
+                    "Artwork updated"
+                } else {
+                    "Artwork updated, but playlist details could not be refreshed"
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to update artwork"
             }
@@ -784,7 +792,10 @@ class MainViewModel(
 
     fun refreshPlaylistDetail(playlistId: String, force: Boolean = false) {
         viewModelScope.launch {
-            musicRepository.refreshPlaylistDetail(playlistId, force)
+            val result = musicRepository.refreshPlaylistDetail(playlistId, force)
+            if (result.isFailure) {
+                _uiMessage.value = "Couldn't refresh playlist; showing cached content: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+            }
         }
     }
 
