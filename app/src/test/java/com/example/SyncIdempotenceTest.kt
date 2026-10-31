@@ -254,6 +254,11 @@ class SyncIdempotenceTest {
         fakeApiService.songs = listOf(
             Song(id = "fav_1", title = "Fav Track", artist = "Artist", album = "Album", durationSeconds = 180L, isFavorite = false)
         )
+        // The server's favorites endpoint is authoritative; seed the fake response
+        // to model the favorite being retained across repeated syncs.
+        fakeApiService.favorites = listOf(
+            Song(id = "fav_1", title = "Fav Track", artist = "Artist", album = "Album", isFavorite = true)
+        )
 
         musicRepository.syncWithBackend()
         database.musicDao().updateFavorite("fav_1", true)
