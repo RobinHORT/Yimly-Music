@@ -400,6 +400,26 @@ class ExternalDownloaderCorrectionsTest {
     }
 
     @Test
+    fun testSettingsSyncReportsBackendFailure() = runBlocking {
+        fakeApi.shouldFail = true
+        viewModel.syncLibrary(showResult = true)
+
+        var attempts = 0
+        while (viewModel.isSyncing.value && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+        while (viewModel.uiMessage.value == null && attempts < 150) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertTrue(viewModel.uiMessage.value?.startsWith("Library sync failed") == true)
+    }
+
+    @Test
     fun testLogoutCancelsActiveDownloadAndClearsDownloaderState() = runBlocking {
         val track = ExternalTrack(title = "Logout During Download", artist = "Artist L")
         fakeApi.pollFailuresRemaining = 1000
