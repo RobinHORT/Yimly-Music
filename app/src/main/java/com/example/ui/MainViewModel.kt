@@ -145,24 +145,30 @@ class MainViewModel(
     internal var downloaderIndexingDelayMs: Long = 1500L
 
     fun getCompletedSongId(track: com.example.data.models.ExternalTrack): String? {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
         val id = completedTrackSongIdMap[key]
-        if (id != null) return id
-        
-        // Fallback to DB
-        val existing = allSongs.value.firstOrNull {
-            it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true)
+        if (id != null && allSongs.value.any { it.id == id }) return id
+        if (id != null) {
+            completedTrackSongIdMap.remove(key)
+            _completedTrackSongIds.value = _completedTrackSongIds.value - key
+        }
+
+        // Fallback to the currently observed library snapshot.
+        val existing = allSongs.value.firstOrNull { MusicRepository.isSameExternalTrack(it, track) }
+        if (existing != null) {
+            completedTrackSongIdMap[key] = existing.id
+            _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existing.id)
         }
         return existing?.id
     }
 
     fun downloadExternalTrack(track: com.example.data.models.ExternalTrack, onComplete: ((String?) -> Unit)? = null) {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
 
         viewModelScope.launch {
             // 1. Database Check for existing song
             val existing = musicRepository.getAllSongsSnapshot().firstOrNull {
-                it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true)
+                MusicRepository.isSameExternalTrack(it, track)
             }
             if (existing != null) {
                 completedTrackSongIdMap[key] = existing.id
@@ -299,7 +305,7 @@ class MainViewModel(
     }
 
     fun registerPendingPlaylistAdd(track: com.example.data.models.ExternalTrack, playlistId: String) {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
         
         // Check if already downloaded
         val existing = getCompletedSongId(track)
@@ -327,7 +333,7 @@ class MainViewModel(
         preExistingIds: Set<String>,
         onComplete: ((String?) -> Unit)?
     ) {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
         _downloadStatusMap.value = _downloadStatusMap.value + (key to "Indexing...")
 
         var newlyIndexedId: String? = null
@@ -338,9 +344,8 @@ class MainViewModel(
             } catch (_: Exception) {}
 
             val currentSongs = musicRepository.getAllSongsSnapshot()
-            val newSong = currentSongs.firstOrNull { s ->
-                s.title.equals(track.title, ignoreCase = true) &&
-                    s.artist.equals(track.artist, ignoreCase = true)
+            val newSong = currentSongs.firstOrNull { song ->
+                song.id !in preExistingIds && MusicRepository.isSameExternalTrack(song, track)
             }
 
             if (newSong != null) {
@@ -374,7 +379,7 @@ class MainViewModel(
     }
 
     fun retryLibraryIndexing(track: com.example.data.models.ExternalTrack, onComplete: ((String?) -> Unit)? = null) {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
         synchronized(downloadingTrackKeys) {
             if (key in downloadingTrackKeys) return
             downloadingTrackKeys.add(key)
