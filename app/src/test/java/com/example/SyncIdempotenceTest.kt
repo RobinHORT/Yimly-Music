@@ -308,7 +308,7 @@ class SyncIdempotenceTest {
         fakeApiService.shouldFail = true
 
         val failResult = musicRepository.syncWithBackend()
-        // Sync should gracefully return failure result or handle it without throwing
+        assertTrue("Sync must report the network failure to Settings", failResult.isFailure)
         // Local library must remain intact!
         assertEquals("Local songs must NOT be wiped on network failure", 5, database.musicDao().getSongCount())
         val localSongs = musicRepository.allSongs.first()
