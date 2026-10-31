@@ -3,6 +3,7 @@ package com.example
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
+import com.example.data.models.LyricsFormatMode
 import com.example.playback.PlaybackSnapshot
 import com.example.playback.RepeatMode
 import com.squareup.moshi.Moshi
@@ -42,6 +43,24 @@ class PlaybackSnapshotTest {
         assertNotNull(restored)
         assertEquals(snapshot, restored)
     }
+    @Test
+    fun preferencesManagerPersistsLrcAndElrcOffsetsPerSong() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<android.content.Context>()
+        val preferences = PreferencesManager(context)
+        preferences.clearSongLyricsOffsets("offset_song_1")
+
+        preferences.setSongLyricsOffset("offset_song_1", LyricsFormatMode.LRC, 1250L)
+        preferences.setSongLyricsOffset("offset_song_1", LyricsFormatMode.ELRC, -375L)
+
+        assertEquals(1250L, preferences.getSongLyricsOffset("offset_song_1", LyricsFormatMode.LRC))
+        assertEquals(-375L, preferences.getSongLyricsOffset("offset_song_1", LyricsFormatMode.ELRC))
+        assertEquals(null, preferences.getSongLyricsOffset("offset_song_2", LyricsFormatMode.LRC))
+
+        preferences.clearSongLyricsOffsets("offset_song_1")
+        assertEquals(null, preferences.getSongLyricsOffset("offset_song_1", LyricsFormatMode.LRC))
+        assertEquals(null, preferences.getSongLyricsOffset("offset_song_1", LyricsFormatMode.ELRC))
+    }
+
     @Test
     fun preferencesManagerPersistsAndClearsPlaybackSnapshot() = runBlocking {
         val context = ApplicationProvider.getApplicationContext<android.content.Context>()

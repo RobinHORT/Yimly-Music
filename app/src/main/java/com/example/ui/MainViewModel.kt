@@ -1,5 +1,6 @@
 package com.example.ui
 
+import com.example.BuildConfig
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -36,6 +37,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancelAndJoin
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MainViewModel(
@@ -60,6 +62,9 @@ class MainViewModel(
     private val _isLoading = MutableStateFlow(false)
     val isLoading: StateFlow<Boolean> = _isLoading.asStateFlow()
 
+    private val _isSyncing = MutableStateFlow(false)
+    val isSyncing: StateFlow<Boolean> = _isSyncing.asStateFlow()
+
     private val _authError = MutableStateFlow<String?>(null)
     val authError: StateFlow<String?> = _authError.asStateFlow()
 
@@ -73,6 +78,9 @@ class MainViewModel(
     // Server URL & Preferences
     val serverUrl: StateFlow<String> = preferencesManager.serverUrlFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, PreferencesManager.DEFAULT_SERVER_URL)
+
+    val isOnline: StateFlow<Boolean> = musicRepository.networkConnectivityFlow()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     val lyricsConfig: StateFlow<LyricsDisplayConfig> = preferencesManager.lyricsConfigFlow
         .stateIn(viewModelScope, SharingStarted.Eagerly, LyricsDisplayConfig())
@@ -516,10 +524,16 @@ class MainViewModel(
                     lyricsJob = launch {
                         _currentLyricsData.value = musicRepository.getLyricsForSong(song, mode)
                         if (mode == LyricsFormatMode.ELRC) {
-                            _currentSongOffset.value = songElrcOffsets[song.id] ?: 0L
+                            val savedOffset = preferencesManager.getSongLyricsOffset(song.id, mode)
+                            _currentSongOffset.value = savedOffset ?: songElrcOffsets[song.id] ?: lyricsConfig.value.elrcOffsetMs
                         } else {
-                            val offset = musicRepository.getLyricsOffset(song.id)
-                            _currentSongOffset.value = songLrcOffsets[song.id] ?: (offset ?: song.lyricOffset ?: 0L)
+                            val savedOffset = preferencesManager.getSongLyricsOffset(song.id, mode)
+                            val serverOffset = if (savedOffset == null) musicRepository.getLyricsOffset(song.id) else null
+                            _currentSongOffset.value = savedOffset
+                                ?: songLrcOffsets[song.id]
+                                ?: serverOffset
+                                ?: song.lyricOffset
+                                ?: lyricsConfig.value.lrcOffsetMs
                         }
                     }
                 } else {
@@ -557,6 +571,8 @@ class MainViewModel(
     fun logout() {
         viewModelScope.launch {
             cancelActiveDownloads()
+            syncJob?.cancelAndJoin()
+            offsetUpdateJob?.cancelAndJoin()
             try {
                 authRepository.logout()
             } finally {
@@ -668,6 +684,8 @@ class MainViewModel(
                 musicRepository.updatePlaylist(playlistId, name, description, isPublic)
                 _uiMessage.value = "Playlist updated"
                 onComplete?.invoke()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to update playlist"
             }
@@ -678,8 +696,14 @@ class MainViewModel(
         viewModelScope.launch {
             try {
                 musicRepository.updatePlaylistArtwork(playlistId, uri)
-                musicRepository.refreshPlaylistDetail(playlistId, force = true)
-                _uiMessage.value = "Artwork updated"
+                val refreshResult = musicRepository.refreshPlaylistDetail(playlistId, force = true)
+                _uiMessage.value = if (refreshResult.isSuccess) {
+                    "Artwork updated"
+                } else {
+                    "Artwork updated, but playlist details could not be refreshed"
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to update artwork"
             }
@@ -692,6 +716,8 @@ class MainViewModel(
                 musicRepository.deletePlaylist(playlistId)
                 _uiMessage.value = "Playlist deleted"
                 onComplete?.invoke()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to delete playlist"
             }
@@ -703,6 +729,8 @@ class MainViewModel(
             try {
                 musicRepository.addSongToPlaylist(playlistId, songId)
                 _uiMessage.value = "Added to playlist"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to add song to playlist"
             }
@@ -715,6 +743,8 @@ class MainViewModel(
                 val created = musicRepository.createPlaylist(name, description, isPublic)
                 musicRepository.addSongToPlaylist(created.id, songId)
                 _uiMessage.value = "Added to '$name'"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to create playlist and add song"
             }
@@ -726,6 +756,8 @@ class MainViewModel(
             try {
                 musicRepository.removeSongFromPlaylist(playlistId, songId)
                 _uiMessage.value = "Removed from playlist"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to remove song from playlist"
             }
@@ -769,7 +801,10 @@ class MainViewModel(
 
     fun refreshPlaylistDetail(playlistId: String, force: Boolean = false) {
         viewModelScope.launch {
-            musicRepository.refreshPlaylistDetail(playlistId, force)
+            val result = musicRepository.refreshPlaylistDetail(playlistId, force)
+            if (result.isFailure) {
+                _uiMessage.value = "Couldn't refresh playlist; showing cached content: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+            }
         }
     }
 
@@ -851,6 +886,7 @@ class MainViewModel(
             val res = musicRepository.deleteSong(songId)
             if (res.isSuccess) {
                 playbackManager.removeSongFromQueue(songId)
+                preferencesManager.clearSongLyricsOffsets(songId)
                 completedTrackSongIdMap.entries.removeAll { it.value == songId }
                 _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
                 syncLibrary()
@@ -877,35 +913,84 @@ class MainViewModel(
         val mode = lyricsConfig.value.formatMode
         if (mode == LyricsFormatMode.ELRC) {
             songElrcOffsets[songId] = offsetMs
-            _currentSongOffset.value = offsetMs
         } else {
             songLrcOffsets[songId] = offsetMs
-            _currentSongOffset.value = offsetMs
-            val isAdmin = userProfile.value?.isAdmin == true || userProfile.value?.role == "admin"
-            if (isAdmin) {
-                offsetUpdateJob?.cancel()
-                offsetUpdateJob = viewModelScope.launch {
-                    musicRepository.updateLyricsOffset(songId, offsetMs)
+        }
+        _currentSongOffset.value = offsetMs
+
+        offsetUpdateJob?.cancel()
+        offsetUpdateJob = viewModelScope.launch {
+            try {
+                preferencesManager.setSongLyricsOffset(songId, mode, offsetMs)
+                val isAdmin = userProfile.value?.isAdmin == true || userProfile.value?.role == "admin"
+                if (mode == LyricsFormatMode.LRC && isAdmin) {
+                    val result = musicRepository.updateLyricsOffset(songId, offsetMs)
+                    if (result.isFailure) {
+                        _uiMessage.value = "Offset saved on this device, but server sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+                    }
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                _uiMessage.value = "Failed to save lyrics offset: ${e.message ?: "Unknown error"}"
             }
         }
     }
 
     // Settings Actions
     fun updateServerUrl(url: String) {
+        val cleanUrl = url.trim().trimEnd('/')
+        val parsed = android.net.Uri.parse(cleanUrl)
+        val validScheme = parsed.scheme.equals("https", ignoreCase = true) ||
+            (BuildConfig.DEBUG && parsed.scheme.equals("http", ignoreCase = true))
+        if (!validScheme || parsed.host.isNullOrBlank()) {
+            _uiMessage.value = if (BuildConfig.DEBUG) {
+                "Enter a valid HTTP or HTTPS server URL."
+            } else {
+                "Use a valid HTTPS server URL in release builds."
+            }
+            return
+        }
+
         viewModelScope.launch {
-            preferencesManager.setServerUrl(url)
+            try {
+                syncJob?.cancelAndJoin()
+                preferencesManager.setServerUrl(cleanUrl)
+                _uiMessage.value = "Server URL saved"
+                syncLibrary(showResult = true)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                _uiMessage.value = "Failed to save server URL: ${e.message ?: "Unknown error"}"
+            }
         }
     }
 
     private var syncJob: kotlinx.coroutines.Job? = null
 
-    fun syncLibrary() {
-        if (syncJob?.isActive == true) return
+    fun syncLibrary(showResult: Boolean = false) {
+        if (syncJob?.isActive == true) {
+            if (showResult) _uiMessage.value = "Library sync is already running"
+            return
+        }
         syncJob = viewModelScope.launch {
-            _isLoading.value = true
-            musicRepository.syncWithBackend()
-            _isLoading.value = false
+            _isSyncing.value = true
+            try {
+                val result = musicRepository.syncWithBackend()
+                if (showResult) {
+                    _uiMessage.value = if (result.isSuccess) {
+                        "Library synced successfully"
+                    } else {
+                        "Library sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                if (showResult) _uiMessage.value = "Library sync failed: ${e.message ?: "Unknown error"}"
+            } finally {
+                _isSyncing.value = false
+            }
         }
     }
 

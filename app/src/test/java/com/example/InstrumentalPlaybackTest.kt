@@ -131,6 +131,33 @@ class InstrumentalPlaybackTest {
     }
 
     @Test
+    fun testInstrumentalWithDifferentKnownAlbumDoesNotMatch() {
+        val mainSong = Song(
+            id = "main_album_1",
+            title = "Same Song",
+            artist = "Same Artist",
+            album = "Original Album"
+        )
+        val unrelatedInstrumental = Song(
+            id = "inst_album_1",
+            title = "Same Song (Instrumental)",
+            artist = "Same Artist",
+            album = "Unrelated Album",
+            isInstrumental = true
+        )
+
+        assertFalse(MusicRepository.isAlbumsMatching(mainSong.album, unrelatedInstrumental.album))
+        assertNull(MusicRepository.findMatchingInstrumental(mainSong, listOf(mainSong, unrelatedInstrumental)))
+    }
+
+    @Test
+    fun testUnknownAlbumMetadataRemainsPermissiveForInstrumentalMatching() {
+        assertTrue(MusicRepository.isAlbumsMatching("", "Known Album"))
+        assertTrue(MusicRepository.isAlbumsMatching("Known Album", "Instrumentals"))
+        assertTrue(MusicRepository.isAlbumsMatching("Known Album", "Unknown"))
+    }
+
+    @Test
     fun testMatchingNormalSongFromInstrumental() {
         val instSong = Song(
             id = "inst_4",

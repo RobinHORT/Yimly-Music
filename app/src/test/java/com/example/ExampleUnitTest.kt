@@ -61,6 +61,26 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun testDeriveArtistsFromCommaSlashAndFeaturingSeparators() {
+        val songs = listOf(
+            Song(
+                id = "multi_1",
+                title = "Collaboration",
+                artist = "Artist One, Artist Two feat. Artist Three / Artist Four",
+                album = "Collaboration Album"
+            )
+        )
+
+        val artists = MusicRepository.deriveArtistsFromSongs(songs)
+        assertEquals(4, artists.size)
+        assertEquals(
+            setOf("Artist One", "Artist Two", "Artist Three", "Artist Four"),
+            artists.map { it.name }.toSet()
+        )
+        assertTrue(artists.all { it.songCount == 1 })
+    }
+
+    @Test
     fun testInstrumentalMatchingWithMultipleArtists() {
         val mainSong = Song(
             id = "main_1",

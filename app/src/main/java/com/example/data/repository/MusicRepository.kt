@@ -27,11 +27,17 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import retrofit2.HttpException
 import android.util.Log
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
@@ -71,6 +77,55 @@ class MusicRepository(
 ) {
 
     private val playlistLastSyncTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun networkConnectivityFlow(): Flow<Boolean> = callbackFlow {
+        val connectivityManager = context?.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        if (connectivityManager == null) {
+            trySend(false)
+            close()
+            return@callbackFlow
+        }
+
+        fun hasValidatedInternet(): Boolean {
+            val network = connectivityManager.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                trySend(hasValidatedInternet())
+            }
+
+            override fun onLost(network: Network) {
+                trySend(hasValidatedInternet())
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                trySend(hasValidatedInternet())
+            }
+
+            override fun onUnavailable() {
+                trySend(false)
+            }
+        }
+
+        trySend(hasValidatedInternet())
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        try {
+            connectivityManager.registerNetworkCallback(request, callback)
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Unable to register network connectivity callback", e)
+        }
+
+        awaitClose {
+            runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+        }
+    }
 
     private val songResponseMoshi: Moshi by lazy {
         Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
@@ -185,7 +240,10 @@ class MusicRepository(
         try {            val remoteSong = apiService.getSongById(id)
             musicDao.upsertSongs(listOf(remoteSong.toEntity()))
             remoteSong
-        } catch (_: Exception) {
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Remote song lookup failed for $id; using local cache", e)
             musicDao.getSongById(id)?.toSong()
         }
     }
@@ -320,9 +378,13 @@ class MusicRepository(
 
     suspend fun updatePlaylist(playlistId: String, name: String, description: String?, isPublic: Boolean? = null): Playlist = withContext(Dispatchers.IO) {
         val request = UpdatePlaylistRequest(name = name, description = description, isPublic = isPublic)
+        val existingPlaylist = musicDao.getPlaylistById(playlistId)
         val updatedPlaylist = apiService.updatePlaylist(playlistId, request)
-        val freshPlaylist = updatedPlaylist.copy(createdAt = System.currentTimeMillis().toString())
+        val freshPlaylist = updatedPlaylist.copy(
+            createdAt = existingPlaylist?.createdAt?.takeIf { it.isNotBlank() } ?: updatedPlaylist.createdAt
+        )
         musicDao.insertPlaylist(freshPlaylist.toEntity())
+        clearPlaylistSyncCache(playlistId)
         freshPlaylist
     }
 
@@ -334,19 +396,16 @@ class MusicRepository(
     }
 
     suspend fun updatePlaylistArtwork(playlistId: String, localUri: String?) = withContext(Dispatchers.IO) {
+        val existingPlaylist = musicDao.getPlaylistById(playlistId)
         if (!localUri.isNullOrBlank()) {
             val uriString = localUri.trim()
             var imageBytes: ByteArray? = null
             var mimeType = "image/jpeg"
 
             if (uriString.startsWith("content://", ignoreCase = true) && context != null) {
-                try {
-                    val uri = android.net.Uri.parse(uriString)
-                    mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                    imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                } catch (e: Exception) {
-                    Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
-                }
+                val uri = android.net.Uri.parse(uriString)
+                mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             } else {
                 val filePath = if (uriString.startsWith("file://", ignoreCase = true)) {
                     uriString.removePrefix("file://")
@@ -354,54 +413,51 @@ class MusicRepository(
                     uriString
                 }
                 val file = java.io.File(filePath)
-                if (file.exists()) {
+                if (file.exists() && file.isFile) {
                     imageBytes = file.readBytes()
-                    val isPng = file.extension.equals("png", ignoreCase = true)
-                    mimeType = if (isPng) "image/png" else "image/jpeg"
-                } else if (context != null && uriString.startsWith("content://", ignoreCase = true)) {
-                    try {
-                        val uri = android.net.Uri.parse(uriString)
-                        mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                        imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    } catch (e: Exception) {
-                        Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
-                    }
+                    mimeType = if (file.extension.equals("png", ignoreCase = true)) "image/png" else "image/jpeg"
                 }
             }
 
-            if (imageBytes != null && imageBytes.isNotEmpty()) {
-                val mediaType = mimeType.toMediaTypeOrNull() ?: "image/jpeg".toMediaType()
-                val requestBody = okhttp3.RequestBody.create(mediaType, imageBytes)
-                val uploaded = apiService.uploadPlaylistCover(playlistId, requestBody)
-                val freshUploaded = uploaded.copy(createdAt = System.currentTimeMillis().toString())
-                musicDao.insertPlaylist(freshUploaded.toEntity())
-            } else {
+            if (imageBytes.isNullOrEmpty()) {
                 throw java.io.IOException("Could not read image file or content URI: $localUri")
             }
+
+            val mediaType = mimeType.toMediaTypeOrNull() ?: "image/jpeg".toMediaType()
+            val requestBody = okhttp3.RequestBody.create(mediaType, imageBytes)
+            val uploaded = apiService.uploadPlaylistCover(playlistId, requestBody)
+            val freshUploaded = uploaded.copy(
+                createdAt = existingPlaylist?.createdAt?.takeIf { it.isNotBlank() } ?: uploaded.createdAt
+            )
+            musicDao.insertPlaylist(freshUploaded.toEntity())
         } else {
-            // Even if localUri is blank (clearing cover), update timestamp
-            try {
-                val localPl = musicDao.getPlaylistById(playlistId)
-                if (localPl != null) {
-                    val req = UpdatePlaylistRequest(
-                        name = localPl.name,
-                        description = localPl.description,
-                        isPublic = localPl.isPublic,
-                        coverUrl = null
-                    )
-                    val updatedRemote = apiService.updatePlaylist(playlistId, req)
-                    val freshRemote = updatedRemote.copy(createdAt = System.currentTimeMillis().toString())
-                    musicDao.insertPlaylist(freshRemote.toEntity())
-                }
-            } catch (_: Exception) {
-                musicDao.updatePlaylistCoverUrl(playlistId, null)
-            }
+            // Only clear the local artwork after the server confirms the change.
+            val playlist = existingPlaylist ?: apiService.getPlaylistById(playlistId)
+            val request = UpdatePlaylistRequest(
+                name = playlist.name,
+                description = playlist.description,
+                isPublic = playlist.isPublic,
+                coverUrl = null
+            )
+            val updatedRemote = apiService.updatePlaylist(playlistId, request)
+            val freshRemote = updatedRemote.copy(
+                createdAt = existingPlaylist?.createdAt?.takeIf { it.isNotBlank() } ?: updatedRemote.createdAt
+            )
+            musicDao.insertPlaylist(freshRemote.toEntity())
         }
+        clearPlaylistSyncCache(playlistId)
     }
 
     suspend fun addSongToPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
         apiService.addSongToPlaylist(playlistId, AddPlaylistSongRequest(songId = songId))
-        refreshPlaylistDetail(playlistId, force = true)
+        val refreshResult = refreshPlaylistDetail(playlistId, force = true)
+        if (refreshResult.isFailure) {
+            Log.w(
+                "MusicRepository",
+                "Song $songId was added to playlist $playlistId, but its cached detail could not be refreshed",
+                refreshResult.exceptionOrNull()
+            )
+        }
     }
 
     suspend fun removeSongFromPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
@@ -421,20 +477,23 @@ class MusicRepository(
     suspend fun revokeShare(playlistId: String, userId: String) = withContext(Dispatchers.IO) {
         try {
             apiService.revokeShare(playlistId, userId)
-        } catch (_: Exception) {
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Primary playlist share revoke failed; trying collaborator removal", e)
             apiService.removeCollaborator(playlistId, userId)
         }
     }
 
-    suspend fun refreshPlaylistDetail(playlistId: String, force: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun refreshPlaylistDetail(playlistId: String, force: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         val trimmedId = playlistId.trim()
-        if (trimmedId.isBlank()) return@withContext
+        if (trimmedId.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Playlist ID is blank"))
+        }
 
         if (!force && isPlaylistFresh(trimmedId)) {
             val localPl = musicDao.getPlaylistById(trimmedId)
-            if (localPl != null) {
-                return@withContext
-            }
+            if (localPl != null) return@withContext Result.success(Unit)
         }
 
         try {
@@ -445,19 +504,23 @@ class MusicRepository(
                 apiService.getPlaylistSongs(trimmedId)
             }
 
-            // The getPlaylistById response might not include songCount, so we derive it from the fetched songs array
             val localPl = musicDao.getPlaylistById(trimmedId)
             val finalCover = remotePlaylist.coverUrl ?: localPl?.coverUrl
             val playlistWithCorrectCount = remotePlaylist.copy(
                 id = trimmedId,
                 songCount = songs.size,
-                rawCoverUrl = finalCover
+                rawCoverUrl = finalCover,
+                createdAt = localPl?.createdAt?.takeIf { it.isNotBlank() } ?: remotePlaylist.createdAt
             )
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
             musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
             markPlaylistSynced(trimmedId)
-        } catch (_: Exception) {
-            // Failed refresh must not destroy valid existing cached playlist data
+            Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Failed to refresh playlist $trimmedId; keeping cached data", e)
+            Result.failure(e)
         }
     }
 
@@ -595,8 +658,10 @@ class MusicRepository(
         try {
             val responseBody = apiService.getLyrics(cleanSongId)
             rawRemote = responseBody.string()
-        } catch (_: Exception) {
-            // Fallback
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Failed to fetch lyrics for $cleanSongId; using cached song lyrics", e)
         }
 
         val rawTextToUse = if (!rawRemote.isNullOrBlank()) rawRemote else song.lyricsText.takeIf { allowSongFallback }
@@ -660,7 +725,10 @@ class MusicRepository(
         try {
             val responseBody = apiService.getLyrics(songId)
             return@withContext responseBody.string()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            Log.w("MusicRepository", "Failed to fetch lyrics text for $songId", e)
             ""
         }
     }
@@ -687,6 +755,8 @@ class MusicRepository(
             }
             musicDao.deleteAllLyricResourcesForSong(songId.trim())
             Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -697,6 +767,8 @@ class MusicRepository(
             apiService.deleteLrc(songId)
             musicDao.deleteAllLyricResourcesForSong(songId.trim())
             Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -709,6 +781,8 @@ class MusicRepository(
             musicDao.cleanOrphanPlaylistSongs()
             musicDao.cleanOrphanPlayHistory()
             Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -718,20 +792,23 @@ class MusicRepository(
         try {
             val response = apiService.getLyricsOffset(songId)
             return@withContext response.lyricOffset
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
+            Log.w("MusicRepository", "Failed to fetch lyric offset for $songId", e)
             null
         }
     }
 
-    suspend fun updateLyricsOffset(songId: String, offsetMs: Long) = withContext(Dispatchers.IO) {
+    suspend fun updateLyricsOffset(songId: String, offsetMs: Long): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             apiService.updateLyricsOffset(songId, com.example.data.models.UpdateLyricsOffsetRequest(offsetMs))
-            val song = getSongById(songId)
-            if (song != null) {
-                musicDao.upsertSong(song.copy(lyricOffset = offsetMs).toEntity())
-            }
+            musicDao.updateSongLyricOffset(songId.trim(), offsetMs)
+            Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
-            e.printStackTrace()
+            Result.failure(e)
         }
     }
 
@@ -744,6 +821,8 @@ class MusicRepository(
     private suspend fun fetchAllRemoteSongs(): Pair<List<Song>?, Boolean> {
         val response = try {
             apiService.getSongs()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             if (e is retrofit2.HttpException && e.code() == 401) {
                 Log.w("MusicRepository", "Unauthorized song catalogue request (HTTP 401); preserving cached library.")
@@ -755,6 +834,8 @@ class MusicRepository(
 
         val songs = try {
             parseSongPage(response)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e("MusicRepository", "Invalid song catalogue response; preserving cached library: ${e.message}", e)
             return Pair(null, false)
@@ -788,28 +869,40 @@ class MusicRepository(
                 val favoritesDeferred = async {
                     try {
                         apiService.getFavorites()
-                    } catch (_: Exception) {
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Failed to fetch remote favorites; retaining local cache", e)
                         null
                     }
                 }
                 val albumsDeferred = async {
                     try {
                         apiService.getAlbums()
-                    } catch (_: Exception) {
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Failed to fetch remote albums; retaining local cache", e)
                         null
                     }
                 }
                 val artistsDeferred = async {
                     try {
                         apiService.getArtists()
-                    } catch (_: Exception) {
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Failed to fetch remote artists; retaining local cache", e)
                         null
                     }
                 }
                 val playlistsDeferred = async {
                     try {
                         apiService.getPlaylists()
-                    } catch (_: Exception) {
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Failed to fetch remote playlists; retaining local cache", e)
                         null
                     }
                 }
@@ -885,13 +978,18 @@ class MusicRepository(
             }
 
             // 5. Process and persist playlists (dependency on getPlaylists strictly preserved)
+            var playlistDetailFailures = 0
             if (remotePlaylists != null) {
                 val validIds = remotePlaylists.map { it.id.trim() }.filter { it.isNotBlank() }
                 musicDao.deleteStalePlaylists(validIds)
                 for (pl in remotePlaylists) {
                     val localPl = musicDao.getPlaylistById(pl.id.trim())
                     val finalCover = pl.coverUrl ?: localPl?.coverUrl
-                    val plToInsert = pl.copy(id = pl.id.trim(), rawCoverUrl = finalCover)
+                    val plToInsert = pl.copy(
+                        id = pl.id.trim(),
+                        rawCoverUrl = finalCover,
+                        createdAt = localPl?.createdAt?.takeIf { it.isNotBlank() } ?: pl.createdAt
+                    )
                     musicDao.insertPlaylist(plToInsert.toEntity())
                     if (pl.songs.isNotEmpty()) {
                         musicDao.syncPlaylistSongs(pl.id.trim(), pl.songs.map { it.toEntity() })
@@ -901,7 +999,10 @@ class MusicRepository(
                             val plSongs = apiService.getPlaylistSongs(pl.id.trim())
                             musicDao.syncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
                             markPlaylistSynced(pl.id.trim())
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
                         } catch (e: Exception) {
+                            playlistDetailFailures++
                             // Keep the existing cached playlist tracks when a refresh fails,
                             // but make the failure visible for diagnosis.
                             Log.w(
@@ -914,7 +1015,23 @@ class MusicRepository(
                 }
             }
 
-            Result.success(Unit)
+            val failedEndpoints = buildList {
+                if (remoteSongs == null || !isCompleteSync) add("song catalogue")
+                if (remoteFavorites == null) add("favorites")
+                if (remoteAlbums == null) add("albums")
+                if (remoteArtists == null) add("artists")
+                if (remotePlaylists == null) add("playlists")
+                if (playlistDetailFailures > 0) add("playlist tracks")
+            }
+            if (failedEndpoints.isNotEmpty()) {
+                Result.failure(
+                    java.io.IOException("Sync incomplete: failed to refresh ${failedEndpoints.joinToString()}")
+                )
+            } else {
+                Result.success(Unit)
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -923,6 +1040,8 @@ class MusicRepository(
     suspend fun clearLocalCache() = withContext(Dispatchers.IO) {
         try {
             musicDao.clearLocalLibraryData()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e("MusicRepository", "Failed to clear local DB cache on logout: ${e.message}", e)
         } finally {
@@ -968,14 +1087,17 @@ class MusicRepository(
             return true
         }
 
-        fun parseArtists(rawArtist: String): Set<String> {
-            if (rawArtist.isBlank()) return emptySet()
+        private fun splitArtistNames(rawArtist: String): List<String> {
+            if (rawArtist.isBlank()) return emptyList()
             return rawArtist
                 .split(Regex("(?i)[;,/&]|\\b(?:feat\\.?|ft\\.?|featuring|vs\\.?|with)\\b"))
-                .map { it.trim().lowercase() }
+                .map { it.trim() }
                 .filter { it.isNotBlank() }
-                .toSet()
+                .distinctBy { it.lowercase() }
         }
+
+        fun parseArtists(rawArtist: String): Set<String> =
+            splitArtistNames(rawArtist).map { it.lowercase() }.toSet()
 
         fun cleanSongTitle(title: String): String {
             if (title.isBlank()) return ""
@@ -1050,7 +1172,7 @@ class MusicRepository(
             if (cleanCand.contains("instrumental") || cleanCand == "instrumentals") return true
             if (cleanMain == cleanCand) return true
             if (cleanMain.contains(cleanCand) || cleanCand.contains(cleanMain)) return true
-            return true
+            return false
         }
 
         fun findMatchingInstrumental(mainSong: Song, allSongsList: List<Song>): Song? {
@@ -1155,19 +1277,11 @@ class MusicRepository(
                 if (song.isInstrumentalTrack) continue
                 val rawArtist = song.artist.trim()
                 if (rawArtist.isNotBlank()) {
-                    val individualArtists = rawArtist.split(';')
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-
-                    if (individualArtists.isEmpty()) {
-                        val key = rawArtist.lowercase()
+                    val individualArtists = splitArtistNames(rawArtist)
+                    for (individual in individualArtists) {
+                        val key = individual.lowercase()
                         artistMap.getOrPut(key) { mutableListOf() }.add(song)
-                        canonicalNames.putIfAbsent(key, rawArtist)
-                    } else {
-                        for (individual in individualArtists) {                            val key = individual.lowercase()
-                            artistMap.getOrPut(key) { mutableListOf() }.add(song)
-                            canonicalNames.putIfAbsent(key, individual)
-                        }
+                        canonicalNames.putIfAbsent(key, individual)
                     }
                 }
             }
