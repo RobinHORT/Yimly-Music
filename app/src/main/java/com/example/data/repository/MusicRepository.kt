@@ -27,11 +27,17 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import retrofit2.HttpException
 import android.util.Log
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
@@ -71,6 +77,58 @@ class MusicRepository(
 ) {
 
     private val playlistLastSyncTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    fun networkConnectivityFlow(): Flow<Boolean> = callbackFlow {
+        val connectivityManager = context?.getSystemService(android.content.Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        if (connectivityManager == null) {
+            trySend(false)
+            close()
+            return@callbackFlow
+        }
+
+        fun hasValidatedInternet(): Boolean {
+            val network = connectivityManager.activeNetwork ?: return false
+            val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+            return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+        }
+
+        val callback = object : ConnectivityManager.NetworkCallback() {
+            override fun onAvailable(network: Network) {
+                trySend(hasValidatedInternet())
+            }
+
+            override fun onLost(network: Network) {
+                trySend(hasValidatedInternet())
+            }
+
+            override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+                trySend(
+                    networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                        networkCapabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                )
+            }
+
+            override fun onUnavailable() {
+                trySend(false)
+            }
+        }
+
+        trySend(hasValidatedInternet())
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .build()
+        try {
+            connectivityManager.registerNetworkCallback(request, callback)
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Unable to register network connectivity callback", e)
+        }
+
+        awaitClose {
+            runCatching { connectivityManager.unregisterNetworkCallback(callback) }
+        }
+    }
 
     private val songResponseMoshi: Moshi by lazy {
         Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build()
