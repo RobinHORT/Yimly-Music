@@ -10,8 +10,6 @@ import com.example.R
 
 // Yorkmade Pro is the fixed app-wide typeface. Keep the lyric typeface separate.
 val YorkmadePro = FontFamily(
-    Font(R.font.yorkmadeprodemothin, FontWeight.Thin),
-    Font(R.font.yorkmadeprodemoextralight, FontWeight.ExtraLight),
     Font(R.font.yorkmadeprodemolight, FontWeight.Light),
     Font(R.font.yorkmadeprodemomedium, FontWeight.Medium),
     Font(R.font.yorkmadeprodemosemibold, FontWeight.SemiBold),
