@@ -81,6 +81,21 @@ class ExampleUnitTest {
     }
 
     @Test
+    fun testArtistParsingPreservesBandNamesContainingAmpersandsAndCommas() {
+        val songs = listOf(
+            Song(id = "band_1", title = "Track 1", artist = "Simon & Garfunkel"),
+            Song(id = "band_2", title = "Track 2", artist = "Earth, Wind & Fire"),
+            Song(id = "band_3", title = "Track 3", artist = "Above & Beyond")
+        )
+
+        val artists = MusicRepository.deriveArtistsFromSongs(songs)
+        assertEquals(3, artists.size)
+        assertTrue(artists.any { it.name == "Simon & Garfunkel" })
+        assertTrue(artists.any { it.name == "Earth, Wind & Fire" })
+        assertTrue(artists.any { it.name == "Above & Beyond" })
+    }
+
+    @Test
     fun testInstrumentalMatchingWithMultipleArtists() {
         val mainSong = Song(
             id = "main_1",
