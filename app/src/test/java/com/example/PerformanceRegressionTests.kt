@@ -1390,6 +1390,19 @@ class PerformanceRegressionTests {
             assertNotNull(songsPage0)
             assertEquals("Page size 1 must return exactly 1 item", 1, songsPage0!!.size)
 
+            // Android Auto search returns matching local songs with stable media IDs.
+            val searchResult = callback.onGetSearchResult(session, controllerInfo, "Track 1", 0, 10, null).get()
+            assertEquals(androidx.media3.session.LibraryResult.RESULT_SUCCESS, searchResult.resultCode)
+            assertEquals(1, searchResult.value?.size)
+            assertEquals("all_song|s1", searchResult.value?.first()?.mediaId)
+
+            // A missing library item must be skipped rather than returned as unplayable.
+            val missingItem = androidx.media3.common.MediaItem.Builder()
+                .setMediaId("all_song|missing_song")
+                .build()
+            val missingResolution = callback.onAddMediaItems(session, controllerInfo, listOf(missingItem)).get()
+            assertTrue(missingResolution.isEmpty())
+
             // Test songs page 1 out of bounds
             val songsPage10Future = callback.onGetChildren(session, controllerInfo, "songs", 10, 10, null)
             val songsPage10Result = songsPage10Future.get()
