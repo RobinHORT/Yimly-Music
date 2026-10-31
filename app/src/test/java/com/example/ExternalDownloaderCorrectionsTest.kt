@@ -280,6 +280,72 @@ class ExternalDownloaderCorrectionsTest {
     }
 
     @Test
+    fun testDifferentAlbumVersionIsNotMistakenForAnExistingTrack() = runBlocking {
+        database.musicDao().upsertSong(
+            Song(
+                id = "original_version",
+                title = "Versioned Track",
+                artist = "Artist V",
+                album = "Original Album",
+                durationSeconds = 200L
+            ).toEntity()
+        )
+        val remix = ExternalTrack(
+            title = "Versioned Track",
+            artist = "Artist V",
+            album = "Remix Album",
+            durationSeconds = 230L
+        )
+        fakeApi.jobResponse = DownloaderJobResponse(id = "job_remix", status = "completed")
+        fakeApi.songs = listOf(
+            Song(
+                id = "remix_version",
+                title = "Versioned Track",
+                artist = "Artist V",
+                album = "Remix Album",
+                durationSeconds = 230L
+            )
+        )
+
+        var resultId: String? = null
+        viewModel.downloadExternalTrack(remix) { resultId = it }
+        var attempts = 0
+        while (resultId == null && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals("remix_version", resultId)
+        assertEquals(1, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
+    fun testSameAlbumVersionIsReusedWithoutStartingAnotherDownload() = runBlocking {
+        val existing = Song(
+            id = "existing_version",
+            title = "Existing Track",
+            artist = "Artist E",
+            album = "Original Album",
+            durationSeconds = 205L
+        )
+        database.musicDao().upsertSong(existing.toEntity())
+        val track = ExternalTrack(
+            title = "existing track",
+            artist = "artist e",
+            album = "Original Album",
+            durationSeconds = 205L
+        )
+
+        var resultId: String? = null
+        viewModel.downloadExternalTrack(track) { resultId = it }
+        pumpLooper(100L)
+
+        assertEquals("existing_version", resultId)
+        assertEquals(0, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
     fun testTransientPollingErrorsRecoverAndCompleteDownload() = runBlocking {
         val track = ExternalTrack(title = "Poll Recovery", artist = "Artist P")
         fakeApi.pollFailuresRemaining = 3
