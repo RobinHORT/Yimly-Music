@@ -158,7 +158,7 @@ class PlaybackManager(
                 .setId("yimly_session_${System.identityHashCode(this)}_${System.nanoTime()}")
                 .setCustomLayout(
                     listOf(
-                        CommandButton.Builder(CommandButton.ICON_SHUFFLE)
+                        CommandButton.Builder(CommandButton.ICON_SHUFFLE_ON)
                             .setDisplayName("Shuffle Playlist")
                             .setSessionCommand(
                                 androidx.media3.session.SessionCommand(
