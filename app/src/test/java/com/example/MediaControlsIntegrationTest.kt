@@ -182,6 +182,26 @@ class MediaControlsIntegrationTest {
     }
 
     @Test
+    fun androidAutoNextAndPreviousRemainAvailableAtShuffleAndRepeatBoundaries() {
+        val queue = listOf(song1, song2, song3)
+        playbackManager.playSong(song3, queue, startIndex = 2)
+        val player = playbackManager.mediaSession!!.player
+
+        playbackManager.setShuffle(true)
+        assertTrue(player.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT))
+        assertTrue(player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS))
+        player.seekToNext()
+        assertTrue(playbackManager.playbackInfo.value.currentQueueIndex != 2)
+
+        playbackManager.setShuffle(false)
+        playbackManager.setRepeatMode(RepeatMode.ALL)
+        playbackManager.playSong(song3, queue, startIndex = 2)
+        assertTrue(player.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT))
+        player.seekToNext()
+        assertEquals(0, playbackManager.playbackInfo.value.currentQueueIndex)
+    }
+
+    @Test
     fun testRepeatAndShuffleModeMapping() {
         val session = playbackManager.mediaSession!!
         val player = session.player
