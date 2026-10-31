@@ -346,10 +346,9 @@ class MainViewModel(
             try {
                 musicRepository.addSongToPlaylist(playlistId, songId)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                failed.add(playlistId)
                 synchronized(pendingPlaylistRequests) {
                     val existing = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
-                    failed.filterNot { it in existing }.forEach(existing::add)
+                    pending.filterNot { it in existing }.forEach(existing::add)
                 }
                 throw cancelled
             } catch (e: Exception) {
@@ -378,6 +377,11 @@ class MainViewModel(
                 if (existingId != null) {
                     completedTrackSongIdMap[key] = existingId
                     _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existingId)
+                    synchronized(pendingPlaylistRequests) {
+                        val pending = pendingPlaylistRequests[key]
+                        pending?.remove(playlistId)
+                        if (pending.isNullOrEmpty()) pendingPlaylistRequests.remove(key)
+                    }
                     musicRepository.addSongToPlaylist(playlistId, existingId)
                     _uiMessage.value = "Added to playlist"
                     return@launch
