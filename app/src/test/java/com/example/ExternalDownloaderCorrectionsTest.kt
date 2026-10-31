@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.api.YimlyApiService
 import com.example.data.datastore.PreferencesManager
 import com.example.data.db.YimlyDatabase
+import com.example.data.db.toEntity
 import com.example.data.models.DownloaderJobResponse
 import com.example.data.models.DownloaderJobTrack
 import com.example.data.models.DownloaderResolveRequest
@@ -71,6 +72,17 @@ class ExternalDownloaderCorrectionsTest {
         // ... (existing code)
 
         var retryDownloadCallCount = 0
+        var pollFailuresRemaining = 0
+        var downloadJobPollCount = 0
+        val playlistAddCalls = mutableListOf<Pair<String, String>>()
+
+        override suspend fun addSongToPlaylist(
+            id: String,
+            request: com.example.data.models.AddPlaylistSongRequest
+        ): Map<String, Any> {
+            playlistAddCalls.add(id to request.songId)
+            return mapOf("success" to true)
+        }
 
         override suspend fun getProfile(): UserProfile {
             return UserProfile(
@@ -110,6 +122,11 @@ class ExternalDownloaderCorrectionsTest {
         }
 
         override suspend fun getDownloadJob(jobId: String): DownloaderJobResponse {
+            downloadJobPollCount++
+            if (pollFailuresRemaining > 0) {
+                pollFailuresRemaining--
+                throw java.io.IOException("Temporary downloader polling failure")
+            }
             return jobResponse
         }
 
@@ -198,7 +215,7 @@ class ExternalDownloaderCorrectionsTest {
         }
 
         assertEquals("server_song_999", completedSongId)
-        val status = viewModel.downloadStatusMap.value["nightcall|kavinsky"]
+        val status = viewModel.downloadStatusMap.value["nightcall|kavinsky|drive|259"]
         assertEquals("Completed", status)
         assertEquals(1, fakeApi.startDownloadCallCount)
         assertEquals("configured_library_42", fakeApi.capturedLibraryId)
@@ -264,6 +281,185 @@ class ExternalDownloaderCorrectionsTest {
     }
 
     @Test
+    fun testDifferentAlbumVersionIsNotMistakenForAnExistingTrack() = runBlocking {
+        database.musicDao().upsertSong(
+            Song(
+                id = "original_version",
+                title = "Versioned Track",
+                artist = "Artist V",
+                album = "Original Album",
+                durationSeconds = 200L
+            ).toEntity()
+        )
+        val remix = ExternalTrack(
+            title = "Versioned Track",
+            artist = "Artist V",
+            album = "Remix Album",
+            durationSeconds = 230L
+        )
+        fakeApi.jobResponse = DownloaderJobResponse(id = "job_remix", status = "completed")
+        fakeApi.songs = listOf(
+            Song(
+                id = "remix_version",
+                title = "Versioned Track",
+                artist = "Artist V",
+                album = "Remix Album",
+                durationSeconds = 230L
+            )
+        )
+
+        var resultId: String? = null
+        viewModel.downloadExternalTrack(remix) { resultId = it }
+        var attempts = 0
+        while (resultId == null && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals("remix_version", resultId)
+        assertEquals(1, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
+    fun testSameAlbumVersionIsReusedWithoutStartingAnotherDownload() = runBlocking {
+        val existing = Song(
+            id = "existing_version",
+            title = "Existing Track",
+            artist = "Artist E",
+            album = "Original Album",
+            durationSeconds = 205L
+        )
+        database.musicDao().upsertSong(existing.toEntity())
+        val track = ExternalTrack(
+            title = "existing track",
+            artist = "artist e",
+            album = "Original Album",
+            durationSeconds = 205L
+        )
+
+        var resultId: String? = null
+        viewModel.downloadExternalTrack(track) { resultId = it }
+        var attempts = 0
+        while (resultId == null && attempts < 50) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals("existing_version", resultId)
+        assertEquals(0, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
+    fun testTransientPollingErrorsRecoverAndCompleteDownload() = runBlocking {
+        val track = ExternalTrack(title = "Poll Recovery", artist = "Artist P")
+        fakeApi.pollFailuresRemaining = 3
+        fakeApi.jobResponse = DownloaderJobResponse(id = "job_poll", status = "completed")
+        fakeApi.songs = listOf(Song(id = "poll_song_1", title = "Poll Recovery", artist = "Artist P"))
+
+        var resultId: String? = null
+        viewModel.downloadExternalTrack(track) { resultId = it }
+        var attempts = 0
+        while (resultId == null && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals("poll_song_1", resultId)
+        assertEquals(4, fakeApi.downloadJobPollCount)
+        assertEquals("Completed", viewModel.downloadStatusMap.value["poll recovery|artist p"])
+    }
+
+    @Test
+    fun testPersistentPollingErrorsFailClearlyInsteadOfBeingSwallowed() = runBlocking {
+        val track = ExternalTrack(title = "Poll Failure", artist = "Artist F")
+        fakeApi.pollFailuresRemaining = 10
+
+        var callbackCalled = false
+        var resultId: String? = "sentinel"
+        viewModel.downloadExternalTrack(track) {
+            callbackCalled = true
+            resultId = it
+        }
+        var attempts = 0
+        while (!callbackCalled && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertTrue(callbackCalled)
+        assertNull(resultId)
+        assertEquals(5, fakeApi.downloadJobPollCount)
+        assertEquals(
+            "Failed: Unable to check download status",
+            viewModel.downloadStatusMap.value["poll failure|artist f"]
+        )
+    }
+
+    @Test
+    fun testLogoutCancelsActiveDownloadAndClearsDownloaderState() = runBlocking {
+        val track = ExternalTrack(title = "Logout During Download", artist = "Artist L")
+        fakeApi.pollFailuresRemaining = 1000
+        viewModel.downloaderPollDelayMs = 1000L
+
+        viewModel.downloadExternalTrack(track)
+        var attempts = 0
+        while (fakeApi.downloadJobPollCount == 0 && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+        assertTrue(fakeApi.downloadJobPollCount > 0)
+
+        viewModel.logout()
+        attempts = 0
+        while (viewModel.downloadStatusMap.value.isNotEmpty() && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertTrue(viewModel.downloadStatusMap.value.isEmpty())
+        assertTrue(viewModel.downloadProgressMap.value.isEmpty())
+        assertTrue(viewModel.completedTrackSongIds.value.isEmpty())
+    }
+
+    @Test
+    fun testFailedDownloadDoesNotCarryItsPlaylistRequestIntoTheNextAttempt() = runBlocking {
+        val track = ExternalTrack(title = "Pending Cleanup", artist = "Artist P")
+        fakeApi.jobResponse = DownloaderJobResponse(
+            id = "job_failed_first",
+            status = "failed",
+            tracks = listOf(DownloaderJobTrack(title = track.title, artist = track.artist, status = "failed"))
+        )
+
+        viewModel.registerPendingPlaylistAdd(track, "failed_playlist")
+        var attempts = 0
+        while (viewModel.downloadStatusMap.value["pending cleanup|artist p"]?.startsWith("Failed") != true && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+        assertTrue(viewModel.downloadStatusMap.value["pending cleanup|artist p"]?.startsWith("Failed") == true)
+
+        fakeApi.jobResponse = DownloaderJobResponse(id = "job_success_second", status = "completed")
+        fakeApi.songs = listOf(Song(id = "pending_song_1", title = track.title, artist = track.artist))
+        viewModel.registerPendingPlaylistAdd(track, "successful_playlist")
+        attempts = 0
+        while (fakeApi.playlistAddCalls.isEmpty() && attempts < 150) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals(listOf("successful_playlist" to "pending_song_1"), fakeApi.playlistAddCalls)
+        assertEquals(2, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
     fun testMissingDownloaderSettingsDoesNotFallbackToHardcodedLibrary() = runBlocking {
         val track = ExternalTrack(title = "No Lib Track", artist = "Artist N")
         fakeApi.settingsLibraryId = null // Server returns null/empty library ID
@@ -320,22 +516,34 @@ class ExternalDownloaderCorrectionsTest {
 
     @Test
     fun testDownloadThenAddPlaylistSequenceRetainsIdAndPreventsDuplicateDownload() = runBlocking {
-        // 1. Start with a missing song
-        val track = ExternalTrack(title = "Playlist Sequence Track", artist = "Sequence Artist")
+        val track = ExternalTrack(
+            title = "Playlist Sequence Track",
+            artist = "Sequence Artist",
+            durationSeconds = 180L
+        )
         fakeApi.jobResponse = DownloaderJobResponse(
             id = "job_sequence",
             status = "completed",
-            tracks = listOf(DownloaderJobTrack(title = "Playlist Sequence Track", artist = "Sequence Artist", status = "completed", progress = 100))
+            tracks = listOf(
+                DownloaderJobTrack(
+                    title = "Playlist Sequence Track",
+                    artist = "Sequence Artist",
+                    status = "completed",
+                    progress = 100
+                )
+            )
         )
         fakeApi.songs = listOf(
-            Song(id = "server_seq_123", title = "Playlist Sequence Track", artist = "Sequence Artist", durationSeconds = 180L)
+            Song(
+                id = "server_seq_123",
+                title = "Playlist Sequence Track",
+                artist = "Sequence Artist",
+                durationSeconds = 180L
+            )
         )
 
         var downloadResultId: String? = null
-        viewModel.downloadExternalTrack(track) { id ->
-            downloadResultId = id
-        }
-
+        viewModel.downloadExternalTrack(track) { id -> downloadResultId = id }
         var attempts = 0
         while (downloadResultId == null && attempts < 100) {
             pumpLooper(100L)
@@ -345,31 +553,19 @@ class ExternalDownloaderCorrectionsTest {
         assertEquals("server_seq_123", downloadResultId)
         assertEquals(1, fakeApi.startDownloadCallCount)
 
-        // 2. Press + (register playlist request) on the now-downloaded track
-        var playlistCallbackCalled = false
-        // Assuming we mock adding to playlist
         viewModel.registerPendingPlaylistAdd(track, "playlist_abc")
-        
-        // After indexing/downloading completes, verify if the song is added to playlist (MusicRepository.addSongToPlaylist)
-        // Since syncAndIndexTrack handles pendingPlaylistRequests, we need to ensure it's triggered.
-        // If it's already downloaded, downloadExternalTrack triggers syncAndIndexTrack or uses the cached ID?
-        // Wait, downloadExternalTrack for an already downloaded song calls onComplete immediately.
-        // My implementation in downloadExternalTrack:
-        // if (existing != null) { ... onComplete?.invoke(existing.id); return }
-        
-        // This means it doesn't call registerPendingPlaylistAdd logic automatically unless I trigger it in the ViewModel.
-        // Actually, registerPendingPlaylistAdd calls downloadExternalTrack.
-        // My previous MainViewModel.kt implementation was:
-        /*
-        fun registerPendingPlaylistAdd(track: ..., playlistId: String) {
-            ...
-            downloadExternalTrack(track)
+        var playlistAttempts = 0
+        while (fakeApi.playlistAddCalls.isEmpty() && playlistAttempts < 50) {
+            pumpLooper(100L)
+            kotlinx.coroutines.delay(10L)
+            playlistAttempts++
         }
-        */
-        // If downloadExternalTrack hits the `existing` case, it returns early.
-        // I need to make sure `registerPendingPlaylistAdd` handles the `existing` case by adding to playlist immediately.
-        
-        // Let me fix MainViewModel to handle the `existing` case in registerPendingPlaylistAdd as well.
+
+        assertEquals(1, fakeApi.playlistAddCalls.size)
+        assertEquals("playlist_abc", fakeApi.playlistAddCalls.single().first)
+        assertEquals("server_seq_123", fakeApi.playlistAddCalls.single().second)
+        assertEquals("A previously downloaded song must not be downloaded again", 1, fakeApi.startDownloadCallCount)
     }
+
 }
 

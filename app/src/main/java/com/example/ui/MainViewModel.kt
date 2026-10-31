@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MainViewModel(
@@ -129,6 +131,7 @@ class MainViewModel(
 
     // Downloader State
     private val downloadingTrackKeys = mutableSetOf<String>()
+    private val activeDownloadJobs = mutableSetOf<Job>()
     private val completedTrackSongIdMap = mutableMapOf<String, String>()
     private val pendingPlaylistRequests = mutableMapOf<String, MutableList<String>>() // Key: track, Value: PlaylistIDs
     
@@ -141,185 +144,281 @@ class MainViewModel(
     private val _downloadStatusMap = MutableStateFlow<Map<String, String>>(emptyMap())
     val downloadStatusMap: StateFlow<Map<String, String>> = _downloadStatusMap.asStateFlow()
 
+    private fun trackActiveDownloadJob(job: Job) {
+        synchronized(activeDownloadJobs) { activeDownloadJobs.add(job) }
+        job.invokeOnCompletion {
+            synchronized(activeDownloadJobs) { activeDownloadJobs.remove(job) }
+        }
+    }
+
+    private suspend fun cancelActiveDownloads() {
+        val jobs = synchronized(activeDownloadJobs) { activeDownloadJobs.toList() }
+        jobs.forEach { it.cancel() }
+        jobs.forEach { it.join() }
+        synchronized(activeDownloadJobs) { activeDownloadJobs.removeAll(jobs.toSet()) }
+        synchronized(downloadingTrackKeys) { downloadingTrackKeys.clear() }
+        synchronized(pendingPlaylistRequests) { pendingPlaylistRequests.clear() }
+    }
+
     internal var downloaderPollDelayMs: Long = 1500L
     internal var downloaderIndexingDelayMs: Long = 1500L
 
     fun getCompletedSongId(track: com.example.data.models.ExternalTrack): String? {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
         val id = completedTrackSongIdMap[key]
-        if (id != null) return id
-        
-        // Fallback to DB
-        val existing = allSongs.value.firstOrNull {
-            it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true)
+        if (id != null && allSongs.value.any { it.id == id }) return id
+        if (id != null) {
+            completedTrackSongIdMap.remove(key)
+            _completedTrackSongIds.value = _completedTrackSongIds.value - key
+        }
+
+        // Fallback to the currently observed library snapshot.
+        val existing = allSongs.value.firstOrNull { MusicRepository.isSameExternalTrack(it, track) }
+        if (existing != null) {
+            completedTrackSongIdMap[key] = existing.id
+            _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existing.id)
         }
         return existing?.id
     }
 
     fun downloadExternalTrack(track: com.example.data.models.ExternalTrack, onComplete: ((String?) -> Unit)? = null) {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
 
-        viewModelScope.launch {
-            // 1. Database Check for existing song
-            val existing = musicRepository.getAllSongsSnapshot().firstOrNull {
-                it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true)
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            val existing = try {
+                musicRepository.getAllSongsSnapshot().firstOrNull {
+                    MusicRepository.isSameExternalTrack(it, track)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                val message = "Failed to check the local library: ${e.message ?: "Unknown error"}"
+                _downloadStatusMap.value = _downloadStatusMap.value + (key to message)
+                _uiMessage.value = message
+                onComplete?.invoke(null)
+                return@launch
             }
+
             if (existing != null) {
                 completedTrackSongIdMap[key] = existing.id
                 _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existing.id)
                 _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
                 _downloadProgressMap.value = _downloadProgressMap.value + (key to 100)
+                processPendingPlaylistRequests(key, existing.id)
                 onComplete?.invoke(existing.id)
                 return@launch
             }
 
-            // 2. Prevent concurrent duplicate downloads for the same track
             synchronized(downloadingTrackKeys) {
                 if (key in downloadingTrackKeys) return@launch
                 downloadingTrackKeys.add(key)
             }
 
             try {
-                // Snapshot existing song IDs before download
                 val preExistingIds = musicRepository.getAllSongsSnapshot().map { it.id }.toSet()
-
                 _downloadStatusMap.value = _downloadStatusMap.value + (key to "Resolving library...")
 
-                // Step 1: Query downloader settings.
-                val libraryId: String = try {
+                val libraryId = try {
                     val settings = musicRepository.getDownloaderSettings()
-                    val id = settings.libraryId
-                    if (id.isNullOrBlank()) {
-                        throw Exception("No library configured")
-                    }
-                    id
+                    settings.libraryId?.takeIf { it.isNotBlank() }
+                        ?: throw IllegalStateException("No library configured")
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
-                    val errorMsg = if (e is retrofit2.HttpException && (e.code() == 403 || e.code() == 401)) {
+                    val message = if (e is retrofit2.HttpException && (e.code() == 401 || e.code() == 403)) {
                         "Access denied: Administrator privileges required."
                     } else if (e.message == "No library configured") {
                         "Failed: No library configured"
                     } else {
                         "Failed: ${e.message ?: "Unknown error"}"
                     }
-                    _downloadStatusMap.value = _downloadStatusMap.value + (key to errorMsg)
-                    _uiMessage.value = errorMsg
+                    _downloadStatusMap.value = _downloadStatusMap.value + (key to message)
+                    _uiMessage.value = message
                     onComplete?.invoke(null)
                     return@launch
                 }
 
-                // Step 2: Start download
                 _downloadStatusMap.value = _downloadStatusMap.value + (key to "Starting download...")
                 val jobId = try {
                     musicRepository.startDownload(libraryId, listOf(track)).jobId
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
-                    _downloadStatusMap.value = _downloadStatusMap.value + (key to "Failed: Download rejected")
-                    _uiMessage.value = "Failed to start download: ${e.message}"
+                    val message = "Failed: Download rejected"
+                    _downloadStatusMap.value = _downloadStatusMap.value + (key to message)
+                    _uiMessage.value = "Failed to start download: ${e.message ?: "Unknown error"}"
                     onComplete?.invoke(null)
                     return@launch
                 }
 
-                // Step 3: Poll job
                 var isJobFinished = false
                 var isDownloadSuccessful = false
                 var failureReason: String? = null
                 var pollCount = 0
+                var consecutivePollFailures = 0
                 val maxPolls = 120
+                val maxConsecutivePollFailures = 5
                 var hasAttemptedRetry = false
+                val activeStatuses = setOf("queued", "pending", "downloading", "running", "searching", "tagging", "processing", "retrying")
 
                 while (!isJobFinished && pollCount < maxPolls) {
                     kotlinx.coroutines.delay(downloaderPollDelayMs)
                     pollCount++
                     try {
                         val job = musicRepository.getDownloadJob(jobId)
-                        val overallStatus = job.status.lowercase()
-                        val jobTrack = job.tracks.firstOrNull { it.title.equals(track.title, true) && it.artist.equals(track.artist, true) }
-                        val trackStatus = jobTrack?.status?.lowercase()
-                        val prog = jobTrack?.progress ?: if (overallStatus == "completed") 100 else 0
+                        consecutivePollFailures = 0
+                        val overallStatus = job.status.trim().lowercase()
+                        val jobTrack = job.tracks.firstOrNull {
+                            it.title.equals(track.title, ignoreCase = true) &&
+                                it.artist.equals(track.artist, ignoreCase = true)
+                        }
+                        val trackStatus = jobTrack?.status?.trim()?.lowercase()
+                        val progress = jobTrack?.progress ?: if (overallStatus == "completed") 100 else 0
+                        _downloadProgressMap.value = _downloadProgressMap.value + (key to progress.coerceIn(0, 100))
 
-                        _downloadProgressMap.value = _downloadProgressMap.value + (key to prog)
-                        val statusStr = "${trackStatus ?: overallStatus} ($prog%)"
-                        println("DownloaderDebug: Key=$key, Status=$statusStr, Overall=$overallStatus, Track=$trackStatus")
-                        
-                        if (overallStatus == "completed" || trackStatus == "completed") {
-                            if (trackStatus == "failed") {
+                        when {
+                            trackStatus == "failed" || overallStatus == "failed" -> {
+                                if (!hasAttemptedRetry) {
+                                    hasAttemptedRetry = true
+                                    _downloadStatusMap.value = _downloadStatusMap.value + (key to "Retrying")
+                                    musicRepository.retryDownloadJob(jobId)
+                                } else {
+                                    isJobFinished = true
+                                    failureReason = "Failed: Job failed"
+                                }
+                            }
+                            trackStatus == "cancelled" || overallStatus == "cancelled" -> {
                                 isJobFinished = true
-                                isDownloadSuccessful = false
-                                failureReason = "Failed: Track failed"
-                                println("DownloaderDebug: Job failed: track failed for $key")
-                            } else {
+                                failureReason = "Cancelled"
+                            }
+                            overallStatus == "completed" || trackStatus == "completed" -> {
                                 isJobFinished = true
                                 isDownloadSuccessful = true
+                                _downloadProgressMap.value = _downloadProgressMap.value + (key to 100)
                                 _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
-                                println("DownloaderDebug: Job completed successfully for $key")
                             }
-                        } else if (overallStatus == "failed" || trackStatus == "failed") {
-                            if (!hasAttemptedRetry) {
-                                hasAttemptedRetry = true
-                                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Retrying")
-                                musicRepository.retryDownloadJob(jobId)
-                                println("DownloaderDebug: Job failed, retrying $key")
-                            } else {
+                            overallStatus !in activeStatuses && (trackStatus == null || trackStatus !in activeStatuses) -> {
                                 isJobFinished = true
-                                isDownloadSuccessful = false
-                                failureReason = "Failed: Job failed"
-                                println("DownloaderDebug: Job failed, retry failed for $key")
+                                failureReason = "Failed: Unexpected download status: ${overallStatus.ifBlank { "unknown" }}"
                             }
-                        } else if (overallStatus == "cancelled" || trackStatus == "cancelled") {
-                            isJobFinished = true
-                            isDownloadSuccessful = false
-                            failureReason = "Cancelled"
-                            println("DownloaderDebug: Job cancelled for $key")
-                        } else if (overallStatus !in listOf("queued", "downloading", "running", "searching", "tagging") &&
-                            trackStatus !in listOf("queued", "downloading", "running", "searching", "tagging", null)) {
-                             isJobFinished = true
-                             isDownloadSuccessful = false
-                             failureReason = "Failed: Unexpected status: $overallStatus"
-                             _uiMessage.value = failureReason
-                             println("DownloaderDebug: Job failed: $failureReason for $key")
-                        } else {
-                             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Downloading")
-                             println("DownloaderDebug: Job downloading $key")
+                            else -> {
+                                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Downloading")
+                            }
                         }
-                    } catch (_: Exception) {}
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        consecutivePollFailures++
+                        _downloadStatusMap.value = _downloadStatusMap.value +
+                            (key to "Checking download status ($consecutivePollFailures/$maxConsecutivePollFailures)")
+                        android.util.Log.w("MainViewModel", "Download status poll failed for job $jobId", e)
+                        if (consecutivePollFailures >= maxConsecutivePollFailures) {
+                            isJobFinished = true
+                            failureReason = "Failed: Unable to check download status"
+                        }
+                    }
+                }
+
+                if (!isJobFinished && pollCount >= maxPolls) {
+                    failureReason = "Failed: Download status timed out"
                 }
 
                 if (isDownloadSuccessful) {
                     syncAndIndexTrack(track, preExistingIds, onComplete)
                 } else {
-                    _downloadStatusMap.value = _downloadStatusMap.value + (key to (failureReason ?: "Failed"))
+                    val message = failureReason ?: "Failed: Download did not complete"
+                    _downloadStatusMap.value = _downloadStatusMap.value + (key to message)
+                    if (message.startsWith("Failed")) _uiMessage.value = message
                     onComplete?.invoke(null)
                 }
-
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Cancelled")
+                throw cancelled
+            } catch (e: Exception) {
+                val message = "Failed: ${e.message ?: "Unexpected download error"}"
+                _downloadStatusMap.value = _downloadStatusMap.value + (key to message)
+                _uiMessage.value = message
+                onComplete?.invoke(null)
             } finally {
+                val finalStatus = _downloadStatusMap.value[key].orEmpty()
+                if (finalStatus.startsWith("Failed") ||
+                    finalStatus.startsWith("Access denied") ||
+                    finalStatus == "Cancelled"
+                ) {
+                    synchronized(pendingPlaylistRequests) {
+                        pendingPlaylistRequests.remove(key)
+                    }
+                }
                 synchronized(downloadingTrackKeys) {
                     downloadingTrackKeys.remove(key)
                 }
             }
         }
+        trackActiveDownloadJob(job)
+        job.start()
+    }
+
+    private suspend fun processPendingPlaylistRequests(key: String, songId: String) {
+        val pending = synchronized(pendingPlaylistRequests) {
+            pendingPlaylistRequests.remove(key) ?: emptyList()
+        }
+        val failed = mutableListOf<String>()
+        for (playlistId in pending) {
+            try {
+                musicRepository.addSongToPlaylist(playlistId, songId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                synchronized(pendingPlaylistRequests) {
+                    val existing = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                    pending.filterNot { it in existing }.forEach(existing::add)
+                }
+                throw cancelled
+            } catch (e: Exception) {
+                failed.add(playlistId)
+                _uiMessage.value = "Failed to add song to playlist: ${e.message ?: "Unknown error"}"
+            }
+        }
+        if (failed.isNotEmpty()) {
+            synchronized(pendingPlaylistRequests) {
+                val existing = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                failed.filterNot { it in existing }.forEach(existing::add)
+            }
+        } else if (pending.isNotEmpty()) {
+            _uiMessage.value = "Added song to playlist"
+        }
     }
 
     fun registerPendingPlaylistAdd(track: com.example.data.models.ExternalTrack, playlistId: String) {
-        val key = "${track.title}|${track.artist}".lowercase()
-        
-        // Check if already downloaded
-        val existing = getCompletedSongId(track)
-        if (existing != null) {
-            viewModelScope.launch {
-                try {
-                    musicRepository.addSongToPlaylist(playlistId, existing)
+        val key = MusicRepository.externalTrackIdentity(track)
+        viewModelScope.launch {
+            try {
+                val existingId = getCompletedSongId(track)
+                    ?: musicRepository.getAllSongsSnapshot()
+                        .firstOrNull { MusicRepository.isSameExternalTrack(it, track) }
+                        ?.id
+                if (existingId != null) {
+                    completedTrackSongIdMap[key] = existingId
+                    _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existingId)
+                    synchronized(pendingPlaylistRequests) {
+                        val pending = pendingPlaylistRequests[key]
+                        pending?.remove(playlistId)
+                        if (pending.isNullOrEmpty()) pendingPlaylistRequests.remove(key)
+                    }
+                    musicRepository.addSongToPlaylist(playlistId, existingId)
                     _uiMessage.value = "Added to playlist"
-                } catch (e: Exception) {
-                    _uiMessage.value = "Failed to add song to playlist: ${e.message}"
+                    return@launch
                 }
-            }
-            return
-        }
 
-        synchronized(pendingPlaylistRequests) {
-            val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
-            if (playlistId !in list) list.add(playlistId)
+                synchronized(pendingPlaylistRequests) {
+                    val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                    if (playlistId !in list) list.add(playlistId)
+                }
+                downloadExternalTrack(track)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                _uiMessage.value = "Failed to add song to playlist: ${e.message ?: "Unknown error"}"
+            }
         }
-        downloadExternalTrack(track)
     }
 
     private suspend fun syncAndIndexTrack(
@@ -327,20 +426,33 @@ class MainViewModel(
         preExistingIds: Set<String>,
         onComplete: ((String?) -> Unit)?
     ) {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
         _downloadStatusMap.value = _downloadStatusMap.value + (key to "Indexing...")
 
         var newlyIndexedId: String? = null
+        var lastSyncError: Throwable? = null
         for (syncAttempt in 1..8) {
             kotlinx.coroutines.delay(downloaderIndexingDelayMs)
             try {
-                musicRepository.syncWithBackend()
-            } catch (_: Exception) {}
+                val result = musicRepository.syncWithBackend()
+                if (result.isFailure) lastSyncError = result.exceptionOrNull()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                lastSyncError = e
+                android.util.Log.w("MainViewModel", "Library sync attempt $syncAttempt failed while indexing ${track.title}", e)
+            }
 
-            val currentSongs = musicRepository.getAllSongsSnapshot()
-            val newSong = currentSongs.firstOrNull { s ->
-                s.title.equals(track.title, ignoreCase = true) &&
-                    s.artist.equals(track.artist, ignoreCase = true)
+            val currentSongs = try {
+                musicRepository.getAllSongsSnapshot()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                lastSyncError = e
+                emptyList()
+            }
+            val newSong = currentSongs.firstOrNull { song ->
+                song.id !in preExistingIds && MusicRepository.isSameExternalTrack(song, track)
             }
 
             if (newSong != null) {
@@ -353,33 +465,24 @@ class MainViewModel(
             completedTrackSongIdMap[key] = newlyIndexedId
             _completedTrackSongIds.value = _completedTrackSongIds.value + (key to newlyIndexedId)
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
-            
-            // Process pending playlist requests
-            val pending = synchronized(pendingPlaylistRequests) {
-                pendingPlaylistRequests.remove(key) ?: emptyList()
-            }
-            for (playlistId in pending) {
-                try {
-                    musicRepository.addSongToPlaylist(playlistId, newlyIndexedId)
-                } catch (e: Exception) {
-                    _uiMessage.value = "Failed to add song to playlist: ${e.message}"
-                }
-            }
-
+            processPendingPlaylistRequests(key, newlyIndexedId)
             onComplete?.invoke(newlyIndexedId)
         } else {
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Downloaded (Indexing pending)")
+            if (lastSyncError != null) {
+                _uiMessage.value = "Downloaded, but library indexing is still pending: ${lastSyncError.message ?: "Sync failed"}"
+            }
             onComplete?.invoke(null)
         }
     }
 
     fun retryLibraryIndexing(track: com.example.data.models.ExternalTrack, onComplete: ((String?) -> Unit)? = null) {
-        val key = "${track.title}|${track.artist}".lowercase()
+        val key = MusicRepository.externalTrackIdentity(track)
         synchronized(downloadingTrackKeys) {
             if (key in downloadingTrackKeys) return
             downloadingTrackKeys.add(key)
         }
-        viewModelScope.launch {
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 syncAndIndexTrack(track, preExistingIds = emptySet(), onComplete = onComplete)
             } finally {
@@ -388,6 +491,8 @@ class MainViewModel(
                 }
             }
         }
+        trackActiveDownloadJob(job)
+        job.start()
     }
 
 
@@ -451,9 +556,17 @@ class MainViewModel(
 
     fun logout() {
         viewModelScope.launch {
-            authRepository.logout()
-            playbackManager.clearQueueAndStop()
-            musicRepository.clearLocalCache()
+            cancelActiveDownloads()
+            try {
+                authRepository.logout()
+            } finally {
+                playbackManager.clearQueueAndStop()
+                musicRepository.clearLocalCache()
+                completedTrackSongIdMap.clear()
+                _completedTrackSongIds.value = emptyMap()
+                _downloadProgressMap.value = emptyMap()
+                _downloadStatusMap.value = emptyMap()
+            }
         }
     }
 
@@ -738,6 +851,8 @@ class MainViewModel(
             val res = musicRepository.deleteSong(songId)
             if (res.isSuccess) {
                 playbackManager.removeSongFromQueue(songId)
+                completedTrackSongIdMap.entries.removeAll { it.value == songId }
+                _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
                 syncLibrary()
                 _uiMessage.value = "Song deleted successfully"
             } else {

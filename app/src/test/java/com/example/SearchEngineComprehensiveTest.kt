@@ -5,6 +5,7 @@ import com.example.data.models.Artist
 import com.example.data.models.Playlist
 import com.example.data.models.Song
 import com.example.data.repository.SearchUtils
+import com.example.data.repository.MusicRepository
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -201,23 +202,38 @@ class SearchEngineComprehensiveTest {
     }
 
     @Test
-    fun testExternalTrackDeduplicationAgainstLibrarySongs() {
+    fun testExternalTrackDeduplicationKeepsDifferentAlbumAndDurationVersions() {
         val librarySongs = listOf(
-            Song(id = "1", title = "Blinding Lights", artist = "The Weeknd", album = "After Hours", durationSeconds = 200L)
+            Song(
+                id = "1",
+                title = "Blinding Lights",
+                artist = "The Weeknd",
+                album = "After Hours",
+                durationSeconds = 200L
+            )
         )
         val externalTracks = listOf(
-            com.example.data.models.ExternalTrack(title = "blinding lights", artist = "the weeknd"),
+            com.example.data.models.ExternalTrack(
+                title = "blinding lights",
+                artist = "the weeknd",
+                album = "After Hours",
+                durationSeconds = 200L
+            ),
+            com.example.data.models.ExternalTrack(
+                title = "Blinding Lights",
+                artist = "The Weeknd",
+                album = "After Hours (Remix)",
+                durationSeconds = 245L
+            ),
             com.example.data.models.ExternalTrack(title = "Save Your Tears", artist = "The Weeknd")
         )
 
-        val filtered = externalTracks.filterNot { ext ->
-            librarySongs.any { lib ->
-                lib.title.equals(ext.title, ignoreCase = true) &&
-                    lib.artist.equals(ext.artist, ignoreCase = true)
-            }
-        }
+        val filtered = externalTracks
+            .filterNot { ext -> librarySongs.any { MusicRepository.isSameExternalTrack(it, ext) } }
+            .distinctBy { MusicRepository.externalTrackIdentity(it) }
 
-        assertEquals(1, filtered.size)
-        assertEquals("Save Your Tears", filtered.first().title)
+        assertEquals(2, filtered.size)
+        assertEquals("After Hours (Remix)", filtered.first().album)
+        assertEquals("Save Your Tears", filtered.last().title)
     }
 }
