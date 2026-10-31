@@ -477,7 +477,10 @@ class MusicRepository(
     suspend fun revokeShare(playlistId: String, userId: String) = withContext(Dispatchers.IO) {
         try {
             apiService.revokeShare(playlistId, userId)
-        } catch (_: Exception) {
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Primary playlist share revoke failed; trying collaborator removal", e)
             apiService.removeCollaborator(playlistId, userId)
         }
     }
