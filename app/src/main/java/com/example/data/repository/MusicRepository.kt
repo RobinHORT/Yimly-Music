@@ -503,7 +503,8 @@ class MusicRepository(
             val playlistWithCorrectCount = remotePlaylist.copy(
                 id = trimmedId,
                 songCount = songs.size,
-                rawCoverUrl = finalCover
+                rawCoverUrl = finalCover,
+                createdAt = localPl?.createdAt?.takeIf { it.isNotBlank() } ?: remotePlaylist.createdAt
             )
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
             musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
@@ -976,7 +977,11 @@ class MusicRepository(
                 for (pl in remotePlaylists) {
                     val localPl = musicDao.getPlaylistById(pl.id.trim())
                     val finalCover = pl.coverUrl ?: localPl?.coverUrl
-                    val plToInsert = pl.copy(id = pl.id.trim(), rawCoverUrl = finalCover)
+                    val plToInsert = pl.copy(
+                        id = pl.id.trim(),
+                        rawCoverUrl = finalCover,
+                        createdAt = localPl?.createdAt?.takeIf { it.isNotBlank() } ?: pl.createdAt
+                    )
                     musicDao.insertPlaylist(plToInsert.toEntity())
                     if (pl.songs.isNotEmpty()) {
                         musicDao.syncPlaylistSongs(pl.id.trim(), pl.songs.map { it.toEntity() })
