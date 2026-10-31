@@ -3,8 +3,11 @@ package com.example
 import android.content.Context
 import android.content.Intent
 import android.view.KeyEvent
+import android.os.Bundle
 import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.models.Song
 import com.example.playback.PlaybackManager
@@ -133,6 +136,25 @@ class MediaControlsIntegrationTest {
     }
 
     @Test
+    fun androidAutoShufflePlaylistCommandStartsShufflePlayback() {
+        playbackManager.playSong(song1, listOf(song1, song2, song3), startIndex = 0)
+        val callback = YimlySessionCallback(playbackManager)
+        val session = playbackManager.mediaSession!!
+        val command = SessionCommand(YimlySessionCallback.ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY)
+
+        val result = callback.onCustomCommand(
+            session,
+            createDummyControllerInfo(),
+            command,
+            Bundle.EMPTY
+        ).get()
+
+        assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
+        assertTrue(playbackManager.playbackInfo.value.isShuffle)
+        assertTrue(playbackManager.playbackInfo.value.currentQueueIndex != 0)
+    }
+
+    @Test
     fun testQueueNavigationCommandsAndAvailableCommands() {
         playbackManager.playSong(song1, listOf(song1, song2, song3), startIndex = 0)
 
@@ -157,6 +179,26 @@ class MediaControlsIntegrationTest {
         player.seekToPrevious()
         assertEquals(0, playbackManager.playbackInfo.value.currentQueueIndex)
         assertEquals("test_song_1", playbackManager.playbackInfo.value.currentSong?.id)
+    }
+
+    @Test
+    fun androidAutoNextAndPreviousRemainAvailableAtShuffleAndRepeatBoundaries() {
+        val queue = listOf(song1, song2, song3)
+        playbackManager.playSong(song3, queue, startIndex = 2)
+        val player = playbackManager.mediaSession!!.player
+
+        playbackManager.setShuffle(true)
+        assertTrue(player.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT))
+        assertTrue(player.isCommandAvailable(Player.COMMAND_SEEK_TO_PREVIOUS))
+        player.seekToNext()
+        assertTrue(playbackManager.playbackInfo.value.currentQueueIndex != 2)
+
+        playbackManager.setShuffle(false)
+        playbackManager.setRepeatMode(RepeatMode.ALL)
+        playbackManager.playSong(song3, queue, startIndex = 2)
+        assertTrue(player.isCommandAvailable(Player.COMMAND_SEEK_TO_NEXT))
+        player.seekToNext()
+        assertEquals(0, playbackManager.playbackInfo.value.currentQueueIndex)
     }
 
     @Test

@@ -34,6 +34,7 @@ class YimlySessionCallback(
 
     companion object {
         const val ACTION_TOGGLE_INSTRUMENTAL = "com.example.ACTION_TOGGLE_INSTRUMENTAL"
+        const val ACTION_SHUFFLE_PLAYLIST = "com.example.ACTION_SHUFFLE_PLAYLIST"
     }
 
     override fun onConnect(
@@ -44,6 +45,7 @@ class YimlySessionCallback(
 
         val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
             .add(SessionCommand(ACTION_TOGGLE_INSTRUMENTAL, Bundle.EMPTY))
+            .add(SessionCommand(ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY))
             .build()
 
         val playerCommands = session.player.availableCommands.buildUpon()
@@ -74,10 +76,12 @@ class YimlySessionCallback(
         customCommand: SessionCommand,
         args: Bundle
     ): ListenableFuture<SessionResult> {
-        if (customCommand.customAction == ACTION_TOGGLE_INSTRUMENTAL) {
-            playbackManager.toggleInstrumental()
-            return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
+        when (customCommand.customAction) {
+            ACTION_TOGGLE_INSTRUMENTAL -> playbackManager.toggleInstrumental()
+            ACTION_SHUFFLE_PLAYLIST -> playbackManager.shuffleCurrentQueue()
+            else -> return super.onCustomCommand(session, controller, customCommand, args)
         }
+        return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
         return super.onCustomCommand(session, controller, customCommand, args)
     }
 

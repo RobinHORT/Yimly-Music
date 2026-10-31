@@ -1390,6 +1390,19 @@ class PerformanceRegressionTests {
             assertNotNull(songsPage0)
             assertEquals("Page size 1 must return exactly 1 item", 1, songsPage0!!.size)
 
+            // Android Auto search returns matching local songs with stable media IDs.
+            val searchResult = callback.onGetSearchResult(session, controllerInfo, "Track 1", 0, 10, null).get()
+            assertEquals(androidx.media3.session.LibraryResult.RESULT_SUCCESS, searchResult.resultCode)
+            assertEquals(1, searchResult.value?.size)
+            assertEquals("all_song|s1", searchResult.value?.first()?.mediaId)
+
+            // A missing library item must be skipped rather than returned as unplayable.
+            val missingItem = androidx.media3.common.MediaItem.Builder()
+                .setMediaId("all_song|missing_song")
+                .build()
+            val missingResolution = callback.onAddMediaItems(session, controllerInfo, listOf(missingItem)).get()
+            assertTrue(missingResolution.isEmpty())
+
             // Test songs page 1 out of bounds
             val songsPage10Future = callback.onGetChildren(session, controllerInfo, "songs", 10, 10, null)
             val songsPage10Result = songsPage10Future.get()
@@ -1413,11 +1426,15 @@ class PerformanceRegressionTests {
 
         try {
             val song = Song(id = "s100", title = "Playlist Track", artist = "Artist X", album = "Album Y")
-            database.musicDao().upsertSongs(listOf(song.toEntity()))
-            val playlist = com.example.data.models.Playlist(id = "pl_1", name = "Chill Vibes", songCount = 1)
+            val song2 = Song(id = "s101", title = "Second Playlist Track", artist = "Artist Z", album = "Album Y")
+            database.musicDao().upsertSongs(listOf(song.toEntity(), song2.toEntity()))
+            val playlist = com.example.data.models.Playlist(id = "pl_1", name = "Chill Vibes", songCount = 2)
             database.musicDao().insertPlaylist(playlist.toEntity())
             database.musicDao().insertPlaylistSongCrossRef(
                 com.example.data.db.PlaylistSongCrossRef(playlistId = "pl_1", songId = "s100", orderIndex = 0)
+            )
+            database.musicDao().insertPlaylistSongCrossRef(
+                com.example.data.db.PlaylistSongCrossRef(playlistId = "pl_1", songId = "s101", orderIndex = 1)
             )
 
             val repository = MusicRepository(
@@ -1455,20 +1472,25 @@ class PerformanceRegressionTests {
             assertEquals(androidx.media3.session.LibraryResult.RESULT_SUCCESS, playlistSongsResult.resultCode)
             val trackItems = playlistSongsResult.value
             assertNotNull(trackItems)
-            assertEquals(1, trackItems!!.size)
+            assertEquals(2, trackItems!!.size)
             assertEquals("playlist_song|pl_1|s100", trackItems[0].mediaId)
+            assertEquals("playlist_song|pl_1|s101", trackItems[1].mediaId)
             assertEquals("Playlist Track", trackItems[0].mediaMetadata.title.toString())
             assertEquals("Artist X", trackItems[0].mediaMetadata.artist.toString())
+            assertEquals("Second Playlist Track", trackItems[1].mediaMetadata.title.toString())
             assertEquals(androidx.media3.common.MediaMetadata.MEDIA_TYPE_MUSIC, trackItems[0].mediaMetadata.mediaType)
             assertFalse("Song track must not be browsable", trackItems[0].mediaMetadata.isBrowsable == true)
             assertTrue("Song track must be playable", trackItems[0].mediaMetadata.isPlayable == true)
 
-            // 3. onAddMediaItems handles playable track
-            val playableItem = androidx.media3.common.MediaItem.Builder()
-                .setMediaId("playlist_song|pl_1|s100")
-                .build()
-            val addItemsResult = callback.onAddMediaItems(session, controllerInfo, listOf(playableItem)).get()
-            assertNotNull(addItemsResult)
+            // 3. Resolve the complete playlist selection in its original order (Play All).
+            val playableItems = listOf("playlist_song|pl_1|s100", "playlist_song|pl_1|s101")
+                .map { id -> androidx.media3.common.MediaItem.Builder().setMediaId(id).build() }
+            val addItemsResult = callback.onAddMediaItems(session, controllerInfo, playableItems).get()
+            assertEquals(2, addItemsResult.size)
+            assertEquals("playlist_song|pl_1|s100", addItemsResult[0].mediaId)
+            assertEquals("playlist_song|pl_1|s101", addItemsResult[1].mediaId)
+            assertNotNull(addItemsResult[0].localConfiguration?.uri)
+            assertNotNull(addItemsResult[1].localConfiguration?.uri)
 
             playbackManager.release()
         } finally {
