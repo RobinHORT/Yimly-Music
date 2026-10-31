@@ -374,8 +374,10 @@ class PerformanceRegressionTests {
             )
 
             val result = repository.syncWithBackend()
-            assertTrue("Sync must be resilient to partial endpoint failure", result.isSuccess)
+            assertTrue("A partial sync must report its endpoint failure", result.isFailure)
 
+            // Successful endpoints still persist their data even though the overall
+            // result correctly reports the failed albums endpoint.
             assertEquals(1, database.musicDao().getSongCount())
             assertEquals(1, database.musicDao().getAllPlaylists().first().size)
         } finally {
@@ -709,6 +711,10 @@ class PerformanceRegressionTests {
 
             val fakeApi = ConcurrencyTrackingApiService().apply {
                 delayMs = 0L
+                songs = listOf(
+                    Song(id = "s_sync1", title = "Sync Song 1"),
+                    Song(id = "s_sync2", title = "Sync Song 2")
+                )
                 playlists = testPlaylists
             }
 
@@ -1078,7 +1084,7 @@ class PerformanceRegressionTests {
     }
 
     @Test
-    fun testDebugLoggingLevelIsBody() {
+    fun testDebugLoggingLevelIsBasicToProtectAuthPayloads() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val preferencesManager = com.example.data.datastore.PreferencesManager(context)
 
@@ -1094,8 +1100,8 @@ class PerformanceRegressionTests {
 
         assertNotNull("HttpLoggingInterceptor must be present in OkHttpClient", loggingInterceptor)
         assertEquals(
-            "Debug builds must retain Level.BODY for diagnostics",
-            HttpLoggingInterceptor.Level.BODY,
+            "Debug builds must use BASIC logging so login request bodies are not exposed",
+            HttpLoggingInterceptor.Level.BASIC,
             loggingInterceptor!!.level
         )
     }
@@ -1115,7 +1121,7 @@ class PerformanceRegressionTests {
             .firstOrNull()
 
         val expectedLevel = if (com.example.BuildConfig.DEBUG) {
-            HttpLoggingInterceptor.Level.BODY
+            HttpLoggingInterceptor.Level.BASIC
         } else {
             HttpLoggingInterceptor.Level.NONE
         }
