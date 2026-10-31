@@ -400,6 +400,34 @@ class ExternalDownloaderCorrectionsTest {
     }
 
     @Test
+    fun testLogoutCancelsActiveDownloadAndClearsDownloaderState() = runBlocking {
+        val track = ExternalTrack(title = "Logout During Download", artist = "Artist L")
+        fakeApi.pollFailuresRemaining = 1000
+        viewModel.downloaderPollDelayMs = 1000L
+
+        viewModel.downloadExternalTrack(track)
+        var attempts = 0
+        while (fakeApi.downloadJobPollCount == 0 && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+        assertTrue(fakeApi.downloadJobPollCount > 0)
+
+        viewModel.logout()
+        attempts = 0
+        while (viewModel.downloadStatusMap.value.isNotEmpty() && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertTrue(viewModel.downloadStatusMap.value.isEmpty())
+        assertTrue(viewModel.downloadProgressMap.value.isEmpty())
+        assertTrue(viewModel.completedTrackSongIds.value.isEmpty())
+    }
+
+    @Test
     fun testFailedDownloadDoesNotCarryItsPlaylistRequestIntoTheNextAttempt() = runBlocking {
         val track = ExternalTrack(title = "Pending Cleanup", artist = "Artist P")
         fakeApi.jobResponse = DownloaderJobResponse(
