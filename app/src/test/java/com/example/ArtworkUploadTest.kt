@@ -17,6 +17,8 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
+import java.io.IOException
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -33,6 +35,8 @@ class ArtworkUploadTest {
     private lateinit var musicRepository: MusicRepository
     private var uploadedPlaylistId: String? = null
     private var uploadedBodySize: Long = 0
+    private var failPlaylistUpdate = false
+    private var playlistUpdateResponse = Playlist(id = "72", name = "Test Playlist", createdAt = "server-created-at")
 
     @Before
     fun setUp() {
@@ -50,7 +54,22 @@ class ArtworkUploadTest {
                     name = "Test Playlist",
                     rawCoverPath = "playlist_${id}_cover.jpg",
                     rawCoverImageUrl = "/api/playlists/$id/cover",
-                    updatedAt = "2026-09-01T09:00:00.000Z"
+                    updatedAt = "2026-09-01T09:00:00.000Z",
+                    createdAt = "server-created-at"
+                )
+            }
+
+            override suspend fun updatePlaylist(
+                id: String,
+                request: com.example.data.models.UpdatePlaylistRequest
+            ): Playlist {
+                if (failPlaylistUpdate) throw IOException("Server rejected playlist update")
+                return playlistUpdateResponse.copy(
+                    id = id,
+                    name = request.name,
+                    description = request.description,
+                    isPublic = request.isPublic ?: playlistUpdateResponse.isPublic,
+                    rawCoverImageUrl = request.coverUrl
                 )
             }
         }
@@ -86,6 +105,43 @@ class ArtworkUploadTest {
         assertNotNull(updated)
         assertNotNull(updated?.coverUrl)
         assertTrue(updated!!.coverUrl!!.contains("/api/playlists/72/cover"))
+    }
+
+    @Test
+    fun testPlaylistUpdatePreservesOriginalCreatedAt() = runBlocking {
+        val originalCreatedAt = "2024-05-01T12:00:00Z"
+        database.musicDao().insertPlaylist(
+            Playlist(id = "72", name = "Old Name", createdAt = originalCreatedAt).toEntity()
+        )
+        playlistUpdateResponse = Playlist(
+            id = "72",
+            name = "New Name",
+            createdAt = "server-reset-created-at"
+        )
+
+        val updated = musicRepository.updatePlaylist("72", "New Name", "Description")
+
+        assertEquals(originalCreatedAt, updated.createdAt)
+        assertEquals(originalCreatedAt, database.musicDao().getPlaylistById("72")?.createdAt)
+    }
+
+    @Test
+    fun testFailedServerArtworkClearKeepsLocalCover() = runBlocking {
+        val originalCover = "https://cdn.example/old-cover.jpg"
+        database.musicDao().insertPlaylist(
+            Playlist(id = "72", name = "Test Playlist", rawCoverImageUrl = originalCover).toEntity()
+        )
+        failPlaylistUpdate = true
+
+        var failed = false
+        try {
+            musicRepository.updatePlaylistArtwork("72", null)
+        } catch (_: IOException) {
+            failed = true
+        }
+
+        assertTrue(failed)
+        assertEquals(originalCover, database.musicDao().getPlaylistById("72")?.coverUrl)
     }
 
     @Test
