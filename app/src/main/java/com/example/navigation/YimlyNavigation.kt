@@ -53,6 +53,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import com.example.data.models.AuthState
+import com.example.data.models.ExternalTrack
 import com.example.data.models.Song
 import com.example.ui.MainViewModel
 import com.example.ui.auth.LoginScreen
@@ -133,6 +134,7 @@ fun YimlyNavigation(
 
     var isPlayerExpanded by remember { mutableStateOf(false) }
     var songToAddToPlaylist by remember { mutableStateOf<Song?>(null) }
+    var externalTrackToAddToPlaylist by remember { mutableStateOf<ExternalTrack?>(null) }
 
     val uiMessage by viewModel.uiMessage.collectAsState()
     val snackbarHostState = remember { androidx.compose.material3.SnackbarHostState() }
@@ -505,17 +507,7 @@ fun YimlyNavigation(
                             onAddToPlaylist = { song -> songToAddToPlaylist = song },
                             onDownloadExternalSong = { track -> viewModel.downloadExternalTrack(track) },
                             onAddExternalSongToPlaylist = { track ->
-                                viewModel.downloadExternalTrack(track) { songId ->
-                                    if (songId != null) {
-                                        coroutineScope.launch {
-                                            val song = viewModel.getSongById(songId)
-                                                ?: viewModel.allSongs.value.firstOrNull { it.id == songId }
-                                            if (song != null) {
-                                                songToAddToPlaylist = song
-                                            }
-                                        }
-                                    }
-                                }
+                                externalTrackToAddToPlaylist = track
                             },
                             downloadProgressMap = downloadProgressMap,
                             downloadStatusMap = downloadStatusMap
@@ -725,6 +717,29 @@ fun YimlyNavigation(
                 onCreateAndAddToPlaylist = { name ->
                     viewModel.createPlaylistAndAddSong(name, song.id)
                     songToAddToPlaylist = null
+                }
+            )
+        }
+
+        // Add to Playlist Dialog for External Tracks
+        externalTrackToAddToPlaylist?.let { track ->
+            val displaySong = Song(
+                id = "",
+                title = track.title,
+                artist = track.artist,
+                album = track.album
+            )
+            AddToPlaylistDialog(
+                song = displaySong,
+                playlists = playlists,
+                onDismiss = { externalTrackToAddToPlaylist = null },
+                onSelectPlaylist = { playlist ->
+                    viewModel.registerPendingPlaylistAdd(track, playlist.id)
+                    externalTrackToAddToPlaylist = null
+                },
+                onCreateAndAddToPlaylist = { name ->
+                    viewModel.createPlaylistAndAddExternalTrack(name, track)
+                    externalTrackToAddToPlaylist = null
                 }
             )
         }

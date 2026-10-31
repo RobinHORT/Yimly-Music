@@ -424,7 +424,7 @@ class MusicRepository(
                 }
             }
 
-            if (imageBytes.isNullOrEmpty()) {
+            if (imageBytes == null || imageBytes.isEmpty()) {
                 throw java.io.IOException("Could not read image file or content URI: $localUri")
             }
 
@@ -437,7 +437,7 @@ class MusicRepository(
             musicDao.insertPlaylist(freshUploaded.toEntity())
         } else {
             // Only clear the local artwork after the server confirms the change.
-            val playlist = existingPlaylist ?: apiService.getPlaylistById(playlistId)
+            val playlist = existingPlaylist?.toPlaylist() ?: apiService.getPlaylistById(playlistId)
             val request = UpdatePlaylistRequest(
                 name = playlist.name,
                 description = playlist.description,

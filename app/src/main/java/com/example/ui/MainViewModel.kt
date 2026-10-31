@@ -751,6 +751,20 @@ class MainViewModel(
         }
     }
 
+    fun createPlaylistAndAddExternalTrack(name: String, track: com.example.data.models.ExternalTrack, description: String? = null, isPublic: Boolean = false) {
+        viewModelScope.launch {
+            try {
+                val created = musicRepository.createPlaylist(name, description, isPublic)
+                registerPendingPlaylistAdd(track, created.id)
+                _uiMessage.value = "Added to '$name'"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                _uiMessage.value = e.message ?: "Failed to create playlist and add song"
+            }
+        }
+    }
+
     fun removeSongFromPlaylist(playlistId: String, songId: String) {
         viewModelScope.launch {
             try {

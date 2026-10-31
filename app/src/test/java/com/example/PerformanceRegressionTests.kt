@@ -17,6 +17,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -31,6 +32,7 @@ import org.robolectric.shadows.ShadowLooper
 import okhttp3.logging.HttpLoggingInterceptor
 import com.example.data.api.NetworkModule
 import com.example.data.api.AuthInterceptor
+import com.example.data.datastore.PreferencesManager
 import java.io.IOException
 import java.util.Collections
 import java.util.concurrent.atomic.AtomicInteger
@@ -45,35 +47,50 @@ import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 @Config(sdk = [36])
 class PerformanceRegressionTests {
 
+    @After
+    fun tearDown() {
+        ServerUrlConfig.activeServerUrl = PreferencesManager.DEFAULT_SERVER_URL
+    }
+
     @Test
     fun testServerUrlConfigUpdatesSongGettersDynamically() {
-        // Given a default server configuration
-        ServerUrlConfig.activeServerUrl = "https://default.yimly.link"
-        val song = Song(id = "track_123", title = "Test Song")
+        val previousUrl = ServerUrlConfig.activeServerUrl
+        try {
+            // Given a default server configuration
+            ServerUrlConfig.activeServerUrl = "https://default.yimly.link"
+            val song = Song(id = "track_123", title = "Test Song")
 
-        // Then getters return URLs pointing to the active default server
-        assertEquals("https://default.yimly.link/api/songs/track_123/artwork", song.artworkUrl)
-        assertEquals("https://default.yimly.link/api/songs/track_123/audio?type=main", song.audioUrl)
+            // Then getters return URLs pointing to the active default server
+            assertEquals("https://default.yimly.link/api/songs/track_123/artwork", song.artworkUrl)
+            assertEquals("https://default.yimly.link/api/songs/track_123/audio?type=main", song.audioUrl)
 
-        // When the active server URL is dynamically updated
-        ServerUrlConfig.activeServerUrl = "https://custom.my-server.com:8443"
+            // When the active server URL is dynamically updated
+            ServerUrlConfig.activeServerUrl = "https://custom.my-server.com:8443"
 
-        // Then all song getters must immediately reflect the new server URL without process restart or hardcoding
-        assertEquals("https://custom.my-server.com:8443/api/songs/track_123/artwork", song.artworkUrl)
-        assertEquals("https://custom.my-server.com:8443/api/songs/track_123/audio?type=main", song.audioUrl)
+            // Then all song getters must immediately reflect the new server URL without process restart or hardcoding
+            assertEquals("https://custom.my-server.com:8443/api/songs/track_123/artwork", song.artworkUrl)
+            assertEquals("https://custom.my-server.com:8443/api/songs/track_123/audio?type=main", song.audioUrl)
+        } finally {
+            ServerUrlConfig.activeServerUrl = previousUrl
+        }
     }
 
     @Test
     fun testServerUrlConfigUpdatesCoverUrlResolution() {
-        ServerUrlConfig.activeServerUrl = "https://default.yimly.link"
-        val relativeCoverUrl = "uploads/covers/playlist_456.jpg"
+        val previousUrl = ServerUrlConfig.activeServerUrl
+        try {
+            ServerUrlConfig.activeServerUrl = "https://default.yimly.link"
+            val relativeCoverUrl = "uploads/covers/playlist_456.jpg"
 
-        // resolveCoverUrl without parameters defaults to active server configuration
-        assertEquals("https://default.yimly.link/uploads/covers/playlist_456.jpg", relativeCoverUrl.resolveCoverUrl())
+            // resolveCoverUrl without parameters defaults to active server configuration
+            assertEquals("https://default.yimly.link/uploads/covers/playlist_456.jpg", relativeCoverUrl.resolveCoverUrl())
 
-        // Change configured server URL
-        ServerUrlConfig.activeServerUrl = "https://new-host.org"
-        assertEquals("https://new-host.org/uploads/covers/playlist_456.jpg", relativeCoverUrl.resolveCoverUrl())
+            // Change configured server URL
+            ServerUrlConfig.activeServerUrl = "https://new-host.org"
+            assertEquals("https://new-host.org/uploads/covers/playlist_456.jpg", relativeCoverUrl.resolveCoverUrl())
+        } finally {
+            ServerUrlConfig.activeServerUrl = previousUrl
+        }
     }
 
     @Test
@@ -105,18 +122,23 @@ class PerformanceRegressionTests {
 
     @Test
     fun testServerUrlConfigUpdatesAlbumAndArtistGettersDynamically() {
-        val album = com.example.data.models.Album(id = "album_abc", title = "Test Album")
-        val artist = com.example.data.models.Artist(id = "artist_xyz", name = "Test Artist")
+        val previousUrl = ServerUrlConfig.activeServerUrl
+        try {
+            val album = com.example.data.models.Album(id = "album_abc", title = "Test Album")
+            val artist = com.example.data.models.Artist(id = "artist_xyz", name = "Test Artist")
 
-        // Default server behavior
-        ServerUrlConfig.activeServerUrl = "https://default.yimly.link"
-        assertEquals("https://default.yimly.link/api/albums/album_abc/artwork", album.artworkUrl)
-        assertEquals("https://default.yimly.link/api/artists/artist_xyz/artwork", artist.avatarUrl)
+            // Default server behavior
+            ServerUrlConfig.activeServerUrl = "https://default.yimly.link"
+            assertEquals("https://default.yimly.link/api/albums/album_abc/artwork", album.artworkUrl)
+            assertEquals("https://default.yimly.link/api/artists/artist_xyz/artwork", artist.avatarUrl)
 
-        // Custom server behavior
-        ServerUrlConfig.activeServerUrl = "https://custom.my-server.com:8443"
-        assertEquals("https://custom.my-server.com:8443/api/albums/album_abc/artwork", album.artworkUrl)
-        assertEquals("https://custom.my-server.com:8443/api/artists/artist_xyz/artwork", artist.avatarUrl)
+            // Custom server behavior
+            ServerUrlConfig.activeServerUrl = "https://custom.my-server.com:8443"
+            assertEquals("https://custom.my-server.com:8443/api/albums/album_abc/artwork", album.artworkUrl)
+            assertEquals("https://custom.my-server.com:8443/api/artists/artist_xyz/artwork", artist.avatarUrl)
+        } finally {
+            ServerUrlConfig.activeServerUrl = previousUrl
+        }
     }
 
     open class ConcurrencyTrackingApiService : com.example.data.api.YimlyApiService {

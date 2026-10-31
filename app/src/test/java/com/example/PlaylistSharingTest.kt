@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.api.YimlyApiService
+import com.example.data.datastore.PreferencesManager
+import com.example.data.datastore.ServerUrlConfig
 import com.example.data.db.PlaylistEntity
 import com.example.data.db.YimlyDatabase
 import com.example.data.db.toEntity
@@ -38,6 +40,7 @@ class PlaylistSharingTest {
 
     @Before
     fun setUp() {
+        ServerUrlConfig.activeServerUrl = PreferencesManager.DEFAULT_SERVER_URL
         context = ApplicationProvider.getApplicationContext()
         database = Room.inMemoryDatabaseBuilder(context, YimlyDatabase::class.java)
             .allowMainThreadQueries()
@@ -58,6 +61,7 @@ class PlaylistSharingTest {
 
     @After
     fun tearDown() {
+        ServerUrlConfig.activeServerUrl = PreferencesManager.DEFAULT_SERVER_URL
         database.close()
     }
 

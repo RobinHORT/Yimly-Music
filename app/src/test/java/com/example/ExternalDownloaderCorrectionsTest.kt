@@ -401,6 +401,14 @@ class ExternalDownloaderCorrectionsTest {
 
     @Test
     fun testSettingsSyncReportsBackendFailure() = runBlocking {
+        var preSyncAttempts = 0
+        while (viewModel.isSyncing.value && preSyncAttempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            preSyncAttempts++
+        }
+        viewModel.clearUiMessage()
+
         fakeApi.shouldFail = true
         viewModel.syncLibrary(showResult = true)
 
@@ -587,5 +595,53 @@ class ExternalDownloaderCorrectionsTest {
         assertEquals("A previously downloaded song must not be downloaded again", 1, fakeApi.startDownloadCallCount)
     }
 
+    @Test
+    fun testPendingPlaylistAddWhileDownloadAlreadyRunningAddsToPlaylistWithoutDuplicateDownload() = runBlocking {
+        val track = ExternalTrack(
+            title = "Concurrent Track",
+            artist = "Concurrent Artist",
+            durationSeconds = 210L
+        )
+        fakeApi.jobResponse = DownloaderJobResponse(
+            id = "job_concurrent",
+            status = "completed",
+            tracks = listOf(
+                DownloaderJobTrack(
+                    title = "Concurrent Track",
+                    artist = "Concurrent Artist",
+                    status = "completed",
+                    progress = 100
+                )
+            )
+        )
+        fakeApi.songs = listOf(
+            Song(
+                id = "server_concurrent_999",
+                title = "Concurrent Track",
+                artist = "Concurrent Artist",
+                durationSeconds = 210L
+            )
+        )
+
+        // 1. Download was already pressed and is running
+        viewModel.downloadExternalTrack(track)
+        pumpLooper(50L)
+
+        // 2. User presses + while download is active
+        viewModel.registerPendingPlaylistAdd(track, "playlist_concurrent_target")
+
+        var playlistAttempts = 0
+        while (fakeApi.playlistAddCalls.isEmpty() && playlistAttempts < 100) {
+            pumpLooper(100L)
+            kotlinx.coroutines.delay(10L)
+            playlistAttempts++
+        }
+
+        // 3. Verify song was added to playlist with the real server Song ID and only 1 download occurred
+        assertEquals(1, fakeApi.playlistAddCalls.size)
+        assertEquals("playlist_concurrent_target", fakeApi.playlistAddCalls.single().first)
+        assertEquals("server_concurrent_999", fakeApi.playlistAddCalls.single().second)
+        assertEquals(1, fakeApi.startDownloadCallCount)
+    }
 }
 

@@ -17,6 +17,7 @@ import okhttp3.logging.HttpLoggingInterceptor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.After
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -37,6 +38,12 @@ class AuthInterceptorAndStreamingTest {
         context = ApplicationProvider.getApplicationContext()
         preferencesManager = PreferencesManager(context)
         AuthTokenHolder.token = null
+        ServerUrlConfig.activeServerUrl = PreferencesManager.DEFAULT_SERVER_URL
+    }
+
+    @After
+    fun tearDown() {
+        AuthTokenHolder.reset()
         ServerUrlConfig.activeServerUrl = PreferencesManager.DEFAULT_SERVER_URL
     }
 

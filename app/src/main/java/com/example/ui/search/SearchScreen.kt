@@ -586,16 +586,15 @@ fun ExternalSongItemRow(
             Row(
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                // + button: starts download, waits for indexing, and opens Add to Playlist dialog
+                // + button: opens Add to Playlist dialog immediately
                 IconButton(
                     onClick = onAddToPlaylistClick,
-                    enabled = !isInProgress,
                     modifier = Modifier.testTag("add_to_playlist_external_${track.title}")
                 ) {
                     Icon(
                         imageVector = Icons.Default.Add,
                         contentDescription = "Add to playlist",
-                        tint = if (isInProgress) TextSecondaryDark else YimlyPink
+                        tint = YimlyPink
                     )
                 }
 
