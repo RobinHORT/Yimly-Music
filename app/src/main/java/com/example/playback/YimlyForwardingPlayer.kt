@@ -34,12 +34,20 @@ class YimlyForwardingPlayer(
 
     override fun hasNextMediaItem(): Boolean {
         val info = playbackManager.playbackInfo.value
-        return info.queue.isNotEmpty() && (info.currentQueueIndex < info.queue.size - 1 || info.repeatMode != RepeatMode.OFF)
+        return info.queue.isNotEmpty() && (
+            (info.isShuffle && info.queue.size > 1) ||
+                info.currentQueueIndex < info.queue.size - 1 ||
+                info.repeatMode != RepeatMode.OFF
+            )
     }
 
     override fun hasPreviousMediaItem(): Boolean {
         val info = playbackManager.playbackInfo.value
-        return info.queue.isNotEmpty() && (info.currentQueueIndex > 0 || currentPosition > 3000L)
+        return info.queue.isNotEmpty() && (
+            (info.isShuffle && info.queue.size > 1) ||
+                info.currentQueueIndex > 0 ||
+                currentPosition > 3000L
+            )
     }
 
     override fun isCommandAvailable(command: @Player.Command Int): Boolean {
