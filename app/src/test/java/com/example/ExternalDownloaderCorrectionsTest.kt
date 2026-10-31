@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.api.YimlyApiService
 import com.example.data.datastore.PreferencesManager
 import com.example.data.db.YimlyDatabase
+import com.example.data.db.toEntity
 import com.example.data.models.DownloaderJobResponse
 import com.example.data.models.DownloaderJobTrack
 import com.example.data.models.DownloaderResolveRequest
