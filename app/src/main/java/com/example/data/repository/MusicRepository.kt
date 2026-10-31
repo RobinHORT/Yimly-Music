@@ -515,7 +515,21 @@ class MusicRepository(
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
             musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
             markPlaylistSynced(trimmedId)
-            Result.success(Unit)
+            val failedEndpoints = buildList {
+                if (remoteSongs == null || !isCompleteSync) add("song catalogue")
+                if (remoteFavorites == null) add("favorites")
+                if (remoteAlbums == null) add("albums")
+                if (remoteArtists == null) add("artists")
+                if (remotePlaylists == null) add("playlists")
+                if (playlistDetailFailures > 0) add("playlist tracks")
+            }
+            if (failedEndpoints.isNotEmpty()) {
+                Result.failure(
+                    java.io.IOException("Sync incomplete: failed to refresh ${failedEndpoints.joinToString()}")
+                )
+            } else {
+                Result.success(Unit)
+            }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (e: Exception) {
@@ -978,6 +992,7 @@ class MusicRepository(
             }
 
             // 5. Process and persist playlists (dependency on getPlaylists strictly preserved)
+            var playlistDetailFailures = 0
             if (remotePlaylists != null) {
                 val validIds = remotePlaylists.map { it.id.trim() }.filter { it.isNotBlank() }
                 musicDao.deleteStalePlaylists(validIds)
@@ -1001,6 +1016,7 @@ class MusicRepository(
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled
                         } catch (e: Exception) {
+                            playlistDetailFailures++
                             // Keep the existing cached playlist tracks when a refresh fails,
                             // but make the failure visible for diagnosis.
                             Log.w(
