@@ -320,9 +320,13 @@ class MusicRepository(
 
     suspend fun updatePlaylist(playlistId: String, name: String, description: String?, isPublic: Boolean? = null): Playlist = withContext(Dispatchers.IO) {
         val request = UpdatePlaylistRequest(name = name, description = description, isPublic = isPublic)
+        val existingPlaylist = musicDao.getPlaylistById(playlistId)
         val updatedPlaylist = apiService.updatePlaylist(playlistId, request)
-        val freshPlaylist = updatedPlaylist.copy(createdAt = System.currentTimeMillis().toString())
+        val freshPlaylist = updatedPlaylist.copy(
+            createdAt = existingPlaylist?.createdAt?.takeIf { it.isNotBlank() } ?: updatedPlaylist.createdAt
+        )
         musicDao.insertPlaylist(freshPlaylist.toEntity())
+        clearPlaylistSyncCache(playlistId)
         freshPlaylist
     }
 
@@ -334,19 +338,16 @@ class MusicRepository(
     }
 
     suspend fun updatePlaylistArtwork(playlistId: String, localUri: String?) = withContext(Dispatchers.IO) {
+        val existingPlaylist = musicDao.getPlaylistById(playlistId)
         if (!localUri.isNullOrBlank()) {
             val uriString = localUri.trim()
             var imageBytes: ByteArray? = null
             var mimeType = "image/jpeg"
 
             if (uriString.startsWith("content://", ignoreCase = true) && context != null) {
-                try {
-                    val uri = android.net.Uri.parse(uriString)
-                    mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                    imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                } catch (e: Exception) {
-                    Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
-                }
+                val uri = android.net.Uri.parse(uriString)
+                mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
+                imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
             } else {
                 val filePath = if (uriString.startsWith("file://", ignoreCase = true)) {
                     uriString.removePrefix("file://")
@@ -354,49 +355,39 @@ class MusicRepository(
                     uriString
                 }
                 val file = java.io.File(filePath)
-                if (file.exists()) {
+                if (file.exists() && file.isFile) {
                     imageBytes = file.readBytes()
-                    val isPng = file.extension.equals("png", ignoreCase = true)
-                    mimeType = if (isPng) "image/png" else "image/jpeg"
-                } else if (context != null && uriString.startsWith("content://", ignoreCase = true)) {
-                    try {
-                        val uri = android.net.Uri.parse(uriString)
-                        mimeType = context.contentResolver.getType(uri) ?: "image/jpeg"
-                        imageBytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    } catch (e: Exception) {
-                        Log.e("MusicRepository", "Failed to read content URI: $uriString", e)
-                    }
+                    mimeType = if (file.extension.equals("png", ignoreCase = true)) "image/png" else "image/jpeg"
                 }
             }
 
-            if (imageBytes != null && imageBytes.isNotEmpty()) {
-                val mediaType = mimeType.toMediaTypeOrNull() ?: "image/jpeg".toMediaType()
-                val requestBody = okhttp3.RequestBody.create(mediaType, imageBytes)
-                val uploaded = apiService.uploadPlaylistCover(playlistId, requestBody)
-                val freshUploaded = uploaded.copy(createdAt = System.currentTimeMillis().toString())
-                musicDao.insertPlaylist(freshUploaded.toEntity())
-            } else {
+            if (imageBytes.isNullOrEmpty()) {
                 throw java.io.IOException("Could not read image file or content URI: $localUri")
             }
+
+            val mediaType = mimeType.toMediaTypeOrNull() ?: "image/jpeg".toMediaType()
+            val requestBody = okhttp3.RequestBody.create(mediaType, imageBytes)
+            val uploaded = apiService.uploadPlaylistCover(playlistId, requestBody)
+            val freshUploaded = uploaded.copy(
+                createdAt = existingPlaylist?.createdAt?.takeIf { it.isNotBlank() } ?: uploaded.createdAt
+            )
+            musicDao.insertPlaylist(freshUploaded.toEntity())
         } else {
-            // Even if localUri is blank (clearing cover), update timestamp
-            try {
-                val localPl = musicDao.getPlaylistById(playlistId)
-                if (localPl != null) {
-                    val req = UpdatePlaylistRequest(
-                        name = localPl.name,
-                        description = localPl.description,
-                        isPublic = localPl.isPublic,
-                        coverUrl = null
-                    )
-                    val updatedRemote = apiService.updatePlaylist(playlistId, req)
-                    val freshRemote = updatedRemote.copy(createdAt = System.currentTimeMillis().toString())
-                    musicDao.insertPlaylist(freshRemote.toEntity())
-                }
-            } catch (_: Exception) {
-                musicDao.updatePlaylistCoverUrl(playlistId, null)
-            }
+            // Only clear the local artwork after the server confirms the change.
+            val playlist = existingPlaylist ?: apiService.getPlaylistById(playlistId)
+            val request = UpdatePlaylistRequest(
+                name = playlist.name,
+                description = playlist.description,
+                isPublic = playlist.isPublic,
+                coverUrl = null
+            )
+            val updatedRemote = apiService.updatePlaylist(playlistId, request)
+            val freshRemote = updatedRemote.copy(
+                createdAt = existingPlaylist?.createdAt?.takeIf { it.isNotBlank() } ?: updatedRemote.createdAt
+            )
+            musicDao.insertPlaylist(freshRemote.toEntity())
         }
+        clearPlaylistSyncCache(playlistId)
     }
 
     suspend fun addSongToPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
