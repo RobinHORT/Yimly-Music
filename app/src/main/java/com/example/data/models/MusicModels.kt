@@ -1,6 +1,5 @@
 package com.example.data.models
 
-import com.example.data.datastore.PreferencesManager
 import com.example.data.datastore.ServerUrlConfig
 import com.squareup.moshi.Json
 import com.squareup.moshi.JsonClass
@@ -235,7 +234,7 @@ data class Playlist(
                     }
                 }
             }
-            val baseUrl = PreferencesManager.DEFAULT_SERVER_URL.trimEnd('/')
+            val baseUrl = ServerUrlConfig.activeServerUrl.trimEnd('/')
             val timestamp = updatedAt ?: createdAt
             val tParam = if (!timestamp.isNullOrBlank()) {
                 val parsed = timestamp.toLongOrNull()
