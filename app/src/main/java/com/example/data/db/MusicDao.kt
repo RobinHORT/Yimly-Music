@@ -198,6 +198,36 @@ interface MusicDao {
     @Query("DELETE FROM play_history")
     suspend fun clearHistory()
 
+    @Query("DELETE FROM playlist_songs")
+    suspend fun clearAllPlaylistSongLinks()
+
+    @Query("DELETE FROM lyric_resources")
+    suspend fun clearAllLyricResources()
+
+    @Query("DELETE FROM playlists")
+    suspend fun clearAllPlaylists()
+
+    @Query("DELETE FROM artists")
+    suspend fun clearAllArtists()
+
+    @Query("DELETE FROM albums")
+    suspend fun clearAllAlbums()
+
+    @Query("DELETE FROM songs")
+    suspend fun clearAllSongs()
+
+    /** Clear account-scoped cached data in dependency-safe order on logout. */
+    @Transaction
+    suspend fun clearLocalLibraryData() {
+        clearAllPlaylistSongLinks()
+        clearHistory()
+        clearAllLyricResources()
+        clearAllPlaylists()
+        clearAllArtists()
+        clearAllAlbums()
+        clearAllSongs()
+    }
+
     @Query("DELETE FROM playlist_songs WHERE songId NOT IN (SELECT id FROM songs)")
     suspend fun cleanOrphanPlaylistSongs()
 

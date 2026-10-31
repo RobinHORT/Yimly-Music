@@ -22,8 +22,10 @@ class NetworkModule(
         .build()
 
     private val loggingInterceptor = HttpLoggingInterceptor().apply {
+        // Avoid logging request bodies because authentication payloads contain passwords.
+        redactHeader("Authorization")
         level = if (isDebug) {
-            HttpLoggingInterceptor.Level.BODY
+            HttpLoggingInterceptor.Level.BASIC
         } else {
             HttpLoggingInterceptor.Level.NONE
         }

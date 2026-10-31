@@ -310,7 +310,11 @@ class PlaybackManager(
         ensurePlayerInitialized()
         startPlaybackService()
         val finalQueue = if (queue.isEmpty()) listOf(song) else queue
-        val validIndex = if (startIndex in finalQueue.indices) startIndex else 0
+        // A list screen may omit the index or pass an index from a filtered list.
+        // Trust the index only when it points at the selected song; otherwise resolve by ID.
+        val validIndex = startIndex.takeIf {
+            it in finalQueue.indices && finalQueue[it].id == song.id
+        } ?: finalQueue.indexOfFirst { it.id == song.id }.takeIf { it >= 0 } ?: 0
         
         _playbackInfo.value = _playbackInfo.value.copy(
             queue = finalQueue,
@@ -716,6 +720,55 @@ class PlaybackManager(
         }
     }
 
+    /** Remove every occurrence of a deleted library song from the active queue. */
+    fun removeSongFromQueue(songId: String) {
+        val info = _playbackInfo.value
+        val oldIndex = info.currentQueueIndex
+        val currentWasRemoved = info.currentSong?.id == songId
+        val removedBeforeCurrent = if (oldIndex >= 0) {
+            info.queue.take(oldIndex).count { it.id == songId }
+        } else 0
+        val newQueue = info.queue.filterNot { it.id == songId }
+        if (newQueue.size == info.queue.size) return
+
+        if (newQueue.isEmpty()) {
+            _player?.stop()
+            _player?.clearMediaItems()
+            isTransitioning = false
+            releaseTransitionWakeLock()
+            _playbackPositionMs.value = 0L
+            _lyricsPositionMs.value = 0L
+            _playbackInfo.value = info.copy(
+                queue = emptyList(), currentQueueIndex = -1, currentSong = null,
+                isPlaying = false, isBuffering = false, currentPositionMs = 0L,
+                durationMs = 0L, isInstrumental = false, hasInstrumental = false
+            )
+            return
+        }
+
+        val newIndex = when {
+            oldIndex < 0 -> -1
+            currentWasRemoved -> (oldIndex - removedBeforeCurrent).coerceAtMost(newQueue.lastIndex)
+            else -> oldIndex - removedBeforeCurrent
+        }
+        val newSong = newQueue.getOrNull(newIndex)
+        _playbackInfo.value = info.copy(
+            queue = newQueue,
+            currentQueueIndex = newIndex,
+            currentSong = newSong,
+            currentPositionMs = if (currentWasRemoved) 0L else info.currentPositionMs,
+            hasInstrumental = newSong?.hasInstrumentalEffective ?: false,
+            isInstrumental = if (currentWasRemoved) false else info.isInstrumental
+        )
+
+        if (currentWasRemoved && newSong != null) {
+            _player?.pause()
+            _playbackPositionMs.value = 0L
+            _lyricsPositionMs.value = 0L
+            playCurrentQueueIndex(targetInstrumental = false)
+        }
+    }
+
     fun reorderQueue(fromIndex: Int, toIndex: Int) {
         val info = _playbackInfo.value
         val queue = info.queue.toMutableList()
@@ -736,6 +789,32 @@ class PlaybackManager(
                 currentSong = queue.getOrNull(newIndex)
             )
         }
+    }
+
+    /** Stop playback and discard the account-scoped queue during logout. */
+    fun clearQueueAndStop() {
+        playbackRequestId++
+        networkRecoveryJob?.cancel()
+        networkRecoveryJob = null
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
+        isTransitioning = false
+        releaseTransitionWakeLock()
+        _player?.stop()
+        _player?.clearMediaItems()
+        _playbackPositionMs.value = 0L
+        _lyricsPositionMs.value = 0L
+        _playbackInfo.value = _playbackInfo.value.copy(
+            queue = emptyList(),
+            currentQueueIndex = -1,
+            currentSong = null,
+            isPlaying = false,
+            isBuffering = false,
+            currentPositionMs = 0L,
+            durationMs = 0L,
+            isInstrumental = false,
+            hasInstrumental = false
+        )
     }
 
     fun clearUpcomingQueue() {

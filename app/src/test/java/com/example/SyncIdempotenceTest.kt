@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.example.data.api.YimlyApiService
 import com.example.data.db.PlaylistEntity
 import com.example.data.db.SongEntity
+import com.example.data.db.LyricResourceEntity
 import com.example.data.db.YimlyDatabase
 import com.example.data.db.toEntity
 import com.example.data.models.Album
@@ -65,6 +66,52 @@ class SyncIdempotenceTest {
     @After
     fun tearDown() {
         database.close()
+    }
+
+    @Test
+    fun logoutClearsAllCachedSongsAndLyrics() = runBlocking {
+        val dao = database.musicDao()
+        val song = Song(id = "logout_song", title = "Logout Song")
+        dao.insertSong(song.toEntity())
+        dao.insertLyricResource(LyricResourceEntity(song.id, "LRC", "[00:01.00]Cached"))
+
+        musicRepository.clearLocalCache()
+
+        assertEquals(0, dao.getSongCount())
+        assertTrue(dao.getAllLyricResourcesForSong(song.id).isEmpty())
+    }
+
+    @Test
+    fun favoriteSyncReplacesOldFavoritesAndClearsWhenRemoteListIsEmpty() = runBlocking {
+        val first = Song(id = "favorite_old", title = "Old Favorite")
+        val second = Song(id = "favorite_new", title = "New Favorite")
+        fakeApiService.songs = listOf(first, second)
+        fakeApiService.favorites = listOf(first)
+        assertTrue(musicRepository.syncWithBackend().isSuccess)
+        assertEquals(listOf(first.id), database.musicDao().getFavoriteSongs().first().map { it.id })
+
+        fakeApiService.favorites = listOf(second)
+        assertTrue(musicRepository.syncWithBackend().isSuccess)
+        assertEquals(listOf(second.id), database.musicDao().getFavoriteSongs().first().map { it.id })
+
+        fakeApiService.favorites = emptyList()
+        assertTrue(musicRepository.syncWithBackend().isSuccess)
+        assertTrue(database.musicDao().getFavoriteSongs().first().isEmpty())
+    }
+
+    @Test
+    fun lyricsUpdateAndDeleteInvalidateBothCachedFormats() = runBlocking {
+        val songId = "lyrics_cache_song"
+        val dao = database.musicDao()
+        dao.insertLyricResource(LyricResourceEntity(songId, "LRC", "[00:01.00]Old"))
+        dao.insertLyricResource(LyricResourceEntity(songId, "ELRC", "[00:01.00]Old<00:01.50>"))
+
+        assertTrue(musicRepository.updateLyrics(songId, "[00:01.00]New").isSuccess)
+        assertTrue(dao.getAllLyricResourcesForSong(songId).isEmpty())
+
+        dao.insertLyricResource(LyricResourceEntity(songId, "LRC", "[00:01.00]New"))
+        assertTrue(musicRepository.deleteLrc(songId).isSuccess)
+        assertTrue(dao.getAllLyricResourcesForSong(songId).isEmpty())
     }
 
     @Test
@@ -398,19 +445,19 @@ class SyncIdempotenceTest {
         }
 
         override suspend fun getLyrics(songId: String): okhttp3.ResponseBody {
-            throw NotImplementedError()
+            return "".toResponseBody("text/plain".toMediaTypeOrNull())
         }
 
         override suspend fun createLyrics(id: String, body: okhttp3.RequestBody): okhttp3.ResponseBody {
-            throw NotImplementedError()
+            return "".toResponseBody("text/plain".toMediaTypeOrNull())
         }
 
         override suspend fun updateLyrics(id: String, body: okhttp3.RequestBody): okhttp3.ResponseBody {
-            throw NotImplementedError()
+            return "".toResponseBody("text/plain".toMediaTypeOrNull())
         }
 
         override suspend fun patchLyrics(id: String, body: okhttp3.RequestBody): okhttp3.ResponseBody {
-            throw NotImplementedError()
+            return "".toResponseBody("text/plain".toMediaTypeOrNull())
         }
 
         override suspend fun updateLyricsJson(id: String, request: Map<String, String>): Map<String, Any> {
