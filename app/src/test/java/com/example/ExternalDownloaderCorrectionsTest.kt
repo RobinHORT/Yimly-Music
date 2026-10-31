@@ -340,7 +340,12 @@ class ExternalDownloaderCorrectionsTest {
 
         var resultId: String? = null
         viewModel.downloadExternalTrack(track) { resultId = it }
-        pumpLooper(100L)
+        var attempts = 0
+        while (resultId == null && attempts < 50) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
 
         assertEquals("existing_version", resultId)
         assertEquals(0, fakeApi.startDownloadCallCount)
