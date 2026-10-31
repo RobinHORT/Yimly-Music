@@ -3,6 +3,7 @@ package com.example
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
+import com.example.data.models.LyricsFormatMode
 import com.example.playback.PlaybackSnapshot
 import com.example.playback.RepeatMode
 import com.squareup.moshi.Moshi
