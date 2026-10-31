@@ -14,16 +14,24 @@ import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsDisplayConfig
+import com.example.playback.PlaybackSnapshot
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 val Context.dataStore: DataStore<Preferences> by preferencesDataStore(name = "yimly_preferences")
 
 class PreferencesManager(private val context: Context) {
+
+    private val playbackSnapshotAdapter by lazy {
+        Moshi.Builder().addLast(KotlinJsonAdapterFactory()).build().adapter(PlaybackSnapshot::class.java)
+    }
 
     init {
         CoroutineScope(Dispatchers.IO + SupervisorJob()).launch {
@@ -57,6 +65,7 @@ class PreferencesManager(private val context: Context) {
         private val KEY_RECENT_SEARCHES = stringPreferencesKey("recent_searches")
         private val KEY_SHUFFLE_MODE = booleanPreferencesKey("shuffle_mode")
         private val KEY_REPEAT_MODE = intPreferencesKey("repeat_mode")
+        private val KEY_PLAYBACK_SNAPSHOT = stringPreferencesKey("playback_snapshot")
 
         // Lyrics Config Keys
         private val KEY_LYRICS_FORMAT_MODE = stringPreferencesKey("lyrics_format_mode")
@@ -175,6 +184,25 @@ class PreferencesManager(private val context: Context) {
             elrcOffsetMs = prefs[KEY_LYRICS_ELRC_OFFSET] ?: 0L,
             elrcHighlightMode = prefs[KEY_LYRICS_ELRC_HIGHLIGHT_MODE] ?: com.example.data.models.ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING
         )
+    }
+
+    suspend fun savePlaybackSnapshot(snapshot: PlaybackSnapshot) {
+        val json = playbackSnapshotAdapter.toJson(snapshot)
+        context.dataStore.edit { preferences -> preferences[KEY_PLAYBACK_SNAPSHOT] = json }
+    }
+
+    suspend fun loadPlaybackSnapshot(): PlaybackSnapshot? {
+        val json = context.dataStore.data.first()[KEY_PLAYBACK_SNAPSHOT] ?: return null
+        return try {
+            playbackSnapshotAdapter.fromJson(json)
+        } catch (e: Exception) {
+            android.util.Log.w("PreferencesManager", "Discarding invalid playback snapshot", e)
+            null
+        }
+    }
+
+    suspend fun clearPlaybackSnapshot() {
+        context.dataStore.edit { preferences -> preferences.remove(KEY_PLAYBACK_SNAPSHOT) }
     }
 
     suspend fun setServerUrl(url: String) {
