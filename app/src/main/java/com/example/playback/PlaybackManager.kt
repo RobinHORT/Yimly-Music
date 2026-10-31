@@ -26,6 +26,7 @@ import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
 import com.example.data.repository.MusicRepository
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -77,6 +78,7 @@ class PlaybackManager(
     private val shuffleHistory = mutableListOf<Int>()
     private var lastSnapshotPersistAtMs = 0L
     private var snapshotWriteJob: kotlinx.coroutines.Job? = null
+    private val snapshotRestoreCompleted = CompletableDeferred<Unit>()
 
     private companion object {
         const val MAX_NETWORK_RECOVERY_ATTEMPTS = 3
@@ -971,42 +973,51 @@ class PlaybackManager(
         }
     }
 
+    /** Wait until the persisted queue has either been restored or confirmed empty. */
+    suspend fun awaitPlaybackSnapshotRestoration() {
+        snapshotRestoreCompleted.await()
+    }
+
     private fun restorePlaybackSnapshot() {
         val restoreRequestId = playbackRequestId
         coroutineScope.launch(Dispatchers.IO) {
-            val snapshot = try {
-                preferencesManager.loadPlaybackSnapshot()
-            } catch (e: Exception) {
-                Log.w("PlaybackManager", "Failed to load playback snapshot", e)
-                null
-            } ?: return@launch
-            if (snapshot.queue.isEmpty()) return@launch
-            withContext(Dispatchers.Main) {
-                // A user action or logout may have happened while DataStore was loading.
-                if (restoreRequestId != playbackRequestId) return@withContext
-                if (_playbackInfo.value.currentSong != null || _playbackInfo.value.queue.isNotEmpty()) return@withContext
-                val index = snapshot.currentQueueIndex.coerceIn(snapshot.queue.indices)
-                val song = snapshot.queue[index]
-                shuffleHistory.clear()
-                shuffleHistory.addAll(snapshot.shuffleHistory.filter { it in snapshot.queue.indices })
-                _playbackInfo.value = PlaybackInfo(
-                    currentSong = song,
-                    currentPositionMs = snapshot.currentPositionMs.coerceAtLeast(0L),
-                    queue = snapshot.queue,
-                    currentQueueIndex = index,
-                    isShuffle = snapshot.isShuffle,
-                    repeatMode = snapshot.repeatMode,
-                    hasInstrumental = song.hasInstrumentalEffective,
-                    isInstrumental = snapshot.isInstrumental
-                )
-                _playbackPositionMs.value = snapshot.currentPositionMs.coerceAtLeast(0L)
-                _lyricsPositionMs.value = snapshot.currentPositionMs.coerceAtLeast(0L)
-                playCurrentQueueIndex(
-                    targetInstrumental = snapshot.isInstrumental,
-                    autoPlay = false,
-                    initialPositionMs = snapshot.currentPositionMs
-                )
-                Log.i("PlaybackManager", "Restored ${snapshot.queue.size} queued tracks at index ${index}")
+            try {
+                val snapshot = try {
+                    preferencesManager.loadPlaybackSnapshot()
+                } catch (e: Exception) {
+                    Log.w("PlaybackManager", "Failed to load playback snapshot", e)
+                    null
+                } ?: return@launch
+                if (snapshot.queue.isEmpty()) return@launch
+                withContext(Dispatchers.Main) {
+                    // A user action or logout may have happened while DataStore was loading.
+                    if (restoreRequestId != playbackRequestId) return@withContext
+                    if (_playbackInfo.value.currentSong != null || _playbackInfo.value.queue.isNotEmpty()) return@withContext
+                    val index = snapshot.currentQueueIndex.coerceIn(snapshot.queue.indices)
+                    val song = snapshot.queue[index]
+                    shuffleHistory.clear()
+                    shuffleHistory.addAll(snapshot.shuffleHistory.filter { it in snapshot.queue.indices })
+                    _playbackInfo.value = PlaybackInfo(
+                        currentSong = song,
+                        currentPositionMs = snapshot.currentPositionMs.coerceAtLeast(0L),
+                        queue = snapshot.queue,
+                        currentQueueIndex = index,
+                        isShuffle = snapshot.isShuffle,
+                        repeatMode = snapshot.repeatMode,
+                        hasInstrumental = song.hasInstrumentalEffective,
+                        isInstrumental = snapshot.isInstrumental
+                    )
+                    _playbackPositionMs.value = snapshot.currentPositionMs.coerceAtLeast(0L)
+                    _lyricsPositionMs.value = snapshot.currentPositionMs.coerceAtLeast(0L)
+                    playCurrentQueueIndex(
+                        targetInstrumental = snapshot.isInstrumental,
+                        autoPlay = false,
+                        initialPositionMs = snapshot.currentPositionMs
+                    )
+                    Log.i("PlaybackManager", "Restored ${snapshot.queue.size} queued tracks at index ${index}")
+                }
+            } finally {
+                snapshotRestoreCompleted.complete(Unit)
             }
         }
     }
