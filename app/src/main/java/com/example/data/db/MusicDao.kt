@@ -26,6 +26,9 @@ interface MusicDao {
     @Query("SELECT * FROM songs WHERE id = :id LIMIT 1")
     suspend fun getSongById(id: String): SongEntity?
 
+    @Query("UPDATE songs SET lyricOffset = :offsetMs WHERE id = :songId")
+    suspend fun updateSongLyricOffset(songId: String, offsetMs: Long)
+
     @Query("SELECT * FROM songs WHERE LOWER(TRIM(album)) = LOWER(TRIM(:albumTitle)) OR (album = '' AND (LOWER(TRIM(title)) = LOWER(TRIM(:albumTitle)) OR LOWER(TRIM(title)) || ' (single)' = LOWER(TRIM(:albumTitle)))) ORDER BY title ASC")
     fun getSongsByAlbum(albumTitle: String): Flow<List<SongEntity>>
 
