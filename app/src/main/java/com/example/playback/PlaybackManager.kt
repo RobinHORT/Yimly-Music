@@ -791,6 +791,32 @@ class PlaybackManager(
         }
     }
 
+    /** Stop playback and discard the account-scoped queue during logout. */
+    fun clearQueueAndStop() {
+        playbackRequestId++
+        networkRecoveryJob?.cancel()
+        networkRecoveryJob = null
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
+        isTransitioning = false
+        releaseTransitionWakeLock()
+        _player?.stop()
+        _player?.clearMediaItems()
+        _playbackPositionMs.value = 0L
+        _lyricsPositionMs.value = 0L
+        _playbackInfo.value = _playbackInfo.value.copy(
+            queue = emptyList(),
+            currentQueueIndex = -1,
+            currentSong = null,
+            isPlaying = false,
+            isBuffering = false,
+            currentPositionMs = 0L,
+            durationMs = 0L,
+            isInstrumental = false,
+            hasInstrumental = false
+        )
+    }
+
     fun clearUpcomingQueue() {
         val info = _playbackInfo.value
         val currentSong = info.currentSong
