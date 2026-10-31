@@ -252,7 +252,13 @@ class PlaybackManager(
             error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
                 error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
 
-        if (isTransientNetworkError && info.currentSong != null) {
+        val isDecoderOrResourceError =
+            (error.errorCode in 3000..3999) ||
+            (error.message?.contains("MediaCodec", ignoreCase = true) == true) ||
+            (error.message?.contains("resource manager", ignoreCase = true) == true) ||
+            (error.message?.contains("Decoder", ignoreCase = true) == true)
+
+        if ((isTransientNetworkError || isDecoderOrResourceError) && info.currentSong != null) {
             // Bound retries per song, not per prepare cycle; STATE_READY alone must not
             // reset the limit or repeated mid-stream disconnects could retry forever.
             if (networkRecoverySongId != info.currentSong.id) {
@@ -263,11 +269,11 @@ class PlaybackManager(
                 val attempt = ++networkRecoveryAttempts
                 val requestIdAtFailure = playbackRequestId
                 val songIdAtFailure = info.currentSong.id
-                val delayMs = NETWORK_RECOVERY_BASE_DELAY_MS * (1L shl (attempt - 1))
+                val delayMs = if (isDecoderOrResourceError) 300L else (NETWORK_RECOVERY_BASE_DELAY_MS * (1L shl (attempt - 1)))
                 networkRecoveryJob?.cancel()
                 Log.w(
                     "PlaybackManager",
-                    "Transient network playback error (code=${error.errorCode}); retry ${attempt}/${MAX_NETWORK_RECOVERY_ATTEMPTS} in ${delayMs}ms"
+                    "Playback error (code=${error.errorCode}, message=${error.message}); retry ${attempt}/${MAX_NETWORK_RECOVERY_ATTEMPTS} in ${delayMs}ms"
                 )
                 networkRecoveryJob = coroutineScope.launch {
                     delay(delayMs)
@@ -276,13 +282,23 @@ class PlaybackManager(
                         latest.currentSong?.id != songIdAtFailure ||
                         latest.currentQueueIndex !in latest.queue.indices
                     ) {
-                        Log.d("PlaybackManager", "Skipping stale network recovery for song $songIdAtFailure")
+                        Log.d("PlaybackManager", "Skipping stale recovery for song $songIdAtFailure")
                         return@launch
                     }
                     networkRecoveryJob = null
                     isTransitioning = true
                     acquireTransitionWakeLock()
-                    playCurrentQueueIndex(targetInstrumental = latest.isInstrumental)
+                    if (isDecoderOrResourceError) {
+                        try {
+                            _player?.release()
+                        } catch (e: Exception) {
+                            // ignore
+                        }
+                        _player = null
+                        ensurePlayerInitialized()
+                    }
+                    val currentPos = _playbackPositionMs.value.coerceAtLeast(0L)
+                    playCurrentQueueIndex(targetInstrumental = latest.isInstrumental, initialPositionMs = currentPos)
                 }
                 return
             }

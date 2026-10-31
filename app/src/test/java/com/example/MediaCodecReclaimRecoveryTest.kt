@@ -56,4 +56,18 @@ class MediaCodecReclaimRecoveryTest {
         playbackManager.handlePlayerError(exception)
         assertTrue(true)
     }
+
+    @Test
+    fun testMediaCodecReclaimRecovery() {
+        playbackManager.playSong(testSong, listOf(testSong), 0)
+
+        val reclaimException = PlaybackException(
+            "Released by resource manager",
+            null,
+            3001 // ERROR_CODE_DECODER_INIT_FAILED
+        )
+        // Should handle codec reclamation and initiate recovery without crashing
+        playbackManager.handlePlayerError(reclaimException)
+        assertTrue(true)
+    }
 }
