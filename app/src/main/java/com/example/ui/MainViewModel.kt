@@ -820,6 +820,8 @@ class MainViewModel(
             val res = musicRepository.deleteSong(songId)
             if (res.isSuccess) {
                 playbackManager.removeSongFromQueue(songId)
+                completedTrackSongIdMap.entries.removeAll { it.value == songId }
+                _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
                 syncLibrary()
                 _uiMessage.value = "Song deleted successfully"
             } else {
