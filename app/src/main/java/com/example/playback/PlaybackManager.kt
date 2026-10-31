@@ -566,7 +566,8 @@ class PlaybackManager(
                         return@withContext
                     }
                     val p = ensurePlayerInitialized()
-                    val isSameSong = p.currentMediaItem?.mediaId?.startsWith(song.id) == true
+                    val activeMediaId = p.currentMediaItem?.mediaId
+                    val isSameSong = activeMediaId == song.id || activeMediaId == "${song.id}_inst"
                     val currentPos = initialPositionMs?.coerceAtLeast(0L)
                         ?: if (isSameSong && p.playbackState != Player.STATE_ENDED) p.currentPosition.coerceAtLeast(0L) else 0L
 
@@ -770,6 +771,9 @@ class PlaybackManager(
         val info = _playbackInfo.value
         val oldIndex = info.currentQueueIndex
         val currentWasRemoved = info.currentSong?.id == songId
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val removedBeforeCurrent = if (oldIndex >= 0) info.queue.take(oldIndex).count { it.id == songId } else 0
         val newQueue = info.queue.filterNot { it.id == songId }
         if (newQueue.size == info.queue.size) return
@@ -844,6 +848,9 @@ class PlaybackManager(
         playbackRequestId++
         networkRecoveryJob?.cancel()
         networkRecoveryJob = null
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         isTransitioning = false
         releaseTransitionWakeLock()
         _player?.stop()
