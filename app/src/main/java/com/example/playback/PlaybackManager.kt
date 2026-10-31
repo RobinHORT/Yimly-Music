@@ -798,7 +798,7 @@ class PlaybackManager(
         _player?.clearMediaItems()
         _playbackPositionMs.value = 0L
         _lyricsPositionMs.value = 0L
-        _playbackInfo.value = PlaybackInfo()
+        _playbackInfo.value = PlaybackInfo(currentQueueIndex = -1)
     }
 
     fun clearUpcomingQueue() {
