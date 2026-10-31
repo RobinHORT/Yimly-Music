@@ -243,7 +243,10 @@ class MusicRepository(
         try {            val remoteSong = apiService.getSongById(id)
             musicDao.upsertSongs(listOf(remoteSong.toEntity()))
             remoteSong
-        } catch (_: Exception) {
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Remote song lookup failed for $id; using local cache", e)
             musicDao.getSongById(id)?.toSong()
         }
     }
@@ -505,8 +508,11 @@ class MusicRepository(
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
             musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
             markPlaylistSynced(trimmedId)
-        } catch (_: Exception) {
-            // Failed refresh must not destroy valid existing cached playlist data
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            // Failed refresh must not destroy valid existing cached playlist data.
+            Log.w("MusicRepository", "Failed to refresh playlist $trimmedId; keeping cached data", e)
         }
     }
 
@@ -807,6 +813,8 @@ class MusicRepository(
     private suspend fun fetchAllRemoteSongs(): Pair<List<Song>?, Boolean> {
         val response = try {
             apiService.getSongs()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             if (e is retrofit2.HttpException && e.code() == 401) {
                 Log.w("MusicRepository", "Unauthorized song catalogue request (HTTP 401); preserving cached library.")
@@ -818,6 +826,8 @@ class MusicRepository(
 
         val songs = try {
             parseSongPage(response)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e("MusicRepository", "Invalid song catalogue response; preserving cached library: ${e.message}", e)
             return Pair(null, false)
@@ -851,28 +861,40 @@ class MusicRepository(
                 val favoritesDeferred = async {
                     try {
                         apiService.getFavorites()
-                    } catch (_: Exception) {
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Failed to fetch remote favorites; retaining local cache", e)
                         null
                     }
                 }
                 val albumsDeferred = async {
                     try {
                         apiService.getAlbums()
-                    } catch (_: Exception) {
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Failed to fetch remote albums; retaining local cache", e)
                         null
                     }
                 }
                 val artistsDeferred = async {
                     try {
                         apiService.getArtists()
-                    } catch (_: Exception) {
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Failed to fetch remote artists; retaining local cache", e)
                         null
                     }
                 }
                 val playlistsDeferred = async {
                     try {
                         apiService.getPlaylists()
-                    } catch (_: Exception) {
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (e: Exception) {
+                        Log.w("MusicRepository", "Failed to fetch remote playlists; retaining local cache", e)
                         null
                     }
                 }
@@ -964,6 +986,8 @@ class MusicRepository(
                             val plSongs = apiService.getPlaylistSongs(pl.id.trim())
                             musicDao.syncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
                             markPlaylistSynced(pl.id.trim())
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            throw cancelled
                         } catch (e: Exception) {
                             // Keep the existing cached playlist tracks when a refresh fails,
                             // but make the failure visible for diagnosis.
@@ -978,6 +1002,8 @@ class MusicRepository(
             }
 
             Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -986,6 +1012,8 @@ class MusicRepository(
     suspend fun clearLocalCache() = withContext(Dispatchers.IO) {
         try {
             musicDao.clearLocalLibraryData()
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e("MusicRepository", "Failed to clear local DB cache on logout: ${e.message}", e)
         } finally {
