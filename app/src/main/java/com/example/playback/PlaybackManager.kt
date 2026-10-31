@@ -17,6 +17,7 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import com.example.data.api.NetworkModule
 import com.example.YimlyApplication
@@ -155,6 +156,19 @@ class PlaybackManager(
                     YimlySessionCallback(this)
                 )
                 .setId("yimly_session_${System.identityHashCode(this)}_${System.nanoTime()}")
+                .setCustomLayout(
+                    listOf(
+                        CommandButton.Builder(CommandButton.ICON_SHUFFLE)
+                            .setDisplayName("Shuffle Playlist")
+                            .setSessionCommand(
+                                androidx.media3.session.SessionCommand(
+                                    YimlySessionCallback.ACTION_SHUFFLE_PLAYLIST,
+                                    android.os.Bundle.EMPTY
+                                )
+                            )
+                            .build()
+                    )
+                )
                 .setSessionActivity(
                     PendingIntent.getActivity(
                         context,
@@ -666,6 +680,30 @@ class PlaybackManager(
         val current = _playbackInfo.value.isShuffle
         setShuffle(!current)
     }
+    /** Start the current Android Auto/app queue at a random track and enable shuffle. */
+    fun shuffleCurrentQueue() {
+        val info = _playbackInfo.value
+        if (info.queue.isEmpty()) return
+        setShuffle(true)
+        if (info.queue.size <= 1) return
+
+        val candidates = info.queue.indices.filter { it != info.currentQueueIndex }
+        val nextIndex = candidates.random()
+        val nextSong = info.queue[nextIndex]
+        val useInstrumental = info.isInstrumental && nextSong.hasInstrumentalEffective
+        shuffleHistory.clear()
+        _playbackInfo.value = info.copy(
+            isShuffle = true,
+            currentQueueIndex = nextIndex,
+            currentSong = nextSong,
+            currentPositionMs = 0L,
+            hasInstrumental = nextSong.hasInstrumentalEffective,
+            isInstrumental = useInstrumental
+        )
+        persistPlaybackSnapshot(force = true)
+        playCurrentQueueIndex(targetInstrumental = useInstrumental)
+    }
+
 
     fun updateFavoriteStatus(songId: String, isFavorite: Boolean) {
         val info = _playbackInfo.value
