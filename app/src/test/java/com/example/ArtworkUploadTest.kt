@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.db.YimlyDatabase
+import com.example.data.datastore.PreferencesManager
+import com.example.data.api.YimlyApiService
 import com.example.data.db.toEntity
 import com.example.data.models.Playlist
 import com.example.data.repository.MusicRepository
@@ -35,6 +37,8 @@ class ArtworkUploadTest {
     private lateinit var context: Context
     private lateinit var database: YimlyDatabase
     private lateinit var musicRepository: MusicRepository
+    private lateinit var mockApi: YimlyApiService
+    private lateinit var preferencesManager: PreferencesManager
     private var uploadedPlaylistId: String? = null
     private var uploadedBodySize: Long = 0
     private var failPlaylistUpdate = false
@@ -48,7 +52,7 @@ class ArtworkUploadTest {
             .allowMainThreadQueries()
             .build()
 
-        val mockApi = object : SyncIdempotenceTest.FakeSyncApiService() {
+        mockApi = object : SyncIdempotenceTest.FakeSyncApiService() {
             override suspend fun uploadPlaylistCover(id: String, coverBody: RequestBody): Playlist {
                 uploadedPlaylistId = id
                 uploadedBodySize = coverBody.contentLength()
@@ -82,9 +86,11 @@ class ArtworkUploadTest {
             }
         }
 
+        preferencesManager = PreferencesManager(context)
         musicRepository = MusicRepository(
             musicDao = database.musicDao(),
             apiService = mockApi,
+            preferencesManager = preferencesManager,
             coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
             context = context
         )
