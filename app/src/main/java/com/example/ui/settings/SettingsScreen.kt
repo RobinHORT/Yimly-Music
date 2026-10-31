@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Storage
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
@@ -56,6 +57,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.BuildConfig
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.UserProfile
@@ -76,6 +78,8 @@ import com.example.ui.theme.YimlyPink
 fun SettingsScreen(
     userProfile: UserProfile?,
     serverUrl: String,
+    isOnline: Boolean,
+    isSyncing: Boolean,
     lyricsConfig: LyricsDisplayConfig,
     onUpdateServerUrl: (String) -> Unit,
     onSaveLyricsConfig: (LyricsDisplayConfig) -> Unit,
@@ -86,6 +90,12 @@ fun SettingsScreen(
 ) {
     var editableUrl by remember(serverUrl) { mutableStateOf(serverUrl) }
     var showLyricsDialog by remember { mutableStateOf(false) }
+    val cleanUrl = editableUrl.trim().trimEnd('/')
+    val parsedUrl = remember(cleanUrl) { android.net.Uri.parse(cleanUrl) }
+    val validUrl = !parsedUrl.host.isNullOrBlank() &&
+        (parsedUrl.scheme.equals("https", true) ||
+            (BuildConfig.DEBUG && parsedUrl.scheme.equals("http", true)))
+    val networkStatusColor = if (isOnline) YimlyPink else Color(0xFFFF6B6B)
 
     if (showLyricsDialog) {
         LyricsSettingsDialog(
@@ -202,37 +212,81 @@ fun SettingsScreen(
 
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = YimlyPink.copy(alpha = 0.2f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, YimlyPink.copy(alpha = 0.4f))
+                            color = networkStatusColor.copy(alpha = 0.16f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, networkStatusColor.copy(alpha = 0.4f))
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(YimlyPink))
+                                Box(modifier = Modifier.size(6.dp).clip(CircleShape).background(networkStatusColor))
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Text("ONLINE", color = YimlyPink, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    if (isOnline) "NETWORK ONLINE" else "NETWORK OFFLINE",
+                                    color = networkStatusColor,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
                     }
 
                     Text(
-                        text = "Native Android client connected to Yimly cloud server ($serverUrl)",
+                        text = "Server endpoint: $serverUrl",
                         style = MaterialTheme.typography.bodySmall,
                         color = TextSecondaryDark
                     )
 
+                    OutlinedTextField(
+                        value = editableUrl,
+                        onValueChange = { editableUrl = it },
+                        modifier = Modifier.fillMaxWidth().testTag("server_url_input"),
+                        label = { Text("Server URL") },
+                        placeholder = { Text("https://your-server.example") },
+                        singleLine = true
+                    )
+
+                    Text(
+                        text = "HTTPS is required in release builds. HTTP is available in debug builds for local testing.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = TextSecondaryDark
+                    )
+
+                    Button(
+                        onClick = { onUpdateServerUrl(cleanUrl) },
+                        enabled = validUrl && cleanUrl != serverUrl.trimEnd('/'),
+                        modifier = Modifier.fillMaxWidth().testTag("save_server_url_btn"),
+                        colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevatedDark),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorderDark),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Save Server URL", color = YimlyPink, fontWeight = FontWeight.SemiBold)
+                    }
+
                     // Sync Library Button
                     Button(
                         onClick = onSyncLibrary,
+                        enabled = !isSyncing,
                         modifier = Modifier.fillMaxWidth().testTag("sync_library_btn"),
                         colors = ButtonDefaults.buttonColors(containerColor = SurfaceElevatedDark),
                         border = androidx.compose.foundation.BorderStroke(1.dp, SurfaceBorderDark),
                         shape = RoundedCornerShape(12.dp)
                     ) {
-                        Icon(Icons.Default.Refresh, contentDescription = null, tint = YimlyPink, modifier = Modifier.size(18.dp))
+                        if (isSyncing) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                color = YimlyPink,
+                                strokeWidth = 2.dp
+                            )
+                        } else {
+                            Icon(Icons.Default.Refresh, contentDescription = null, tint = YimlyPink, modifier = Modifier.size(18.dp))
+                        }
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text("Sync Library with Server", color = YimlyPink, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            if (isSyncing) "Syncing library…" else "Sync Library with Server",
+                            color = YimlyPink,
+                            fontWeight = FontWeight.SemiBold
+                        )
                     }
                 }
             }
