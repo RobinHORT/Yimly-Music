@@ -337,28 +337,63 @@ class MainViewModel(
         }
     }
 
+    private suspend fun processPendingPlaylistRequests(key: String, songId: String) {
+        val pending = synchronized(pendingPlaylistRequests) {
+            pendingPlaylistRequests.remove(key) ?: emptyList()
+        }
+        val failed = mutableListOf<String>()
+        for (playlistId in pending) {
+            try {
+                musicRepository.addSongToPlaylist(playlistId, songId)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                failed.add(playlistId)
+                synchronized(pendingPlaylistRequests) {
+                    val existing = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                    failed.filterNot { it in existing }.forEach(existing::add)
+                }
+                throw cancelled
+            } catch (e: Exception) {
+                failed.add(playlistId)
+                _uiMessage.value = "Failed to add song to playlist: ${e.message ?: "Unknown error"}"
+            }
+        }
+        if (failed.isNotEmpty()) {
+            synchronized(pendingPlaylistRequests) {
+                val existing = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                failed.filterNot { it in existing }.forEach(existing::add)
+            }
+        } else if (pending.isNotEmpty()) {
+            _uiMessage.value = "Added song to playlist"
+        }
+    }
+
     fun registerPendingPlaylistAdd(track: com.example.data.models.ExternalTrack, playlistId: String) {
         val key = MusicRepository.externalTrackIdentity(track)
-        
-        // Check if already downloaded
-        val existing = getCompletedSongId(track)
-        if (existing != null) {
-            viewModelScope.launch {
-                try {
-                    musicRepository.addSongToPlaylist(playlistId, existing)
+        viewModelScope.launch {
+            try {
+                val existingId = getCompletedSongId(track)
+                    ?: musicRepository.getAllSongsSnapshot()
+                        .firstOrNull { MusicRepository.isSameExternalTrack(it, track) }
+                        ?.id
+                if (existingId != null) {
+                    completedTrackSongIdMap[key] = existingId
+                    _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existingId)
+                    musicRepository.addSongToPlaylist(playlistId, existingId)
                     _uiMessage.value = "Added to playlist"
-                } catch (e: Exception) {
-                    _uiMessage.value = "Failed to add song to playlist: ${e.message}"
+                    return@launch
                 }
-            }
-            return
-        }
 
-        synchronized(pendingPlaylistRequests) {
-            val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
-            if (playlistId !in list) list.add(playlistId)
+                synchronized(pendingPlaylistRequests) {
+                    val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                    if (playlistId !in list) list.add(playlistId)
+                }
+                downloadExternalTrack(track)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                _uiMessage.value = "Failed to add song to playlist: ${e.message ?: "Unknown error"}"
+            }
         }
-        downloadExternalTrack(track)
     }
 
     private suspend fun syncAndIndexTrack(
