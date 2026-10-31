@@ -900,13 +900,19 @@ class MainViewModel(
 
         offsetUpdateJob?.cancel()
         offsetUpdateJob = viewModelScope.launch {
-            preferencesManager.setSongLyricsOffset(songId, mode, offsetMs)
-            val isAdmin = userProfile.value?.isAdmin == true || userProfile.value?.role == "admin"
-            if (mode == LyricsFormatMode.LRC && isAdmin) {
-                val result = musicRepository.updateLyricsOffset(songId, offsetMs)
-                if (result.isFailure) {
-                    _uiMessage.value = "Offset saved on this device, but server sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+            try {
+                preferencesManager.setSongLyricsOffset(songId, mode, offsetMs)
+                val isAdmin = userProfile.value?.isAdmin == true || userProfile.value?.role == "admin"
+                if (mode == LyricsFormatMode.LRC && isAdmin) {
+                    val result = musicRepository.updateLyricsOffset(songId, offsetMs)
+                    if (result.isFailure) {
+                        _uiMessage.value = "Offset saved on this device, but server sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+                    }
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                _uiMessage.value = "Failed to save lyrics offset: ${e.message ?: "Unknown error"}"
             }
         }
     }
@@ -931,6 +937,8 @@ class MainViewModel(
                 preferencesManager.setServerUrl(cleanUrl)
                 _uiMessage.value = "Server URL saved"
                 syncLibrary(showResult = true)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = "Failed to save server URL: ${e.message ?: "Unknown error"}"
             }
