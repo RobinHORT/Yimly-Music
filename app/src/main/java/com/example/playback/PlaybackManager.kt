@@ -934,6 +934,7 @@ class PlaybackManager(
     }
 
     private fun restorePlaybackSnapshot() {
+        val restoreRequestId = playbackRequestId
         coroutineScope.launch(Dispatchers.IO) {
             val snapshot = try {
                 preferencesManager.loadPlaybackSnapshot()
@@ -943,6 +944,8 @@ class PlaybackManager(
             } ?: return@launch
             if (snapshot.queue.isEmpty()) return@launch
             withContext(Dispatchers.Main) {
+                // A user action or logout may have happened while DataStore was loading.
+                if (restoreRequestId != playbackRequestId) return@withContext
                 if (_playbackInfo.value.currentSong != null || _playbackInfo.value.queue.isNotEmpty()) return@withContext
                 val index = snapshot.currentQueueIndex.coerceIn(snapshot.queue.indices)
                 val song = snapshot.queue[index]
