@@ -1,6 +1,8 @@
 package com.example
 
 import com.example.data.models.Song
+import com.example.data.models.Playlist
+import com.example.data.datastore.ServerUrlConfig
 import com.example.data.repository.MusicRepository
 import com.example.lyrics.LyricsParser
 import org.junit.Assert.assertEquals
@@ -93,6 +95,21 @@ class ExampleUnitTest {
         assertTrue(artists.any { it.name == "Simon & Garfunkel" })
         assertTrue(artists.any { it.name == "Earth, Wind & Fire" })
         assertTrue(artists.any { it.name == "Above & Beyond" })
+    }
+
+    @Test
+    fun testPlaylistCoverUrlUsesConfiguredServer() {
+        val previousUrl = ServerUrlConfig.activeServerUrl
+        try {
+            ServerUrlConfig.activeServerUrl = "https://music.example.test:8443"
+            val playlist = Playlist(id = "playlist_1", name = "Test", createdAt = "123")
+            assertEquals(
+                "https://music.example.test:8443/api/playlists/playlist_1/cover?t=123",
+                playlist.coverUrl
+            )
+        } finally {
+            ServerUrlConfig.activeServerUrl = previousUrl
+        }
     }
 
     @Test
