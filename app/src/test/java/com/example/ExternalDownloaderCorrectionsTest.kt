@@ -280,6 +280,86 @@ class ExternalDownloaderCorrectionsTest {
     }
 
     @Test
+    fun testTransientPollingErrorsRecoverAndCompleteDownload() = runBlocking {
+        val track = ExternalTrack(title = "Poll Recovery", artist = "Artist P")
+        fakeApi.pollFailuresRemaining = 3
+        fakeApi.jobResponse = DownloaderJobResponse(id = "job_poll", status = "completed")
+        fakeApi.songs = listOf(Song(id = "poll_song_1", title = "Poll Recovery", artist = "Artist P"))
+
+        var resultId: String? = null
+        viewModel.downloadExternalTrack(track) { resultId = it }
+        var attempts = 0
+        while (resultId == null && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals("poll_song_1", resultId)
+        assertEquals(4, fakeApi.downloadJobPollCount)
+        assertEquals("Completed", viewModel.downloadStatusMap.value["poll recovery|artist p"])
+    }
+
+    @Test
+    fun testPersistentPollingErrorsFailClearlyInsteadOfBeingSwallowed() = runBlocking {
+        val track = ExternalTrack(title = "Poll Failure", artist = "Artist F")
+        fakeApi.pollFailuresRemaining = 10
+
+        var callbackCalled = false
+        var resultId: String? = "sentinel"
+        viewModel.downloadExternalTrack(track) {
+            callbackCalled = true
+            resultId = it
+        }
+        var attempts = 0
+        while (!callbackCalled && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertTrue(callbackCalled)
+        assertNull(resultId)
+        assertEquals(5, fakeApi.downloadJobPollCount)
+        assertEquals(
+            "Failed: Unable to check download status",
+            viewModel.downloadStatusMap.value["poll failure|artist f"]
+        )
+    }
+
+    @Test
+    fun testFailedDownloadDoesNotCarryItsPlaylistRequestIntoTheNextAttempt() = runBlocking {
+        val track = ExternalTrack(title = "Pending Cleanup", artist = "Artist P")
+        fakeApi.jobResponse = DownloaderJobResponse(
+            id = "job_failed_first",
+            status = "failed",
+            tracks = listOf(DownloaderJobTrack(title = track.title, artist = track.artist, status = "failed"))
+        )
+
+        viewModel.registerPendingPlaylistAdd(track, "failed_playlist")
+        var attempts = 0
+        while (viewModel.downloadStatusMap.value["pending cleanup|artist p"]?.startsWith("Failed") != true && attempts < 100) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+        assertTrue(viewModel.downloadStatusMap.value["pending cleanup|artist p"]?.startsWith("Failed") == true)
+
+        fakeApi.jobResponse = DownloaderJobResponse(id = "job_success_second", status = "completed")
+        fakeApi.songs = listOf(Song(id = "pending_song_1", title = track.title, artist = track.artist))
+        viewModel.registerPendingPlaylistAdd(track, "successful_playlist")
+        attempts = 0
+        while (fakeApi.playlistAddCalls.isEmpty() && attempts < 150) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals(listOf("successful_playlist" to "pending_song_1"), fakeApi.playlistAddCalls)
+        assertEquals(2, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
     fun testMissingDownloaderSettingsDoesNotFallbackToHardcodedLibrary() = runBlocking {
         val track = ExternalTrack(title = "No Lib Track", artist = "Artist N")
         fakeApi.settingsLibraryId = null // Server returns null/empty library ID
