@@ -946,6 +946,7 @@ class MainViewModel(
 
         viewModelScope.launch {
             try {
+                syncJob?.cancelAndJoin()
                 preferencesManager.setServerUrl(cleanUrl)
                 _uiMessage.value = "Server URL saved"
                 syncLibrary(showResult = true)
