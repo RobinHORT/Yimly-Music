@@ -127,6 +127,7 @@ class ArtworkUploadTest {
         val repositoryWithoutContext = MusicRepository(
             apiService = mockApi,
             musicDao = database.musicDao(),
+            coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
             preferencesManager = preferencesManager,
             context = null
         )
