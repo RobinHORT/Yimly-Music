@@ -568,7 +568,8 @@ class MusicRepository(
 
     suspend fun getLyricsForSong(
         song: Song,
-        formatMode: LyricsFormatMode = LyricsFormatMode.ELRC
+        formatMode: LyricsFormatMode = LyricsFormatMode.ELRC,
+        allowSongFallback: Boolean = true
     ): LyricsData = withContext(Dispatchers.IO) {
         val cleanSongId = song.id.trim()
         val cachedResource = musicDao.getLyricResource(cleanSongId, formatMode.name)
@@ -593,7 +594,7 @@ class MusicRepository(
             // Fallback
         }
 
-        val rawTextToUse = if (!rawRemote.isNullOrBlank()) rawRemote else song.lyricsText
+        val rawTextToUse = if (!rawRemote.isNullOrBlank()) rawRemote else song.lyricsText.takeIf { allowSongFallback }
 
         if (!rawTextToUse.isNullOrBlank()) {
             val hasWordTags = LyricsFormatUtils.hasWordTimingTags(rawTextToUse)
@@ -679,6 +680,7 @@ class MusicRepository(
                     throw e
                 }
             }
+            musicDao.deleteAllLyricResourcesForSong(songId.trim())
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -688,6 +690,7 @@ class MusicRepository(
     suspend fun deleteLrc(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             apiService.deleteLrc(songId)
+            musicDao.deleteAllLyricResourcesForSong(songId.trim())
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
@@ -839,11 +842,11 @@ class MusicRepository(
             }
 
             // 2. Process and persist favorites
-            if (!remoteFavorites.isNullOrEmpty()) {
+            // A successful empty response means there are no favorites. A null
+            // response means the endpoint failed, so retain the current local state.
+            if (remoteFavorites != null) {
                 val favIds = remoteFavorites.map { it.id.trim() }.filter { it.isNotBlank() }
-                if (favIds.isNotEmpty()) {
-                    musicDao.setFavorites(favIds)
-                }
+                musicDao.replaceFavorites(favIds)
             }
 
             // 3. Process and persist albums
@@ -914,14 +917,11 @@ class MusicRepository(
 
     suspend fun clearLocalCache() = withContext(Dispatchers.IO) {
         try {
-            musicDao.deleteStaleSongs(emptyList())
-            musicDao.deleteStaleAlbums(emptyList())
-            musicDao.deleteStaleArtists(emptyList())
-            musicDao.deleteStalePlaylists(emptyList())
-            musicDao.clearAllFavorites()
-            musicDao.clearHistory()
+            musicDao.clearLocalLibraryData()
         } catch (e: Exception) {
             Log.e("MusicRepository", "Failed to clear local DB cache on logout: ${e.message}", e)
+        } finally {
+            clearPlaylistSyncCache()
         }
     }
 
