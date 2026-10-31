@@ -14,6 +14,15 @@ enum class RepeatMode {
     }
 }
 
+data class PlaybackSnapshot(
+    val queue: List<Song>,
+    val currentQueueIndex: Int,
+    val currentPositionMs: Long,
+    val isShuffle: Boolean,
+    val repeatMode: RepeatMode,
+    val isInstrumental: Boolean
+)
+
 data class PlaybackInfo(
     val currentSong: Song? = null,
     val isPlaying: Boolean = false,
