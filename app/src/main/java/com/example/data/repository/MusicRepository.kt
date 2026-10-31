@@ -469,6 +469,8 @@ class MusicRepository(
         try {
             val response = apiService.resolveDownloader(com.example.data.models.DownloaderResolveRequest(urlOrQuery = query))
             response.tracks
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
         } catch (e: Exception) {
             Log.e("MusicRepository", "Failed to resolve external tracks for query '$query': ${e.message}", e)
             emptyList()
@@ -495,6 +497,8 @@ class MusicRepository(
             emit(
                 try {
                     withContext(Dispatchers.IO) { apiService.search(cleanQuery) }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
                 } catch (error: Exception) {
                     Log.w("MusicRepository", "Remote song search failed; using local cache", error)
                     null
@@ -506,7 +510,10 @@ class MusicRepository(
             emit(
                 try {
                     resolveExternalTracks(cleanQuery)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
+                    Log.w("MusicRepository", "External song search failed; using local results", e)
                     emptyList()
                 }
             )
@@ -533,12 +540,10 @@ class MusicRepository(
                 .distinctBy { it.id.trim() }
             val matchingSongs = SearchUtils.sortSongsByRelevance(allSongMatches, cleanQuery)
 
-            // Deduplicate external tracks against existing library songs by normalized title and artist
-            val existingKeys = matchingSongs.map { "${SearchUtils.normalize(it.title)}|${SearchUtils.normalize(it.artist)}" }.toSet()
-            val filteredExternal = external.filter { ext ->
-                val key = "${SearchUtils.normalize(ext.title)}|${SearchUtils.normalize(ext.artist)}"
-                !existingKeys.contains(key)
-            }.distinctBy { "${SearchUtils.normalize(it.title)}|${SearchUtils.normalize(it.artist)}" }
+            // Keep distinct album/edition/duration variants visible while hiding true duplicates.
+            val filteredExternal = external
+                .filterNot { ext -> matchingSongs.any { song -> isSameExternalTrack(song, ext) } }
+                .distinctBy { externalTrackIdentity(it) }
 
             val remoteArtists = remote?.artists.orEmpty()
             val remoteAlbums = remote?.albums.orEmpty()
@@ -927,6 +932,41 @@ class MusicRepository(
 
     companion object {
         const val PLAYLIST_FRESHNESS_WINDOW_MS = 5 * 60 * 1000L // 5 minutes
+
+        private fun normalizeTrackIdentityPart(value: String): String =
+            value.trim().lowercase().replace(Regex("\\s+"), " ")
+
+        fun externalTrackIdentity(track: com.example.data.models.ExternalTrack): String {
+            val base = "${normalizeTrackIdentityPart(track.title)}|${normalizeTrackIdentityPart(track.artist)}"
+            val album = normalizeTrackIdentityPart(track.album)
+            return buildString {
+                append(base)
+                if (album.isNotBlank() || track.durationSeconds > 0L) {
+                    append("|")
+                    append(album)
+                    append("|")
+                    append(track.durationSeconds.coerceAtLeast(0L))
+                }
+            }
+        }
+
+        fun isSameExternalTrack(
+            song: Song,
+            track: com.example.data.models.ExternalTrack
+        ): Boolean {
+            if (normalizeTrackIdentityPart(song.title) != normalizeTrackIdentityPart(track.title)) return false
+            if (normalizeTrackIdentityPart(song.artist) != normalizeTrackIdentityPart(track.artist)) return false
+
+            val songAlbum = normalizeTrackIdentityPart(song.album)
+            val externalAlbum = normalizeTrackIdentityPart(track.album)
+            if (songAlbum.isNotBlank() && externalAlbum.isNotBlank() && songAlbum != externalAlbum) return false
+
+            if (song.durationSeconds > 0L && track.durationSeconds > 0L &&
+                kotlin.math.abs(song.durationSeconds - track.durationSeconds) > 3L
+            ) return false
+
+            return true
+        }
 
         fun parseArtists(rawArtist: String): Set<String> {
             if (rawArtist.isBlank()) return emptySet()
