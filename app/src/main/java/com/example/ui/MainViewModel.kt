@@ -572,6 +572,7 @@ class MainViewModel(
         viewModelScope.launch {
             cancelActiveDownloads()
             syncJob?.cancelAndJoin()
+            offsetUpdateJob?.cancelAndJoin()
             try {
                 authRepository.logout()
             } finally {
