@@ -260,6 +260,14 @@ class MainViewModel(
                             isDownloadSuccessful = false
                             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Cancelled")
                             println("DownloaderDebug: Job cancelled for $key")
+                        } else if (overallStatus !in listOf("queued", "downloading", "running", "searching", "tagging") &&
+                            trackStatus !in listOf("queued", "downloading", "running", "searching", "tagging", null)) {
+                             isJobFinished = true
+                             isDownloadSuccessful = false
+                             val err = "Unexpected status: $overallStatus"
+                             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Failed: $err")
+                             _uiMessage.value = err
+                             println("DownloaderDebug: Job failed: $err for $key")
                         } else {
                              _downloadStatusMap.value = _downloadStatusMap.value + (key to "Downloading")
                              println("DownloaderDebug: Job downloading $key")

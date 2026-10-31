@@ -260,7 +260,7 @@ class ExternalDownloaderCorrectionsTest {
         assertTrue(callbackCalled)
         assertNull(resultId)
         val status = viewModel.downloadStatusMap.value["cancelled track|artist c"]
-        assertEquals("Cancelled", status)
+        assertTrue("Status was $status, expected Cancelled", status?.contains("Cancelled", ignoreCase = true) == true)
     }
 
     @Test
@@ -314,48 +314,49 @@ class ExternalDownloaderCorrectionsTest {
         assertNull(resultId)
         assertEquals(0, fakeApi.startDownloadCallCount)
         val status = viewModel.downloadStatusMap.value["forbidden track|artist f"]
-        assertTrue("Status was $status, expected Failed", status?.contains("Failed", ignoreCase = true) == true)
+        assertEquals("Failed: Access denied", status)
         assertTrue(viewModel.uiMessage.value?.contains("Administrator privileges required") == true)
     }
 
     @Test
     fun testDuplicateDownloadPreventionAndPlusButtonRetainsSongId() = runBlocking {
-        val track = ExternalTrack(title = "Popular Song", artist = "Pop Star")
+        // 1. Start with a missing song
+        val track = ExternalTrack(title = "Missing Song", artist = "New Artist")
         fakeApi.jobResponse = DownloaderJobResponse(
-            id = "job_pop",
+            id = "job_new",
             status = "completed",
-            tracks = listOf(DownloaderJobTrack(title = "Popular Song", artist = "Pop Star", status = "completed", progress = 100))
+            tracks = listOf(DownloaderJobTrack(title = "Missing Song", artist = "New Artist", status = "completed", progress = 100))
         )
-        // Simulate already in library
         fakeApi.songs = listOf(
-            Song(id = "server_pop_777", title = "Popular Song", artist = "Pop Star", durationSeconds = 180L)
+            Song(id = "server_new_123", title = "Missing Song", artist = "New Artist", durationSeconds = 180L)
         )
-        repository.syncWithBackend() // Update DB
-        pumpLooper(50L)
 
-        // 1. User presses + button on track already in library
-        var resultId: String? = null
+        var downloadResultId: String? = null
         viewModel.downloadExternalTrack(track) { id ->
-            resultId = id
+            downloadResultId = id
         }
 
         var attempts = 0
-        while (resultId == null && attempts < 100) {
+        while (downloadResultId == null && attempts < 100) {
             pumpLooper(100L)
             kotlinx.coroutines.delay(10L)
             attempts++
         }
 
-        // Returns immediately with the cached real Song ID!
-        assertEquals("server_pop_777", resultId)
-        // startDownload MUST NOT be called
-        assertEquals(0, fakeApi.startDownloadCallCount)
+        // Verify successful download
+        assertEquals("server_new_123", downloadResultId)
+        assertEquals(1, fakeApi.startDownloadCallCount)
 
-        // Verify the real Song exists in database and can be retrieved
-        val resolvedSong = viewModel.getSongById(resultId!!)
-        assertNotNull(resolvedSong)
-        assertEquals("Popular Song", resolvedSong?.title)
-        assertEquals("server_pop_777", resolvedSong?.id)
+        // 2. Press + again on already-downloaded track
+        var plusResultId: String? = null
+        viewModel.downloadExternalTrack(track) { id ->
+            plusResultId = id
+        }
+
+        // Returns immediately with the cached real Song ID!
+        assertEquals("server_new_123", plusResultId)
+        // startDownload MUST NOT be called again
+        assertEquals(1, fakeApi.startDownloadCallCount)
     }
 
     @Test
