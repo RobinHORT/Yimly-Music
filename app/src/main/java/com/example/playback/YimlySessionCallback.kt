@@ -161,17 +161,20 @@ class YimlySessionCallback(
         controller: MediaSession.ControllerInfo
     ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
         val currentSong = playbackManager.playbackInfo.value.currentSong
-        if (currentSong != null) {
-            val item = session.player.currentMediaItem
-            if (item != null) {
-                val pos = playbackManager.playbackInfo.value.currentPositionMs
-                val itemsWithStart = MediaSession.MediaItemsWithStartPosition(
-                    listOf(item),
-                    0,
-                    pos
-                )
-                return Futures.immediateFuture(itemsWithStart)
-            }
+        val player = session.player
+        if (currentSong != null && player.mediaItemCount > 0) {
+            // Preserve the complete Media3 timeline (not just the active item) when
+            // Android Auto asks this still-live session to resume playback.
+            val items = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+            val startIndex = player.currentMediaItemIndex.coerceIn(items.indices)
+            val position = playbackManager.playbackInfo.value.currentPositionMs
+                .takeIf { it > 0L } ?: player.currentPosition
+            val itemsWithStart = MediaSession.MediaItemsWithStartPosition(
+                items,
+                startIndex,
+                position
+            )
+            return Futures.immediateFuture(itemsWithStart)
         }
         return super.onPlaybackResumption(session, controller)
     }
