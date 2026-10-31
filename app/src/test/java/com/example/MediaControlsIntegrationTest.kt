@@ -124,6 +124,16 @@ class MediaControlsIntegrationTest {
     }
 
     @Test
+    fun logoutPlaybackCleanupStopsAndClearsTheActiveQueue() {
+        playbackManager.playSong(song1, listOf(song1, song2), startIndex = 0)
+        playbackManager.clearQueueAndStop()
+
+        assertTrue(playbackManager.playbackInfo.value.queue.isEmpty())
+        assertEquals(-1, playbackManager.playbackInfo.value.currentQueueIndex)
+        assertEquals(null, playbackManager.playbackInfo.value.currentSong)
+    }
+
+    @Test
     fun testRepeatAndShuffleModeMapping() {
         val session = playbackManager.mediaSession!!
         val player = session.player

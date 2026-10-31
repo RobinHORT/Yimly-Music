@@ -787,6 +787,20 @@ class PlaybackManager(
         }
     }
 
+    /** Stop account playback and discard its queue when the user signs out. */
+    fun clearQueueAndStop() {
+        playbackRequestId++
+        networkRecoveryJob?.cancel()
+        networkRecoveryJob = null
+        isTransitioning = false
+        releaseTransitionWakeLock()
+        _player?.stop()
+        _player?.clearMediaItems()
+        _playbackPositionMs.value = 0L
+        _lyricsPositionMs.value = 0L
+        _playbackInfo.value = PlaybackInfo()
+    }
+
     fun clearUpcomingQueue() {
         val info = _playbackInfo.value
         val currentSong = info.currentSong

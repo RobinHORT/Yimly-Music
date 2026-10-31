@@ -452,6 +452,7 @@ class MainViewModel(
     fun logout() {
         viewModelScope.launch {
             authRepository.logout()
+            playbackManager.clearQueueAndStop()
             musicRepository.clearLocalCache()
         }
     }
