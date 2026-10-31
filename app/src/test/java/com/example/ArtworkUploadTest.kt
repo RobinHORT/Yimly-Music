@@ -108,6 +108,18 @@ class ArtworkUploadTest {
     }
 
     @Test
+    fun testServerLyricsOffsetUpdateAlsoUpdatesLocalSongRecord() = runBlocking {
+        database.musicDao().upsertSong(
+            Song(id = "offset_song", title = "Offset Song", artist = "Artist").toEntity()
+        )
+
+        val result = musicRepository.updateLyricsOffset("offset_song", 1425L)
+
+        assertTrue(result.isSuccess)
+        assertEquals(1425L, database.musicDao().getSongById("offset_song")?.lyricOffset)
+    }
+
+    @Test
     fun testPlaylistUpdatePreservesOriginalCreatedAt() = runBlocking {
         val originalCreatedAt = "2024-05-01T12:00:00Z"
         database.musicDao().insertPlaylist(
