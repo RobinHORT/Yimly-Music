@@ -36,6 +36,7 @@ class ArtworkUploadTest {
     private var uploadedPlaylistId: String? = null
     private var uploadedBodySize: Long = 0
     private var failPlaylistUpdate = false
+    private var failPlaylistRefresh = false
     private var playlistUpdateResponse = Playlist(id = "72", name = "Test Playlist", createdAt = "server-created-at")
 
     @Before
@@ -57,6 +58,11 @@ class ArtworkUploadTest {
                     updatedAt = "2026-09-01T09:00:00.000Z",
                     createdAt = "server-created-at"
                 )
+            }
+
+            override suspend fun getPlaylistById(id: String): Playlist {
+                if (failPlaylistRefresh) throw IOException("Playlist refresh failed")
+                return playlistUpdateResponse
             }
 
             override suspend fun updatePlaylist(
@@ -105,6 +111,19 @@ class ArtworkUploadTest {
         assertNotNull(updated)
         assertNotNull(updated?.coverUrl)
         assertTrue(updated!!.coverUrl!!.contains("/api/playlists/72/cover"))
+    }
+
+    @Test
+    fun testPlaylistRefreshFailureReturnsResultAndPreservesCachedPlaylist() = runBlocking {
+        database.musicDao().insertPlaylist(
+            Playlist(id = "72", name = "Cached Playlist", createdAt = "2024-01-01").toEntity()
+        )
+        failPlaylistRefresh = true
+
+        val result = musicRepository.refreshPlaylistDetail("72", force = true)
+
+        assertTrue(result.isFailure)
+        assertEquals("Cached Playlist", database.musicDao().getPlaylistById("72")?.name)
     }
 
     @Test
