@@ -453,7 +453,14 @@ class MusicRepository(
 
     suspend fun addSongToPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
         apiService.addSongToPlaylist(playlistId, AddPlaylistSongRequest(songId = songId))
-        refreshPlaylistDetail(playlistId, force = true)
+        val refreshResult = refreshPlaylistDetail(playlistId, force = true)
+        if (refreshResult.isFailure) {
+            Log.w(
+                "MusicRepository",
+                "Song $songId was added to playlist $playlistId, but its cached detail could not be refreshed",
+                refreshResult.exceptionOrNull()
+            )
+        }
     }
 
     suspend fun removeSongFromPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
@@ -478,15 +485,15 @@ class MusicRepository(
         }
     }
 
-    suspend fun refreshPlaylistDetail(playlistId: String, force: Boolean = false) = withContext(Dispatchers.IO) {
+    suspend fun refreshPlaylistDetail(playlistId: String, force: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         val trimmedId = playlistId.trim()
-        if (trimmedId.isBlank()) return@withContext
+        if (trimmedId.isBlank()) {
+            return@withContext Result.failure(IllegalArgumentException("Playlist ID is blank"))
+        }
 
         if (!force && isPlaylistFresh(trimmedId)) {
             val localPl = musicDao.getPlaylistById(trimmedId)
-            if (localPl != null) {
-                return@withContext
-            }
+            if (localPl != null) return@withContext Result.success(Unit)
         }
 
         try {
@@ -497,7 +504,6 @@ class MusicRepository(
                 apiService.getPlaylistSongs(trimmedId)
             }
 
-            // The getPlaylistById response might not include songCount, so we derive it from the fetched songs array
             val localPl = musicDao.getPlaylistById(trimmedId)
             val finalCover = remotePlaylist.coverUrl ?: localPl?.coverUrl
             val playlistWithCorrectCount = remotePlaylist.copy(
@@ -509,11 +515,12 @@ class MusicRepository(
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
             musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
             markPlaylistSynced(trimmedId)
+            Result.success(Unit)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (e: Exception) {
-            // Failed refresh must not destroy valid existing cached playlist data.
             Log.w("MusicRepository", "Failed to refresh playlist $trimmedId; keeping cached data", e)
+            Result.failure(e)
         }
     }
 
