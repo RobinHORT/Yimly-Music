@@ -115,10 +115,8 @@ class PlaybackManager(
                             handleSongEnded()
                         }
                         Player.STATE_READY -> {
-                            isTransitioning = false
                             networkRecoveryJob?.cancel()
                             networkRecoveryJob = null
-                            releaseTransitionWakeLock()
                         }
                         else -> {}
                     }

@@ -194,4 +194,22 @@ class BackgroundPlaybackTransitionTest {
 
         assertFalse(playbackManager.isTransitionWakeLockHeld)
     }
+
+    @Test
+    fun testPlayerErrorDuringBufferingReleasesWakeLock() {
+        // Setup transition
+        playbackManager.acquireTransitionWakeLock(10000L)
+        
+        // Simulate buffering state (STATE_READY with isPlaying = false)
+        // ... (Simulate error path)
+        val exception = androidx.media3.common.PlaybackException(
+            "Test buffering error",
+            null,
+            androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED
+        )
+        playbackManager.handlePlayerError(exception)
+
+        assertFalse("Wake lock must be released on playback error during buffering", playbackManager.isTransitionWakeLockHeld)
+        assertFalse("isTransitioning must be false on playback error", playbackManager.isTransitioning)
+    }
 }
