@@ -713,7 +713,11 @@ class MainViewModel(
             if (res.isSuccess) {
                 val current = playbackInfo.value.currentSong
                 if (current?.id == songId) {
-                    _currentLyricsData.value = musicRepository.getLyricsForSong(current, lyricsConfig.value.formatMode)
+                    _currentLyricsData.value = musicRepository.getLyricsForSong(
+                        current,
+                        lyricsConfig.value.formatMode,
+                        allowSongFallback = false
+                    )
                 }
                 syncLibrary()
                 _uiMessage.value = "LRC deleted successfully"
@@ -736,9 +740,7 @@ class MainViewModel(
         viewModelScope.launch {
             val res = musicRepository.deleteSong(songId)
             if (res.isSuccess) {
-                if (playbackInfo.value.currentSong?.id == songId) {
-                    playbackManager.pause()
-                }
+                playbackManager.removeSongFromQueue(songId)
                 syncLibrary()
                 _uiMessage.value = "Song deleted successfully"
             } else {

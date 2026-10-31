@@ -103,6 +103,27 @@ class MediaControlsIntegrationTest {
     }
 
     @Test
+    fun playSongUsesSelectedTrackWhenStartIndexIsMissingOrStale() {
+        val queue = listOf(song1, song2, song3)
+        playbackManager.playSong(song3, queue, startIndex = -1)
+        assertEquals(2, playbackManager.playbackInfo.value.currentQueueIndex)
+        assertEquals(song3.id, playbackManager.playbackInfo.value.currentSong?.id)
+
+        playbackManager.playSong(song2, queue, startIndex = 0)
+        assertEquals(1, playbackManager.playbackInfo.value.currentQueueIndex)
+        assertEquals(song2.id, playbackManager.playbackInfo.value.currentSong?.id)
+    }
+
+    @Test
+    fun removeDeletedSongFromQueueKeepsActiveIndexCorrect() {
+        playbackManager.playSong(song1, listOf(song1, song2, song3), startIndex = 0)
+        playbackManager.removeSongFromQueue(song2.id)
+        assertEquals(listOf(song1.id, song3.id), playbackManager.playbackInfo.value.queue.map { it.id })
+        assertEquals(0, playbackManager.playbackInfo.value.currentQueueIndex)
+        assertEquals(song1.id, playbackManager.playbackInfo.value.currentSong?.id)
+    }
+
+    @Test
     fun testRepeatAndShuffleModeMapping() {
         val session = playbackManager.mediaSession!!
         val player = session.player
