@@ -3,8 +3,11 @@ package com.example
 import android.content.Context
 import android.content.Intent
 import android.view.KeyEvent
+import android.os.Bundle
 import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
+import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionResult
 import androidx.test.core.app.ApplicationProvider
 import com.example.data.models.Song
 import com.example.playback.PlaybackManager
@@ -130,6 +133,25 @@ class MediaControlsIntegrationTest {
         assertEquals(-1, playbackManager.playbackInfo.value.currentQueueIndex)
         assertEquals(null, playbackManager.playbackInfo.value.currentSong)
         assertFalse(playbackManager.playbackInfo.value.isPlaying)
+    }
+
+    @Test
+    fun androidAutoShufflePlaylistCommandStartsShufflePlayback() {
+        playbackManager.playSong(song1, listOf(song1, song2, song3), startIndex = 0)
+        val callback = YimlySessionCallback(playbackManager)
+        val session = playbackManager.mediaSession!!
+        val command = SessionCommand(YimlySessionCallback.ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY)
+
+        val result = callback.onCustomCommand(
+            session,
+            createDummyControllerInfo(),
+            command,
+            Bundle.EMPTY
+        ).get()
+
+        assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
+        assertTrue(playbackManager.playbackInfo.value.isShuffle)
+        assertTrue(playbackManager.playbackInfo.value.currentQueueIndex != 0)
     }
 
     @Test
