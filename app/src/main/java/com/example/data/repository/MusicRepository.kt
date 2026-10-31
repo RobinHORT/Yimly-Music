@@ -959,14 +959,17 @@ class MusicRepository(
             return true
         }
 
-        fun parseArtists(rawArtist: String): Set<String> {
-            if (rawArtist.isBlank()) return emptySet()
+        private fun splitArtistNames(rawArtist: String): List<String> {
+            if (rawArtist.isBlank()) return emptyList()
             return rawArtist
                 .split(Regex("(?i)[;,/&]|\\b(?:feat\\.?|ft\\.?|featuring|vs\\.?|with)\\b"))
-                .map { it.trim().lowercase() }
+                .map { it.trim() }
                 .filter { it.isNotBlank() }
-                .toSet()
+                .distinctBy { it.lowercase() }
         }
+
+        fun parseArtists(rawArtist: String): Set<String> =
+            splitArtistNames(rawArtist).map { it.lowercase() }.toSet()
 
         fun cleanSongTitle(title: String): String {
             if (title.isBlank()) return ""
@@ -1041,7 +1044,7 @@ class MusicRepository(
             if (cleanCand.contains("instrumental") || cleanCand == "instrumentals") return true
             if (cleanMain == cleanCand) return true
             if (cleanMain.contains(cleanCand) || cleanCand.contains(cleanMain)) return true
-            return true
+            return false
         }
 
         fun findMatchingInstrumental(mainSong: Song, allSongsList: List<Song>): Song? {
@@ -1146,19 +1149,11 @@ class MusicRepository(
                 if (song.isInstrumentalTrack) continue
                 val rawArtist = song.artist.trim()
                 if (rawArtist.isNotBlank()) {
-                    val individualArtists = rawArtist.split(';')
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-
-                    if (individualArtists.isEmpty()) {
-                        val key = rawArtist.lowercase()
+                    val individualArtists = splitArtistNames(rawArtist)
+                    for (individual in individualArtists) {
+                        val key = individual.lowercase()
                         artistMap.getOrPut(key) { mutableListOf() }.add(song)
-                        canonicalNames.putIfAbsent(key, rawArtist)
-                    } else {
-                        for (individual in individualArtists) {                            val key = individual.lowercase()
-                            artistMap.getOrPut(key) { mutableListOf() }.add(song)
-                            canonicalNames.putIfAbsent(key, individual)
-                        }
+                        canonicalNames.putIfAbsent(key, individual)
                     }
                 }
             }
