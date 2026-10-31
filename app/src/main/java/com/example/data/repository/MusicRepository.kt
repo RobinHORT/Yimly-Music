@@ -145,6 +145,10 @@ class MusicRepository(
 
     val allSongs: Flow<List<Song>> = rawAllSongs.map { list -> list.filter { !it.isInstrumentalTrack } }
 
+    suspend fun getAllSongsSnapshot(): List<Song> = withContext(Dispatchers.IO) {
+        musicDao.getAllSongsList().map { it.toSong() }
+    }
+
     val recentlyAddedSongs: Flow<List<Song>> = musicDao.getRecentlyAddedSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }
 
     val favoriteSongs: Flow<List<Song>> = musicDao.getFavoriteSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }

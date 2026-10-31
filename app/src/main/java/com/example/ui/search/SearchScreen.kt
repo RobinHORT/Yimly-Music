@@ -488,7 +488,9 @@ fun ExternalSongItemRow(
 ) {
     val isCompleted = status.equals("Completed", ignoreCase = true)
     val isFailed = status?.startsWith("Failed", ignoreCase = true) == true
-    val isInProgress = status != null && !isCompleted && !isFailed
+    val isCancelled = status.equals("Cancelled", ignoreCase = true)
+    val isIndexingPending = status.equals("Downloaded (Indexing pending)", ignoreCase = true)
+    val isInProgress = status != null && !isCompleted && !isFailed && !isCancelled && !isIndexingPending
 
     Surface(
         modifier = modifier
@@ -570,7 +572,8 @@ fun ExternalSongItemRow(
                         style = MaterialTheme.typography.labelSmall,
                         color = when {
                             isCompleted -> Color(0xFF4CAF50)
-                            isFailed -> Color(0xFFFF5252)
+                            isIndexingPending -> Color(0xFFFF9800)
+                            isFailed || isCancelled -> Color(0xFFFF5252)
                             else -> YimlyPink
                         },
                         maxLines = 1,
@@ -609,6 +612,18 @@ fun ExternalSongItemRow(
                                 .testTag("download_completed_${track.title}")
                         )
                     }
+                    isIndexingPending -> {
+                        IconButton(
+                            onClick = onDownloadClick,
+                            modifier = Modifier.testTag("retry_index_external_${track.title}")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Retry indexing",
+                                tint = Color(0xFFFF9800)
+                            )
+                        }
+                    }
                     isInProgress -> {
                         Box(
                             modifier = Modifier
@@ -633,7 +648,7 @@ fun ExternalSongItemRow(
                             }
                         }
                     }
-                    isFailed -> {
+                    isFailed || isCancelled -> {
                         IconButton(
                             onClick = onDownloadClick,
                             modifier = Modifier.testTag("retry_download_external_${track.title}")
