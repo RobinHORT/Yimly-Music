@@ -120,6 +120,8 @@ fun YimlyNavigation(
     val searchQuery by viewModel.searchQuery.collectAsState()
     val searchResult by viewModel.searchResult.collectAsState()
     val serverUrl by viewModel.serverUrl.collectAsState()
+    val isOnline by viewModel.isOnline.collectAsState()
+    val isSyncing by viewModel.isSyncing.collectAsState()
     val isLoading by viewModel.isLoading.collectAsState()
     val authError by viewModel.authError.collectAsState()
     val isAdmin by viewModel.isAdmin.collectAsState()
@@ -525,12 +527,14 @@ fun YimlyNavigation(
                         SettingsScreen(
                             userProfile = userProfile,
                             serverUrl = serverUrl,
+                            isOnline = isOnline,
+                            isSyncing = isSyncing,
                             lyricsConfig = lyricsConfig,
                             onUpdateServerUrl = { viewModel.updateServerUrl(it) },
                             onSaveLyricsConfig = { viewModel.saveLyricsConfig(it) },
                             onLogout = { viewModel.logout() },
                             onLoginClick = { navController.navigate(Screen.Login.route) },
-                            onSyncLibrary = { viewModel.syncLibrary() }
+                            onSyncLibrary = { viewModel.syncLibrary(showResult = true) }
                         )
                     }
 
