@@ -88,6 +88,18 @@ class MediaControlsIntegrationTest {
     }
 
     @Test
+    fun shufflePreviousReturnsToThePreviouslyPlayedTrack() {
+        val queue = listOf(song1, song2, song3)
+        playbackManager.playSong(song1, queue, startIndex = 0)
+        playbackManager.setShuffle(true)
+        playbackManager.next()
+        assertTrue(playbackManager.playbackInfo.value.currentQueueIndex != 0)
+        playbackManager.seekTo(0L)
+        playbackManager.previous()
+        assertEquals(0, playbackManager.playbackInfo.value.currentQueueIndex)
+    }
+
+    @Test
     fun removeDeletedSongFromQueueKeepsActiveIndexCorrect() {
         playbackManager.playSong(song1, listOf(song1, song2, song3), startIndex = 0)
         playbackManager.removeSongFromQueue(song2.id)
