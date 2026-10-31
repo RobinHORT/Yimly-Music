@@ -515,21 +515,7 @@ class MusicRepository(
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
             musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
             markPlaylistSynced(trimmedId)
-            val failedEndpoints = buildList {
-                if (remoteSongs == null || !isCompleteSync) add("song catalogue")
-                if (remoteFavorites == null) add("favorites")
-                if (remoteAlbums == null) add("albums")
-                if (remoteArtists == null) add("artists")
-                if (remotePlaylists == null) add("playlists")
-                if (playlistDetailFailures > 0) add("playlist tracks")
-            }
-            if (failedEndpoints.isNotEmpty()) {
-                Result.failure(
-                    java.io.IOException("Sync incomplete: failed to refresh ${failedEndpoints.joinToString()}")
-                )
-            } else {
-                Result.success(Unit)
-            }
+            Result.success(Unit)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (e: Exception) {
@@ -1029,7 +1015,21 @@ class MusicRepository(
                 }
             }
 
-            Result.success(Unit)
+            val failedEndpoints = buildList {
+                if (remoteSongs == null || !isCompleteSync) add("song catalogue")
+                if (remoteFavorites == null) add("favorites")
+                if (remoteAlbums == null) add("albums")
+                if (remoteArtists == null) add("artists")
+                if (remotePlaylists == null) add("playlists")
+                if (playlistDetailFailures > 0) add("playlist tracks")
+            }
+            if (failedEndpoints.isNotEmpty()) {
+                Result.failure(
+                    java.io.IOException("Sync incomplete: failed to refresh ${failedEndpoints.joinToString()}")
+                )
+            } else {
+                Result.success(Unit)
+            }
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (e: Exception) {
