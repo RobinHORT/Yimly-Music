@@ -343,33 +343,41 @@ class PlaybackManager(
         if (!isAndroidAutoMediaId(currentMediaId)) return
 
         val timelineItems = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
-        val songIds = timelineItems.mapNotNull { androidAutoSongId(it.mediaId) }
-        if (songIds.isEmpty()) return
+        // Keep null placeholders while resolving so missing library entries do not
+        // shift the active index or cause a duplicate song ID to select the wrong row.
+        val songIds = timelineItems.map { androidAutoSongId(it.mediaId) }
+        if (songIds.none { it != null }) return
 
         val syncVersion = ++androidAutoQueueSyncVersion
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = coroutineScope.launch(Dispatchers.IO) {
             try {
-                val songs = songIds.mapNotNull { musicRepository.getSongById(it) }
+                val resolvedSongs = songIds.map { id -> id?.let { musicRepository.getSongById(it) } }
                 withContext(Dispatchers.Main) {
                     if (syncVersion != androidAutoQueueSyncVersion) return@withContext
                     val activeId = _player?.currentMediaItem?.mediaId ?: return@withContext
                     val activeSongId = androidAutoSongId(activeId) ?: return@withContext
-                    val activeIndex = songs.indexOfFirst { it.id == activeSongId }
-                    if (activeIndex < 0 || songs.isEmpty()) return@withContext
+                    val mediaIndex = _player?.currentMediaItemIndex ?: return@withContext
+                    val activeSong = resolvedSongs.getOrNull(mediaIndex) ?: return@withContext
+                    if (activeSong.id != activeSongId) return@withContext
+                    val activeQueueIndex = resolvedSongs.take(mediaIndex).count { it != null }
+                    val songs = resolvedSongs.filterNotNull()
+                    if (songs.isEmpty()) return@withContext
 
-                    val activeSong = songs[activeIndex]
+                    shuffleHistory.clear()
                     _playbackInfo.value = _playbackInfo.value.copy(
                         queue = songs,
-                        currentQueueIndex = activeIndex,
+                        currentQueueIndex = activeQueueIndex,
                         currentSong = activeSong,
+                        currentPositionMs = _player?.currentPosition?.coerceAtLeast(0L) ?: 0L,
                         hasInstrumental = activeSong.hasInstrumentalEffective,
                         isInstrumental = false
                     )
                     updatePlaybackInfo()
+                    persistPlaybackSnapshot(force = true)
                     Log.d(
                         "PlaybackManager",
-                        "Synced Android Auto queue: ${songs.size} songs, active=${activeSong.id}"
+                        "Synced Android Auto queue: ${songs.size} songs, activeIndex=${activeQueueIndex}, active=${activeSong.id}"
                     )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
