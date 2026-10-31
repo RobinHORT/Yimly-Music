@@ -716,6 +716,8 @@ class MainViewModel(
                 musicRepository.deletePlaylist(playlistId)
                 _uiMessage.value = "Playlist deleted"
                 onComplete?.invoke()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to delete playlist"
             }
@@ -727,6 +729,8 @@ class MainViewModel(
             try {
                 musicRepository.addSongToPlaylist(playlistId, songId)
                 _uiMessage.value = "Added to playlist"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to add song to playlist"
             }
@@ -739,6 +743,8 @@ class MainViewModel(
                 val created = musicRepository.createPlaylist(name, description, isPublic)
                 musicRepository.addSongToPlaylist(created.id, songId)
                 _uiMessage.value = "Added to '$name'"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to create playlist and add song"
             }
@@ -750,6 +756,8 @@ class MainViewModel(
             try {
                 musicRepository.removeSongFromPlaylist(playlistId, songId)
                 _uiMessage.value = "Removed from playlist"
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to remove song from playlist"
             }
