@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.cancelAndJoin
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MainViewModel(
@@ -570,6 +571,7 @@ class MainViewModel(
     fun logout() {
         viewModelScope.launch {
             cancelActiveDownloads()
+            syncJob?.cancelAndJoin()
             try {
                 authRepository.logout()
             } finally {
