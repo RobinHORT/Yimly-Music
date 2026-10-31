@@ -405,13 +405,27 @@ class MainViewModel(
         _downloadStatusMap.value = _downloadStatusMap.value + (key to "Indexing...")
 
         var newlyIndexedId: String? = null
+        var lastSyncError: Throwable? = null
         for (syncAttempt in 1..8) {
             kotlinx.coroutines.delay(downloaderIndexingDelayMs)
             try {
-                musicRepository.syncWithBackend()
-            } catch (_: Exception) {}
+                val result = musicRepository.syncWithBackend()
+                if (result.isFailure) lastSyncError = result.exceptionOrNull()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                lastSyncError = e
+                android.util.Log.w("MainViewModel", "Library sync attempt $syncAttempt failed while indexing ${track.title}", e)
+            }
 
-            val currentSongs = musicRepository.getAllSongsSnapshot()
+            val currentSongs = try {
+                musicRepository.getAllSongsSnapshot()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                lastSyncError = e
+                emptyList()
+            }
             val newSong = currentSongs.firstOrNull { song ->
                 song.id !in preExistingIds && MusicRepository.isSameExternalTrack(song, track)
             }
@@ -426,22 +440,13 @@ class MainViewModel(
             completedTrackSongIdMap[key] = newlyIndexedId
             _completedTrackSongIds.value = _completedTrackSongIds.value + (key to newlyIndexedId)
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
-            
-            // Process pending playlist requests
-            val pending = synchronized(pendingPlaylistRequests) {
-                pendingPlaylistRequests.remove(key) ?: emptyList()
-            }
-            for (playlistId in pending) {
-                try {
-                    musicRepository.addSongToPlaylist(playlistId, newlyIndexedId)
-                } catch (e: Exception) {
-                    _uiMessage.value = "Failed to add song to playlist: ${e.message}"
-                }
-            }
-
+            processPendingPlaylistRequests(key, newlyIndexedId)
             onComplete?.invoke(newlyIndexedId)
         } else {
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Downloaded (Indexing pending)")
+            if (lastSyncError != null) {
+                _uiMessage.value = "Downloaded, but library indexing is still pending: ${lastSyncError.message ?: "Sync failed"}"
+            }
             onComplete?.invoke(null)
         }
     }
