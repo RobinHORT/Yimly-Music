@@ -71,6 +71,8 @@ class PlaybackManager(
     private var networkRecoveryJob: kotlinx.coroutines.Job? = null
     private var networkRecoveryAttempts: Int = 0
     private var networkRecoverySongId: String? = null
+    private var androidAutoQueueSyncJob: kotlinx.coroutines.Job? = null
+    private var androidAutoQueueSyncVersion: Long = 0L
 
     private companion object {
         const val MAX_NETWORK_RECOVERY_ATTEMPTS = 3
@@ -115,6 +117,10 @@ class PlaybackManager(
                         else -> {}
                     }
                     updatePlaybackInfo()
+                }
+
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    syncAndroidAutoQueueFromPlayer(mediaItem)
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -314,6 +320,68 @@ class PlaybackManager(
             isInstrumental = false
         )
         playCurrentQueueIndex()
+    }
+
+    /**
+     * Media3 applies Android Auto selections directly to the session player after
+     * onAddMediaItems resolves their URIs. Mirror that resulting timeline into the
+     * app queue so Yimly's controls, UI and next/previous logic use the same songs.
+     */
+    private fun syncAndroidAutoQueueFromPlayer(currentMediaItem: MediaItem?) {
+        val player = _player ?: return
+        val currentMediaId = currentMediaItem?.mediaId ?: return
+        if (!isAndroidAutoMediaId(currentMediaId)) return
+
+        val timelineItems = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+        val songIds = timelineItems.mapNotNull { androidAutoSongId(it.mediaId) }
+        if (songIds.isEmpty()) return
+
+        val syncVersion = ++androidAutoQueueSyncVersion
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val songs = songIds.mapNotNull { musicRepository.getSongById(it) }
+                withContext(Dispatchers.Main) {
+                    if (syncVersion != androidAutoQueueSyncVersion) return@withContext
+                    val activeId = _player?.currentMediaItem?.mediaId ?: return@withContext
+                    val activeSongId = androidAutoSongId(activeId) ?: return@withContext
+                    val activeIndex = songs.indexOfFirst { it.id == activeSongId }
+                    if (activeIndex < 0 || songs.isEmpty()) return@withContext
+
+                    val activeSong = songs[activeIndex]
+                    _playbackInfo.value = _playbackInfo.value.copy(
+                        queue = songs,
+                        currentQueueIndex = activeIndex,
+                        currentSong = activeSong,
+                        hasInstrumental = activeSong.hasInstrumentalEffective,
+                        isInstrumental = false
+                    )
+                    updatePlaybackInfo()
+                    Log.d(
+                        "PlaybackManager",
+                        "Synced Android Auto queue: ${songs.size} songs, active=${activeSong.id}"
+                    )
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e("PlaybackManager", "Failed to sync Android Auto queue", e)
+            }
+        }
+    }
+
+    private fun isAndroidAutoMediaId(mediaId: String): Boolean =
+        mediaId.startsWith("playlist_song|") ||
+            mediaId.startsWith("favorite_song|") ||
+            mediaId.startsWith("recent_song|") ||
+            mediaId.startsWith("all_song|")
+
+    private fun androidAutoSongId(mediaId: String): String? = when {
+        mediaId.startsWith("playlist_song|") -> mediaId.substringAfterLast("|").takeIf { it.isNotBlank() }
+        mediaId.startsWith("favorite_song|") ||
+            mediaId.startsWith("recent_song|") ||
+            mediaId.startsWith("all_song|") -> mediaId.substringAfter("|").takeIf { it.isNotBlank() }
+        else -> null
     }
 
     fun playSongFromAuto(songId: String, type: String?, playlistId: String?) {

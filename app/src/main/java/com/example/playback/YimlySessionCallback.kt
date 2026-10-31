@@ -25,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 
 @OptIn(UnstableApi::class)
 class YimlySessionCallback(
@@ -428,8 +429,29 @@ class YimlySessionCallback(
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<Void>> {
         android.util.Log.d("AA_DIAG", "YimlySessionCallback.onSearch() package=${browser.packageName}, query=$query")
-        session.notifySearchResultChanged(browser, query, 1, params)
-        return Futures.immediateFuture(LibraryResult.ofVoid())
+        val future = SettableFuture.create<LibraryResult<Void>>()
+        val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val app = playbackManager.context.applicationContext as YimlyApplication
+                val resultCount = app.database.musicDao().searchSongs(query).size
+                withContext(Dispatchers.Main) {
+                    session.notifySearchResultChanged(browser, query, resultCount, params)
+                    future.set(LibraryResult.ofVoid())
+                }
+            } catch (e: Throwable) {
+                android.util.Log.e("AA_DIAG", "YimlySessionCallback.onSearch() ERROR query=$query: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    session.notifySearchResultChanged(browser, query, 0, params)
+                    future.set(LibraryResult.ofVoid())
+                }
+            }
+        }
+        job.invokeOnCompletion { cause ->
+            if (cause != null && !future.isDone) {
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+            }
+        }
+        return future
     }
 
     override fun onGetSearchResult(
