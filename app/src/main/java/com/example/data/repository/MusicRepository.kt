@@ -510,7 +510,7 @@ class MusicRepository(
             }
 
             val localPl = musicDao.getPlaylistById(trimmedId)
-            val finalCover = remotePlaylist.coverUrl ?: localPl?.coverUrl
+            val finalCover = remotePlaylist.coverUrl
             val playlistWithCorrectCount = remotePlaylist.copy(
                 id = trimmedId,
                 songCount = songs.size,
@@ -990,7 +990,7 @@ class MusicRepository(
                 musicDao.deleteStalePlaylists(validIds)
                 for (pl in remotePlaylists) {
                     val localPl = musicDao.getPlaylistById(pl.id.trim())
-                    val finalCover = pl.coverUrl ?: localPl?.coverUrl
+                    val finalCover = pl.coverUrl
                     val plToInsert = pl.copy(
                         id = pl.id.trim(),
                         rawCoverUrl = finalCover,
