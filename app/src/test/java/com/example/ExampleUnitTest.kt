@@ -1,6 +1,8 @@
 package com.example
 
 import com.example.data.models.Song
+import com.example.data.models.Playlist
+import com.example.data.datastore.ServerUrlConfig
 import com.example.data.repository.MusicRepository
 import com.example.lyrics.LyricsParser
 import org.junit.Assert.assertEquals
@@ -78,6 +80,36 @@ class ExampleUnitTest {
             artists.map { it.name }.toSet()
         )
         assertTrue(artists.all { it.songCount == 1 })
+    }
+
+    @Test
+    fun testArtistParsingPreservesBandNamesContainingAmpersandsAndCommas() {
+        val songs = listOf(
+            Song(id = "band_1", title = "Track 1", artist = "Simon & Garfunkel"),
+            Song(id = "band_2", title = "Track 2", artist = "Earth, Wind & Fire"),
+            Song(id = "band_3", title = "Track 3", artist = "Above & Beyond")
+        )
+
+        val artists = MusicRepository.deriveArtistsFromSongs(songs)
+        assertEquals(3, artists.size)
+        assertTrue(artists.any { it.name == "Simon & Garfunkel" })
+        assertTrue(artists.any { it.name == "Earth, Wind & Fire" })
+        assertTrue(artists.any { it.name == "Above & Beyond" })
+    }
+
+    @Test
+    fun testPlaylistCoverUrlUsesConfiguredServer() {
+        val previousUrl = ServerUrlConfig.activeServerUrl
+        try {
+            ServerUrlConfig.activeServerUrl = "https://music.example.test:8443"
+            val playlist = Playlist(id = "playlist_1", name = "Test", createdAt = "123")
+            assertEquals(
+                "https://music.example.test:8443/api/playlists/playlist_1/cover?t=123",
+                playlist.coverUrl
+            )
+        } finally {
+            ServerUrlConfig.activeServerUrl = previousUrl
+        }
     }
 
     @Test

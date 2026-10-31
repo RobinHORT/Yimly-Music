@@ -17,9 +17,9 @@ import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
-import com.example.YimlyApplication
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
+import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
@@ -82,7 +82,6 @@ class YimlySessionCallback(
             else -> return super.onCustomCommand(session, controller, customCommand, args)
         }
         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))
-        return super.onCustomCommand(session, controller, customCommand, args)
     }
 
     override fun onMediaButtonEvent(
@@ -164,23 +163,51 @@ class YimlySessionCallback(
         session: MediaSession,
         controller: MediaSession.ControllerInfo
     ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
-        val currentSong = playbackManager.playbackInfo.value.currentSong
-        val player = session.player
-        if (currentSong != null && player.mediaItemCount > 0) {
-            // Preserve the complete Media3 timeline (not just the active item) when
-            // Android Auto asks this still-live session to resume playback.
-            val items = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
-            val startIndex = player.currentMediaItemIndex.coerceIn(items.indices)
-            val position = playbackManager.playbackInfo.value.currentPositionMs
-                .takeIf { it > 0L } ?: player.currentPosition
-            val itemsWithStart = MediaSession.MediaItemsWithStartPosition(
-                items,
-                startIndex,
-                position
-            )
-            return Futures.immediateFuture(itemsWithStart)
+        val result = SettableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+        val fallback = super.onPlaybackResumption(session, controller)
+
+        // DataStore restoration starts asynchronously during PlaybackManager creation.
+        // Wait for it before deciding whether a saved queue exists; otherwise a cold
+        // Android Auto launch can incorrectly report that there is nothing to resume.
+        val job = playbackManager.coroutineScope.launch {
+            try {
+                playbackManager.awaitPlaybackSnapshotRestoration()
+                withContext(Dispatchers.Main) {
+                    val currentSong = playbackManager.playbackInfo.value.currentSong
+                    val player = session.player
+                    if (currentSong != null && player.mediaItemCount > 0) {
+                        // Preserve the complete Media3 timeline (not just the active item).
+                        val items = (0 until player.mediaItemCount).map { player.getMediaItemAt(it) }
+                        val startIndex = player.currentMediaItemIndex.coerceIn(items.indices)
+                        val position = playbackManager.playbackInfo.value.currentPositionMs
+                            .takeIf { it > 0L } ?: player.currentPosition
+                        result.set(
+                            MediaSession.MediaItemsWithStartPosition(items, startIndex, position)
+                        )
+                    } else {
+                        fallback.addListener(
+                            {
+                                try {
+                                    result.set(fallback.get())
+                                } catch (e: Throwable) {
+                                    result.setException(e)
+                                }
+                            },
+                            MoreExecutors.directExecutor()
+                        )
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                result.cancel(false)
+                throw cancelled
+            } catch (e: Throwable) {
+                result.setException(e)
+            }
         }
-        return super.onPlaybackResumption(session, controller)
+        job.invokeOnCompletion { cause ->
+            if (cause != null && !result.isDone) result.setException(cause)
+        }
+        return result
     }
 
     override fun onGetLibraryRoot(
@@ -439,8 +466,7 @@ class YimlySessionCallback(
         val future = SettableFuture.create<LibraryResult<Void>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
-                val app = playbackManager.context.applicationContext as YimlyApplication
-                val resultCount = app.database.musicDao().searchSongs(query).size
+                val resultCount = playbackManager.musicRepository.searchSongs(query).size
                 withContext(Dispatchers.Main) {
                     session.notifySearchResultChanged(browser, query, resultCount, params)
                     future.set(LibraryResult.ofVoid())
@@ -473,10 +499,8 @@ class YimlySessionCallback(
         val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
-                val app = playbackManager.context.applicationContext as YimlyApplication
-                val entities = app.database.musicDao().searchSongs(query)
-                val mediaItems = entities.map { entity ->
-                    val song = entity.toSong()
+                val songs = playbackManager.musicRepository.searchSongs(query)
+                val mediaItems = songs.map { song ->
                     val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
                     val metadata = MediaMetadata.Builder()
                         .setTitle(song.title)

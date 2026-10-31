@@ -204,6 +204,11 @@ class MusicRepository(
         musicDao.getAllSongsList().map { it.toSong() }
     }
 
+    /** Search the repository's injected Room database for Android Auto library search. */
+    suspend fun searchSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
+        musicDao.searchSongs(query).map { it.toSong() }
+    }
+
     val recentlyAddedSongs: Flow<List<Song>> = musicDao.getRecentlyAddedSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }
 
     val favoriteSongs: Flow<List<Song>> = musicDao.getFavoriteSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }
@@ -505,7 +510,7 @@ class MusicRepository(
             }
 
             val localPl = musicDao.getPlaylistById(trimmedId)
-            val finalCover = remotePlaylist.coverUrl ?: localPl?.coverUrl
+            val finalCover = remotePlaylist.coverUrl
             val playlistWithCorrectCount = remotePlaylist.copy(
                 id = trimmedId,
                 songCount = songs.size,
@@ -777,7 +782,8 @@ class MusicRepository(
     suspend fun deleteSong(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             apiService.deleteSong(songId)
-            musicDao.deleteSongById(songId)
+            musicDao.deleteSongById(songId.trim())
+            musicDao.deleteAllLyricResourcesForSong(songId.trim())
             musicDao.cleanOrphanPlaylistSongs()
             musicDao.cleanOrphanPlayHistory()
             Result.success(Unit)
@@ -984,7 +990,7 @@ class MusicRepository(
                 musicDao.deleteStalePlaylists(validIds)
                 for (pl in remotePlaylists) {
                     val localPl = musicDao.getPlaylistById(pl.id.trim())
-                    val finalCover = pl.coverUrl ?: localPl?.coverUrl
+                    val finalCover = pl.coverUrl
                     val plToInsert = pl.copy(
                         id = pl.id.trim(),
                         rawCoverUrl = finalCover,
@@ -1089,8 +1095,18 @@ class MusicRepository(
 
         private fun splitArtistNames(rawArtist: String): List<String> {
             if (rawArtist.isBlank()) return emptyList()
+
+            // Keep ampersands intact: they are part of many real band names (e.g.
+            // Simon & Garfunkel and Earth, Wind & Fire). When an ampersand is
+            // present, also preserve commas because they may be part of that name.
+            // Explicit collaboration markers remain safe delimiters.
+            val separators = if (rawArtist.contains('&')) {
+                Regex("(?i)[;/]|\\s+(?:feat\\.?|ft\\.?|featuring|vs\\.?|with)\\s+")
+            } else {
+                Regex("(?i)[;,/]|\\s+(?:feat\\.?|ft\\.?|featuring|vs\\.?|with)\\s+")
+            }
             return rawArtist
-                .split(Regex("(?i)[;,/&]|\\b(?:feat\\.?|ft\\.?|featuring|vs\\.?|with)\\b"))
+                .split(separators)
                 .map { it.trim() }
                 .filter { it.isNotBlank() }
                 .distinctBy { it.lowercase() }
