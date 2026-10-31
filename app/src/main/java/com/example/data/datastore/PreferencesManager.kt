@@ -14,6 +14,7 @@ import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsFormatMode
 import com.example.playback.PlaybackSnapshot
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -203,6 +204,29 @@ class PreferencesManager(private val context: Context) {
 
     suspend fun clearPlaybackSnapshot() {
         context.dataStore.edit { preferences -> preferences.remove(KEY_PLAYBACK_SNAPSHOT) }
+    }
+
+    private fun songLyricsOffsetKey(songId: String, formatMode: LyricsFormatMode) =
+        longPreferencesKey("song_lyrics_offset_${formatMode.name.lowercase()}_${android.net.Uri.encode(songId)}")
+
+    suspend fun getSongLyricsOffset(songId: String, formatMode: LyricsFormatMode): Long? {
+        if (songId.isBlank()) return null
+        return context.dataStore.data.first()[songLyricsOffsetKey(songId, formatMode)]
+    }
+
+    suspend fun setSongLyricsOffset(songId: String, formatMode: LyricsFormatMode, offsetMs: Long) {
+        if (songId.isBlank()) return
+        context.dataStore.edit { preferences ->
+            preferences[songLyricsOffsetKey(songId, formatMode)] = offsetMs
+        }
+    }
+
+    suspend fun clearSongLyricsOffsets(songId: String) {
+        if (songId.isBlank()) return
+        context.dataStore.edit { preferences ->
+            preferences.remove(songLyricsOffsetKey(songId, LyricsFormatMode.LRC))
+            preferences.remove(songLyricsOffsetKey(songId, LyricsFormatMode.ELRC))
+        }
     }
 
     suspend fun setServerUrl(url: String) {
