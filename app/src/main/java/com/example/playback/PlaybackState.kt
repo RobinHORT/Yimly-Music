@@ -20,7 +20,8 @@ data class PlaybackSnapshot(
     val currentPositionMs: Long,
     val isShuffle: Boolean,
     val repeatMode: RepeatMode,
-    val isInstrumental: Boolean
+    val isInstrumental: Boolean,
+    val shuffleHistory: List<Int> = emptyList()
 )
 
 data class PlaybackInfo(

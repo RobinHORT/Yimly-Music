@@ -894,7 +894,8 @@ class PlaybackManager(
             currentPositionMs = info.currentPositionMs.coerceAtLeast(0L),
             isShuffle = info.isShuffle,
             repeatMode = info.repeatMode,
-            isInstrumental = info.isInstrumental
+            isInstrumental = info.isInstrumental,
+            shuffleHistory = shuffleHistory.toList()
         )
         snapshotWriteJob?.cancel()
         snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
@@ -930,6 +931,8 @@ class PlaybackManager(
                 if (_playbackInfo.value.currentSong != null || _playbackInfo.value.queue.isNotEmpty()) return@withContext
                 val index = snapshot.currentQueueIndex.coerceIn(snapshot.queue.indices)
                 val song = snapshot.queue[index]
+                shuffleHistory.clear()
+                shuffleHistory.addAll(snapshot.shuffleHistory.filter { it in snapshot.queue.indices })
                 _playbackInfo.value = PlaybackInfo(
                     currentSong = song,
                     currentPositionMs = snapshot.currentPositionMs.coerceAtLeast(0L),
