@@ -34,6 +34,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MainViewModel(
@@ -129,6 +131,7 @@ class MainViewModel(
 
     // Downloader State
     private val downloadingTrackKeys = mutableSetOf<String>()
+    private val activeDownloadJobs = mutableSetOf<Job>()
     private val completedTrackSongIdMap = mutableMapOf<String, String>()
     private val pendingPlaylistRequests = mutableMapOf<String, MutableList<String>>() // Key: track, Value: PlaylistIDs
     
@@ -140,6 +143,22 @@ class MainViewModel(
 
     private val _downloadStatusMap = MutableStateFlow<Map<String, String>>(emptyMap())
     val downloadStatusMap: StateFlow<Map<String, String>> = _downloadStatusMap.asStateFlow()
+
+    private fun trackActiveDownloadJob(job: Job) {
+        synchronized(activeDownloadJobs) { activeDownloadJobs.add(job) }
+        job.invokeOnCompletion {
+            synchronized(activeDownloadJobs) { activeDownloadJobs.remove(job) }
+        }
+    }
+
+    private suspend fun cancelActiveDownloads() {
+        val jobs = synchronized(activeDownloadJobs) { activeDownloadJobs.toList() }
+        jobs.forEach { it.cancel() }
+        jobs.forEach { it.join() }
+        synchronized(activeDownloadJobs) { activeDownloadJobs.removeAll(jobs.toSet()) }
+        synchronized(downloadingTrackKeys) { downloadingTrackKeys.clear() }
+        synchronized(pendingPlaylistRequests) { pendingPlaylistRequests.clear() }
+    }
 
     internal var downloaderPollDelayMs: Long = 1500L
     internal var downloaderIndexingDelayMs: Long = 1500L
@@ -165,7 +184,7 @@ class MainViewModel(
     fun downloadExternalTrack(track: com.example.data.models.ExternalTrack, onComplete: ((String?) -> Unit)? = null) {
         val key = MusicRepository.externalTrackIdentity(track)
 
-        viewModelScope.launch {
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             val existing = try {
                 musicRepository.getAllSongsSnapshot().firstOrNull {
                     MusicRepository.isSameExternalTrack(it, track)
@@ -335,6 +354,8 @@ class MainViewModel(
                 }
             }
         }
+        trackActiveDownloadJob(job)
+        job.start()
     }
 
     private suspend fun processPendingPlaylistRequests(key: String, songId: String) {
@@ -461,7 +482,7 @@ class MainViewModel(
             if (key in downloadingTrackKeys) return
             downloadingTrackKeys.add(key)
         }
-        viewModelScope.launch {
+        val job = viewModelScope.launch(start = CoroutineStart.LAZY) {
             try {
                 syncAndIndexTrack(track, preExistingIds = emptySet(), onComplete = onComplete)
             } finally {
@@ -470,6 +491,8 @@ class MainViewModel(
                 }
             }
         }
+        trackActiveDownloadJob(job)
+        job.start()
     }
 
 
@@ -533,9 +556,17 @@ class MainViewModel(
 
     fun logout() {
         viewModelScope.launch {
-            authRepository.logout()
-            playbackManager.clearQueueAndStop()
-            musicRepository.clearLocalCache()
+            cancelActiveDownloads()
+            try {
+                authRepository.logout()
+            } finally {
+                playbackManager.clearQueueAndStop()
+                musicRepository.clearLocalCache()
+                completedTrackSongIdMap.clear()
+                _completedTrackSongIds.value = emptyMap()
+                _downloadProgressMap.value = emptyMap()
+                _downloadStatusMap.value = emptyMap()
+            }
         }
     }
 
