@@ -130,6 +130,8 @@ class MainViewModel(
     // Downloader State
     private val downloadingTrackKeys = mutableSetOf<String>()
     private val completedTrackSongIdMap = mutableMapOf<String, String>()
+    private val pendingPlaylistRequests = mutableMapOf<String, MutableList<String>>() // Key: track, Value: PlaylistIDs
+    
     private val _completedTrackSongIds = MutableStateFlow<Map<String, String>>(emptyMap())
     val completedTrackSongIds: StateFlow<Map<String, String>> = _completedTrackSongIds.asStateFlow()
 
@@ -144,7 +146,14 @@ class MainViewModel(
 
     fun getCompletedSongId(track: com.example.data.models.ExternalTrack): String? {
         val key = "${track.title}|${track.artist}".lowercase()
-        return completedTrackSongIdMap[key]
+        val id = completedTrackSongIdMap[key]
+        if (id != null) return id
+        
+        // Fallback to DB
+        val existing = allSongs.value.firstOrNull {
+            it.title.equals(track.title, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true)
+        }
+        return existing?.id
     }
 
     fun downloadExternalTrack(track: com.example.data.models.ExternalTrack, onComplete: ((String?) -> Unit)? = null) {
@@ -186,7 +195,7 @@ class MainViewModel(
                     id
                 } catch (e: Exception) {
                     val errorMsg = if (e is retrofit2.HttpException && (e.code() == 403 || e.code() == 401)) {
-                        "Failed: Access denied"
+                        "Access denied: Administrator privileges required."
                     } else if (e.message == "No library configured") {
                         "Failed: No library configured"
                     } else {
@@ -212,6 +221,7 @@ class MainViewModel(
                 // Step 3: Poll job
                 var isJobFinished = false
                 var isDownloadSuccessful = false
+                var failureReason: String? = null
                 var pollCount = 0
                 val maxPolls = 120
                 var hasAttemptedRetry = false
@@ -226,7 +236,6 @@ class MainViewModel(
                         val trackStatus = jobTrack?.status?.lowercase()
                         val prog = jobTrack?.progress ?: if (overallStatus == "completed") 100 else 0
 
-                        // Updated status logic
                         _downloadProgressMap.value = _downloadProgressMap.value + (key to prog)
                         val statusStr = "${trackStatus ?: overallStatus} ($prog%)"
                         println("DownloaderDebug: Key=$key, Status=$statusStr, Overall=$overallStatus, Track=$trackStatus")
@@ -235,7 +244,7 @@ class MainViewModel(
                             if (trackStatus == "failed") {
                                 isJobFinished = true
                                 isDownloadSuccessful = false
-                                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Failed: Track failed")
+                                failureReason = "Failed: Track failed"
                                 println("DownloaderDebug: Job failed: track failed for $key")
                             } else {
                                 isJobFinished = true
@@ -252,22 +261,21 @@ class MainViewModel(
                             } else {
                                 isJobFinished = true
                                 isDownloadSuccessful = false
-                                _downloadStatusMap.value = _downloadStatusMap.value + (key to "Failed: Job failed")
+                                failureReason = "Failed: Job failed"
                                 println("DownloaderDebug: Job failed, retry failed for $key")
                             }
                         } else if (overallStatus == "cancelled" || trackStatus == "cancelled") {
                             isJobFinished = true
                             isDownloadSuccessful = false
-                            _downloadStatusMap.value = _downloadStatusMap.value + (key to "Cancelled")
+                            failureReason = "Cancelled"
                             println("DownloaderDebug: Job cancelled for $key")
                         } else if (overallStatus !in listOf("queued", "downloading", "running", "searching", "tagging") &&
                             trackStatus !in listOf("queued", "downloading", "running", "searching", "tagging", null)) {
                              isJobFinished = true
                              isDownloadSuccessful = false
-                             val err = "Unexpected status: $overallStatus"
-                             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Failed: $err")
-                             _uiMessage.value = err
-                             println("DownloaderDebug: Job failed: $err for $key")
+                             failureReason = "Failed: Unexpected status: $overallStatus"
+                             _uiMessage.value = failureReason
+                             println("DownloaderDebug: Job failed: $failureReason for $key")
                         } else {
                              _downloadStatusMap.value = _downloadStatusMap.value + (key to "Downloading")
                              println("DownloaderDebug: Job downloading $key")
@@ -278,7 +286,7 @@ class MainViewModel(
                 if (isDownloadSuccessful) {
                     syncAndIndexTrack(track, preExistingIds, onComplete)
                 } else {
-                    _downloadStatusMap.value = _downloadStatusMap.value + (key to "Failed")
+                    _downloadStatusMap.value = _downloadStatusMap.value + (key to (failureReason ?: "Failed"))
                     onComplete?.invoke(null)
                 }
 
@@ -288,6 +296,30 @@ class MainViewModel(
                 }
             }
         }
+    }
+
+    fun registerPendingPlaylistAdd(track: com.example.data.models.ExternalTrack, playlistId: String) {
+        val key = "${track.title}|${track.artist}".lowercase()
+        
+        // Check if already downloaded
+        val existing = getCompletedSongId(track)
+        if (existing != null) {
+            viewModelScope.launch {
+                try {
+                    musicRepository.addSongToPlaylist(playlistId, existing)
+                    _uiMessage.value = "Added to playlist"
+                } catch (e: Exception) {
+                    _uiMessage.value = "Failed to add song to playlist: ${e.message}"
+                }
+            }
+            return
+        }
+
+        synchronized(pendingPlaylistRequests) {
+            val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+            if (playlistId !in list) list.add(playlistId)
+        }
+        downloadExternalTrack(track)
     }
 
     private suspend fun syncAndIndexTrack(
@@ -321,6 +353,19 @@ class MainViewModel(
             completedTrackSongIdMap[key] = newlyIndexedId
             _completedTrackSongIds.value = _completedTrackSongIds.value + (key to newlyIndexedId)
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
+            
+            // Process pending playlist requests
+            val pending = synchronized(pendingPlaylistRequests) {
+                pendingPlaylistRequests.remove(key) ?: emptyList()
+            }
+            for (playlistId in pending) {
+                try {
+                    musicRepository.addSongToPlaylist(playlistId, newlyIndexedId)
+                } catch (e: Exception) {
+                    _uiMessage.value = "Failed to add song to playlist: ${e.message}"
+                }
+            }
+
             onComplete?.invoke(newlyIndexedId)
         } else {
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Downloaded (Indexing pending)")
