@@ -19,6 +19,7 @@ import com.example.data.models.Song
 import com.example.data.models.UserProfile
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.MusicRepository
+import com.example.notifications.DownloadNotificationManager
 import com.example.playback.PlaybackManager
 import com.example.ui.MainViewModel
 import kotlinx.coroutines.CoroutineScope
@@ -53,6 +54,7 @@ class ExternalDownloaderCorrectionsTest {
     private lateinit var repository: MusicRepository
     private lateinit var authRepository: AuthRepository
     private lateinit var playbackManager: PlaybackManager
+    private lateinit var downloadNotificationManager: DownloadNotificationManager
     private lateinit var viewModel: MainViewModel
 
     class FakeDownloaderTestApiService : SyncIdempotenceTest.FakeSyncApiService() {
@@ -164,11 +166,13 @@ class ExternalDownloaderCorrectionsTest {
             preferencesManager = preferencesManager,
             coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         )
+        downloadNotificationManager = DownloadNotificationManager(context)
         viewModel = MainViewModel(
             musicRepository = repository,
             playbackManager = playbackManager,
             authRepository = authRepository,
-            preferencesManager = preferencesManager
+            preferencesManager = preferencesManager,
+            downloadNotificationManager = downloadNotificationManager
         )
         viewModel.downloaderPollDelayMs = 10L
         viewModel.downloaderIndexingDelayMs = 10L

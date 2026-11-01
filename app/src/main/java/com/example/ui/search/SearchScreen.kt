@@ -41,11 +41,20 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.Manifest
+import android.os.Build
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
+import android.content.pm.PackageManager
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -101,6 +110,37 @@ fun SearchScreen(
 ) {
     var selectedFilter by remember { mutableIntStateOf(0) } // 0 = All, 1 = Songs, 2 = Artists, 3 = Albums, 4 = Playlists
     val filters = listOf("All", "Songs", "Artists", "Albums", "Playlists")
+    val context = LocalContext.current
+
+    val permissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        // Handle result if needed
+    }
+
+    fun checkAndDownload(track: ExternalTrack) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasPermission) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        onDownloadExternalSong(track)
+    }
+
+    fun checkAndAddToPlaylist(track: ExternalTrack) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context, Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+            if (!hasPermission) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            }
+        }
+        onAddExternalSongToPlaylist(track)
+    }
 
     val sampleQueries = listOf(
         "Ariana hate",
@@ -466,8 +506,8 @@ fun SearchScreen(
                             track = externalTrack,
                             status = downloadStatusMap[trackKey],
                             progress = downloadProgressMap[trackKey],
-                            onDownloadClick = { onDownloadExternalSong(externalTrack) },
-                            onAddToPlaylistClick = { onAddExternalSongToPlaylist(externalTrack) },
+                            onDownloadClick = { checkAndDownload(externalTrack) },
+                            onAddToPlaylistClick = { checkAndAddToPlaylist(externalTrack) },
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 3.dp)
                         )
                     }
@@ -587,15 +627,17 @@ fun ExternalSongItemRow(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // + button: opens Add to Playlist dialog immediately
-                IconButton(
-                    onClick = onAddToPlaylistClick,
-                    modifier = Modifier.testTag("add_to_playlist_external_${track.title}")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Add,
-                        contentDescription = "Add to playlist",
-                        tint = YimlyPink
-                    )
+                if (!isInProgress) {
+                    IconButton(
+                        onClick = onAddToPlaylistClick,
+                        modifier = Modifier.testTag("add_to_playlist_external_${track.title}")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = "Add to playlist",
+                            tint = YimlyPink
+                        )
+                    }
                 }
 
                 // Download / Status button
@@ -624,28 +666,8 @@ fun ExternalSongItemRow(
                         }
                     }
                     isInProgress -> {
-                        Box(
-                            modifier = Modifier
-                                .size(40.dp)
-                                .testTag("download_progress_${track.title}"),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            val p = progress ?: 0
-                            if (p > 0) {
-                                CircularProgressIndicator(
-                                    progress = { (p / 100f).coerceIn(0f, 1f) },
-                                    modifier = Modifier.size(22.dp),
-                                    color = YimlyPink,
-                                    strokeWidth = 2.5.dp
-                                )
-                            } else {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(22.dp),
-                                    color = YimlyPink,
-                                    strokeWidth = 2.5.dp
-                                )
-                            }
-                        }
+                        // Icon hidden during progress as requested
+                        Spacer(modifier = Modifier.size(40.dp))
                     }
                     isFailed || isCancelled -> {
                         IconButton(

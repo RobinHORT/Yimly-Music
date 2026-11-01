@@ -185,6 +185,32 @@ interface MusicDao {
         }
     }
 
+    @Transaction
+    suspend fun safeSyncPlaylistSongs(playlistId: String, songs: List<SongEntity>, serverReportedCount: Int? = null) {
+        // If the server returns empty, but we already have songs, check metadata.
+        val existingSongs = getSongsForPlaylistList(playlistId)
+        if (songs.isEmpty() && existingSongs.isNotEmpty()) {
+            // If the server explicitly reports a song count > 0 but provides an empty list,
+            // it is a confirmed stale response.
+            if (serverReportedCount != null && serverReportedCount > 0) {
+                return
+            }
+            // If the count is unknown (null), we continue to play it safe to prevent data loss.
+            if (serverReportedCount == null) {
+                return
+            }
+        }
+        syncPlaylistSongs(playlistId, songs)
+    }
+
+    @Query("""
+        SELECT songs.* FROM songs 
+        INNER JOIN playlist_songs ON songs.id = playlist_songs.songId 
+        WHERE playlist_songs.playlistId = :playlistId 
+        ORDER BY playlist_songs.orderIndex ASC
+    """)
+    suspend fun getSongsForPlaylistList(playlistId: String): List<SongEntity>
+
     // History
     @Insert
     suspend fun insertHistory(history: PlayHistoryEntity)

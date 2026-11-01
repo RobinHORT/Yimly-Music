@@ -9,6 +9,7 @@ import com.example.data.db.YimlyDatabase
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.MusicRepository
 import com.example.playback.PlaybackManager
+import com.example.notifications.DownloadNotificationManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -62,6 +63,10 @@ class YimlyApplication : Application(), ImageLoaderFactory {
             preferencesManager = preferencesManager,
             coroutineScope = applicationScope
         )
+    }
+
+    val downloadNotificationManager by lazy {
+        DownloadNotificationManager(this)
     }
 
     override fun onCreate() {

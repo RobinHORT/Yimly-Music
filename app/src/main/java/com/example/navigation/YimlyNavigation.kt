@@ -100,7 +100,9 @@ fun YimlyNavigation(
     modifier: Modifier = Modifier,
     navController: NavHostController = rememberNavController(),
     openNowPlayingRequest: Boolean = false,
-    onNowPlayingRequestConsumed: () -> Unit = {}
+    onNowPlayingRequestConsumed: () -> Unit = {},
+    navigateToSearchRequest: Boolean = false,
+    onNavigateToSearchConsumed: () -> Unit = {}
 ) {
     val authState by viewModel.authState.collectAsState()
     val userProfile by viewModel.userProfile.collectAsState()
@@ -150,6 +152,21 @@ fun YimlyNavigation(
         if (openNowPlayingRequest && authState is AuthState.Authenticated && playbackInfo.currentSong != null) {
             isPlayerExpanded = true
             onNowPlayingRequestConsumed()
+        }
+    }
+
+    LaunchedEffect(navigateToSearchRequest, authState) {
+        if (navigateToSearchRequest && authState is AuthState.Authenticated) {
+            if (currentRoute != Screen.Search.route) {
+                navController.navigate(Screen.Search.route) {
+                    popUpTo(navController.graph.findStartDestination().id) {
+                        saveState = true
+                    }
+                    launchSingleTop = true
+                    restoreState = true
+                }
+            }
+            onNavigateToSearchConsumed()
         }
     }
 

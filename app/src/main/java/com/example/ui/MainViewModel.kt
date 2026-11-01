@@ -19,6 +19,7 @@ import com.example.data.repository.AuthRepository
 import com.example.data.repository.MusicRepository
 import com.example.playback.PlaybackInfo
 import com.example.playback.PlaybackManager
+import com.example.notifications.DownloadNotificationManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -44,7 +45,8 @@ class MainViewModel(
     private val musicRepository: MusicRepository,
     private val playbackManager: PlaybackManager,
     private val authRepository: AuthRepository,
-    private val preferencesManager: PreferencesManager
+    private val preferencesManager: PreferencesManager,
+    private val downloadNotificationManager: DownloadNotificationManager
 ) : ViewModel() {
 
     // Auth & Profile
@@ -283,6 +285,7 @@ class MainViewModel(
                         val trackStatus = jobTrack?.status?.trim()?.lowercase()
                         val progress = jobTrack?.progress ?: if (overallStatus == "completed") 100 else 0
                         _downloadProgressMap.value = _downloadProgressMap.value + (key to progress.coerceIn(0, 100))
+                        downloadNotificationManager.showDownloadNotification(key.hashCode(), track.title, progress.coerceIn(0, 100))
 
                         when {
                             trackStatus == "failed" || overallStatus == "failed" -> {
@@ -335,6 +338,7 @@ class MainViewModel(
                     syncAndIndexTrack(track, preExistingIds, onComplete)
                 } else {
                     val message = failureReason ?: "Failed: Download did not complete"
+                    downloadNotificationManager.showDownloadNotification(key.hashCode(), track.title, 0, isFailed = true)
                     _downloadStatusMap.value = _downloadStatusMap.value + (key to message)
                     if (message.startsWith("Failed")) _uiMessage.value = message
                     onComplete?.invoke(null)
@@ -473,10 +477,12 @@ class MainViewModel(
             completedTrackSongIdMap[key] = newlyIndexedId
             _completedTrackSongIds.value = _completedTrackSongIds.value + (key to newlyIndexedId)
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
+            downloadNotificationManager.showDownloadNotification(key.hashCode(), track.title, 100)
             processPendingPlaylistRequests(key, newlyIndexedId)
             onComplete?.invoke(newlyIndexedId)
         } else {
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Downloaded (Indexing pending)")
+            downloadNotificationManager.showDownloadNotification(key.hashCode(), track.title, 99) // Show 99% or similar to indicate "almost done"
             if (lastSyncError != null) {
                 _uiMessage.value = "Downloaded, but library indexing is still pending: ${lastSyncError.message ?: "Sync failed"}"
             }
@@ -578,6 +584,7 @@ class MainViewModel(
             } finally {
                 playbackManager.clearQueueAndStop()
                 musicRepository.clearLocalCache()
+                downloadNotificationManager.cancelAll()
                 completedTrackSongIdMap.clear()
                 _completedTrackSongIds.value = emptyMap()
                 _downloadProgressMap.value = emptyMap()
@@ -727,7 +734,7 @@ class MainViewModel(
     fun addSongToPlaylist(playlistId: String, songId: String) {
         viewModelScope.launch {
             try {
-                musicRepository.addSongToPlaylist(playlistId, songId)
+                musicRepository.addSongToPlaylistOptimistic(playlistId, songId)
                 _uiMessage.value = "Added to playlist"
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
@@ -1017,7 +1024,8 @@ class MainViewModelFactory(
     private val musicRepository: MusicRepository,
     private val playbackManager: PlaybackManager,
     private val authRepository: AuthRepository,
-    private val preferencesManager: PreferencesManager
+    private val preferencesManager: PreferencesManager,
+    private val downloadNotificationManager: DownloadNotificationManager
 ) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
@@ -1026,7 +1034,8 @@ class MainViewModelFactory(
                 musicRepository,
                 playbackManager,
                 authRepository,
-                preferencesManager
+                preferencesManager,
+                downloadNotificationManager
             ) as T
         }
         throw IllegalArgumentException("Unknown ViewModel class")

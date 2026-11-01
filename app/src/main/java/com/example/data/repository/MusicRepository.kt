@@ -465,6 +465,16 @@ class MusicRepository(
         }
     }
 
+    suspend fun addSongToPlaylistOptimistic(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
+        musicDao.insertPlaylistSongCrossRef(PlaylistSongCrossRef(playlistId, songId, orderIndex = 9999))
+        try {
+            addSongToPlaylist(playlistId, songId)
+        } catch (e: Exception) {
+            musicDao.removeSongFromPlaylist(playlistId, songId)
+            throw e
+        }
+    }
+
     suspend fun removeSongFromPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
         apiService.removeSongFromPlaylist(playlistId, songId)
         musicDao.removeSongFromPlaylist(playlistId, songId)
@@ -518,7 +528,7 @@ class MusicRepository(
                 createdAt = localPl?.createdAt?.takeIf { it.isNotBlank() } ?: remotePlaylist.createdAt
             )
             musicDao.insertPlaylist(playlistWithCorrectCount.toEntity())
-            musicDao.syncPlaylistSongs(trimmedId, songs.map { it.toEntity() })
+            musicDao.safeSyncPlaylistSongs(trimmedId, songs.map { it.toEntity() }, remotePlaylist.songCount)
             markPlaylistSynced(trimmedId)
             Result.success(Unit)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -998,12 +1008,12 @@ class MusicRepository(
                     )
                     musicDao.insertPlaylist(plToInsert.toEntity())
                     if (pl.songs.isNotEmpty()) {
-                        musicDao.syncPlaylistSongs(pl.id.trim(), pl.songs.map { it.toEntity() })
+                        musicDao.safeSyncPlaylistSongs(pl.id.trim(), pl.songs.map { it.toEntity() })
                         markPlaylistSynced(pl.id.trim())
                     } else {
                         try {
                             val plSongs = apiService.getPlaylistSongs(pl.id.trim())
-                            musicDao.syncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
+                            musicDao.safeSyncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
                             markPlaylistSynced(pl.id.trim())
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled

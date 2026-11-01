@@ -19,13 +19,21 @@ import com.example.ui.theme.YimlyTheme
 
 class MainActivity : ComponentActivity() {
     private val openNowPlayingRequest = mutableStateOf(false)
+    private val navigateToSearchRequest = mutableStateOf(false)
 
-    companion object { const val EXTRA_OPEN_NOW_PLAYING = "com.example.EXTRA_OPEN_NOW_PLAYING" }
+    companion object {
+        const val EXTRA_OPEN_NOW_PLAYING = "com.example.EXTRA_OPEN_NOW_PLAYING"
+        const val EXTRA_NAVIGATE_TO_SEARCH = "EXTRA_NAVIGATE_TO_SEARCH"
+    }
 
     private fun consumeNotificationIntent(intent: Intent?) {
         if (intent?.getBooleanExtra(EXTRA_OPEN_NOW_PLAYING, false) == true) {
             openNowPlayingRequest.value = true
             intent.removeExtra(EXTRA_OPEN_NOW_PLAYING)
+        }
+        if (intent?.getBooleanExtra(EXTRA_NAVIGATE_TO_SEARCH, false) == true) {
+            navigateToSearchRequest.value = true
+            intent.removeExtra(EXTRA_NAVIGATE_TO_SEARCH)
         }
     }
 
@@ -42,7 +50,8 @@ class MainActivity : ComponentActivity() {
             musicRepository = app.musicRepository,
             playbackManager = app.playbackManager,
             authRepository = app.authRepository,
-            preferencesManager = app.preferencesManager
+            preferencesManager = app.preferencesManager,
+            downloadNotificationManager = app.downloadNotificationManager
         )
     }
 
@@ -58,7 +67,13 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = BackgroundDark
                 ) {
-                    YimlyNavigation(viewModel = viewModel, openNowPlayingRequest = openNowPlayingRequest.value, onNowPlayingRequestConsumed = { openNowPlayingRequest.value = false })
+                    YimlyNavigation(
+                        viewModel = viewModel,
+                        openNowPlayingRequest = openNowPlayingRequest.value,
+                        onNowPlayingRequestConsumed = { openNowPlayingRequest.value = false },
+                        navigateToSearchRequest = navigateToSearchRequest.value,
+                        onNavigateToSearchConsumed = { navigateToSearchRequest.value = false }
+                    )
                 }
             }
         }
