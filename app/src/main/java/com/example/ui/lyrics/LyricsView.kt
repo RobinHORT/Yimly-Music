@@ -316,9 +316,18 @@ fun LyricsView(
             // dedicated type size rather than the compact cover-art/list size.
             val fullscreenLyricFontSize = maxOf(config.currentLineFontSizeSp * 1.25f, 30f)
             val fullscreenLyricsConfig = config.copy(currentLineFontSizeSp = fullscreenLyricFontSize)
+            // Reserve two lyric-row heights above and three below the five-section
+            // stack. Each section receives two row heights, with no gap between sections.
+            val lyricRowHeight = (fullscreenLyricFontSize * 1.2f).dp
             Column(
-                modifier = Modifier.fillMaxSize().testTag("fullscreen_rotating_lyrics"),
-                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(
+                        top = lyricRowHeight * 2,
+                        bottom = lyricRowHeight * 3
+                    )
+                    .testTag("fullscreen_rotating_lyrics"),
+                verticalArrangement = Arrangement.spacedBy(0.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 (0 until sectionCount).forEach { section ->
