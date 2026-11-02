@@ -331,9 +331,16 @@ fun LyricsView(
                             if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
                                 SynchronizedLyricContent(line, true, currentPositionMs, effectiveOffset, config, currentLineColor, composeFontFamily, TextAlign.Center, isPlaying, Modifier.fillMaxWidth())
                             } else {
-                                Text(formatLyricText(line.text, config.textCase), config.currentLineFontSizeSp.sp, composeFontFamily,
-                                    FontWeight.Bold, currentLineColor, textAlign = TextAlign.Center,
-                                    lineHeight = (config.currentLineFontSizeSp * 1.2f).sp, modifier = Modifier.fillMaxWidth())
+                                Text(
+                                    text = formatLyricText(line.text, config.textCase),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    color = currentLineColor.copy(alpha = 1f),
+                                    fontSize = config.currentLineFontSizeSp.sp,
+                                    fontFamily = composeFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = (config.currentLineFontSizeSp * 1.2f).sp
+                                )
                             }
                         }
                     } else Spacer(Modifier.weight(1f))
