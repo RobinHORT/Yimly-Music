@@ -63,6 +63,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
@@ -200,7 +201,7 @@ fun FullPlayerScreen(
                 model = song.artworkUrl,
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.92f }
+                modifier = Modifier.fillMaxSize().blur(32.dp).graphicsLayer { alpha = 0.68f }
             )
         }
         Box(
@@ -210,9 +211,9 @@ fun FullPlayerScreen(
                         // Match Yimly Karaoke's full-player cover-art overlay exactly:
                         // translucent pink at the top, deeper rose through the middle,
                         // and dark plum at the bottom.
-                        Color(0xFFBE185D).copy(alpha = 0.48f),
-                        Color(0xFF9D174D).copy(alpha = 0.58f),
-                        Color(0xFF230C1D).copy(alpha = 0.72f)
+                        Color(0xFFBE185D).copy(alpha = 0.42f),
+                        Color(0xFF9D174D).copy(alpha = 0.52f),
+                        Color(0xFF230C1D).copy(alpha = 0.78f)
                     )
                 )
             )
