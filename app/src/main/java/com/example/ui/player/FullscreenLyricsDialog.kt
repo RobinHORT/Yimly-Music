@@ -26,6 +26,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
@@ -36,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,6 +82,7 @@ fun FullscreenLyricsDialog(
     onLyricsOffsetChange: (Long) -> Unit,
     onSaveLyricsConfig: (LyricsDisplayConfig) -> Unit
 ) {
+    var fullscreenFormatMode by remember(song.id, lyricsConfig.formatMode) { mutableStateOf(lyricsConfig.formatMode) }
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -151,6 +157,22 @@ fun FullscreenLyricsDialog(
                         Text(song.title, color = TextPrimaryDark, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(song.artist, color = TextSecondaryDark, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
+                    Row(
+                        modifier = Modifier.clip(RoundedCornerShape(18.dp)).background(SurfaceElevatedDark)
+                            .border(1.dp, SurfaceBorderDark, RoundedCornerShape(18.dp)).padding(horizontal = 4.dp, vertical = 3.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        listOf(com.example.data.models.LyricsFormatMode.LRC, com.example.data.models.LyricsFormatMode.ELRC).forEach { mode ->
+                            Text(mode.displayName,
+                                color = if (fullscreenFormatMode == mode) TextPrimaryDark else TextSecondaryDark,
+                                fontWeight = if (fullscreenFormatMode == mode) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 11.sp,
+                                modifier = Modifier.clip(RoundedCornerShape(14.dp))
+                                    .background(if (fullscreenFormatMode == mode) YimlyPink.copy(alpha = 0.28f) else Color.Transparent)
+                                    .clickable { fullscreenFormatMode = mode }.padding(horizontal = 9.dp, vertical = 6.dp)
+                                    .testTag("fullscreen_lyrics_mode_${mode.name.lowercase()}"))
+                        }
+                    }
                     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides androidx.compose.ui.unit.Dp.Unspecified) {
                         Row(
                             modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(SurfaceElevatedDark)
@@ -178,11 +200,13 @@ fun FullscreenLyricsDialog(
                     isPlaying = isPlaying,
                     songOffsetMs = songOffsetMs,
                     config = lyricsConfig.copy(
+                        formatMode = fullscreenFormatMode,
                         highlightCurrentLine = false,
                         currentLineColorHex = "#FFFFFF"
                     ),
                     showFocusControls = false,
-                    floatingFocusMode = true,
+                    floatingFocusMode = false,
+                    rotatingSections = true,
                     onSeekTo = onSeekTo,
                     onOpenSettings = onOpenSettings,
                     onOffsetChange = onLyricsOffsetChange,
