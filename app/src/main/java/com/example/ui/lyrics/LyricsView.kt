@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -321,26 +322,22 @@ fun LyricsView(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 (0 until sectionCount).forEach { section ->
-                    val lineIndex = lines.indices.lastOrNull { index ->
-                        index % sectionCount == section && lines[index].timeMs <= adjustedPosition
-                    } ?: lines.indices.firstOrNull { index ->
-                        index % sectionCount == section
-                    }
-                    if (lineIndex != null) {
-                        val line = lines[lineIndex]
-                        val nextLineStart = lines.getOrNull(lineIndex + 1)?.timeMs ?: line.timeMs
-                        val replacementStart = lines.getOrNull(lineIndex + sectionCount)?.timeMs ?: line.endTimeMs ?: nextLineStart
-                        val fadeEnd = maxOf(line.endTimeMs ?: nextLineStart, replacementStart - 1500L)
-                        val fade = if (adjustedPosition <= nextLineStart || fadeEnd <= nextLineStart) 1f
-                            else (1f - ((adjustedPosition - nextLineStart).toFloat() / (fadeEnd - nextLineStart).toFloat())).coerceIn(0f, 1f)
-                        Box(Modifier.fillMaxWidth().weight(1f).alpha(fade), contentAlignment = Alignment.Center) {
+                    val (line, fade, isVisible) = LyricsParser.calculateRotatingSectionSlot(
+                        lines = lines,
+                        section = section,
+                        sectionCount = sectionCount,
+                        currentPositionMs = currentPositionMs,
+                        effectiveOffsetMs = effectiveOffset
+                    )
+                    if (line != null) {
+                        Box(Modifier.fillMaxWidth().weight(1f).alpha(if (isVisible) fade else 0f), contentAlignment = Alignment.Center) {
                             if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
                                 SynchronizedLyricContent(line, true, currentPositionMs, effectiveOffset, fullscreenLyricsConfig, currentLineColor, composeFontFamily, TextAlign.Center, isPlaying, Modifier.fillMaxWidth())
                             } else {
                                 Text(
                                     text = formatLyricText(line.text, config.textCase),
                                     modifier = Modifier.fillMaxWidth(),
-                                    color = currentLineColor.copy(alpha = 1f),
+                                    color = currentLineColor.copy(alpha = if (isVisible) 1f else 0f),
                                     fontSize = fullscreenLyricFontSize.sp,
                                     fontFamily = composeFontFamily,
                                     fontWeight = FontWeight.Bold,

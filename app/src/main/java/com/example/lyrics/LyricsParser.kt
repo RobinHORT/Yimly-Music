@@ -331,6 +331,44 @@ object LyricsParser {
             nextLine = next
         )
     }
+
+    fun calculateRotatingSectionSlot(
+        lines: List<LyricLine>,
+        section: Int,
+        sectionCount: Int,
+        currentPositionMs: Long,
+        effectiveOffsetMs: Long = 0L
+    ): RotatingSectionSlot {
+        if (lines.isEmpty()) return RotatingSectionSlot(null, 0f, false)
+        val adjustedPosition = currentPositionMs + effectiveOffsetMs
+
+        val activeOrUpcomingIndex = lines.indices.lastOrNull { index ->
+            index % sectionCount == section && lines[index].timeMs <= adjustedPosition
+        } ?: lines.indices.firstOrNull { index ->
+            index % sectionCount == section
+        }
+
+        if (activeOrUpcomingIndex == null) return RotatingSectionSlot(null, 0f, false)
+
+        val line = lines[activeOrUpcomingIndex]
+
+        if (adjustedPosition < line.timeMs) {
+            return RotatingSectionSlot(line, 0f, false)
+        }
+
+        val nextLineInSection = lines.getOrNull(activeOrUpcomingIndex + sectionCount)
+        val nextLineAny = lines.getOrNull(activeOrUpcomingIndex + 1)?.timeMs ?: line.timeMs
+        val replacementStart = nextLineInSection?.timeMs ?: line.endTimeMs ?: nextLineAny
+
+        val fadeEnd = maxOf(line.endTimeMs ?: nextLineAny, replacementStart - 1500L)
+        val fade = if (adjustedPosition <= nextLineAny || fadeEnd <= nextLineAny) {
+            1f
+        } else {
+            (1f - ((adjustedPosition - nextLineAny).toFloat() / (fadeEnd - nextLineAny).toFloat())).coerceIn(0f, 1f)
+        }
+
+        return RotatingSectionSlot(line, fade, true)
+    }
 }
 
 data class LyricSlotState(
@@ -339,4 +377,11 @@ data class LyricSlotState(
     val currentLine: LyricLine?,
     val nextLine: LyricLine?
 )
+
+data class RotatingSectionSlot(
+    val line: LyricLine?,
+    val alpha: Float,
+    val isVisible: Boolean
+)
+
 

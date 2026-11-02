@@ -26,6 +26,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -40,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -47,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import coil.compose.AsyncImage
+import com.example.YimlyApplication
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.Song
@@ -83,6 +86,19 @@ fun FullscreenLyricsDialog(
     onSaveLyricsConfig: (LyricsDisplayConfig) -> Unit
 ) {
     var fullscreenFormatMode by remember(song.id, lyricsConfig.formatMode) { mutableStateOf(lyricsConfig.formatMode) }
+    val context = LocalContext.current
+    val app = context.applicationContext as? YimlyApplication
+    val musicRepository = app?.musicRepository
+
+    var activeLyricsData by remember(song.id, lyricsData) { mutableStateOf(lyricsData) }
+
+    LaunchedEffect(song.id, fullscreenFormatMode) {
+        if (musicRepository != null) {
+            val fetched = musicRepository.getLyricsForSong(song, fullscreenFormatMode, allowSongFallback = true)
+            activeLyricsData = fetched
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(
@@ -195,7 +211,7 @@ fun FullscreenLyricsDialog(
                 // Lyrics are deliberately rendered directly on the artwork backdrop:
                 // no lyric card, border, seek bar, or playback-control row.
                 LyricsView(
-                    lyricsData = lyricsData,
+                    lyricsData = activeLyricsData,
                     currentPositionMs = currentPositionMs,
                     isPlaying = isPlaying,
                     songOffsetMs = songOffsetMs,
