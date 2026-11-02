@@ -157,10 +157,7 @@ fun FullscreenLyricsDialog(
             )
 
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding()
-                    .padding(horizontal = 22.dp, vertical = 12.dp)
+                modifier = Modifier.fillMaxSize()
             ) {
                 // Lyrics fill the full safe screen area, independent of the header,
                 // keeping the active line at the actual visual centre.
@@ -184,7 +181,7 @@ fun FullscreenLyricsDialog(
                 )
 
                 Row(
-                    modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
+                    modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().safeDrawingPadding().padding(horizontal = 22.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
