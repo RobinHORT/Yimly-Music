@@ -319,6 +319,8 @@ fun LyricsView(
                 (0 until sectionCount).forEach { section ->
                     val lineIndex = lines.indices.lastOrNull { index ->
                         index % sectionCount == section && lines[index].timeMs <= adjustedPosition
+                    } ?: lines.indices.firstOrNull { index ->
+                        index % sectionCount == section
                     }
                     if (lineIndex != null) {
                         val line = lines[lineIndex]
