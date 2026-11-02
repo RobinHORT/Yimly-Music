@@ -34,6 +34,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Brush
@@ -135,21 +136,21 @@ fun FullscreenLyricsDialog(
                     model = song.artworkUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 0.28f }
+                    modifier = Modifier.fillMaxSize().blur(30.dp).graphicsLayer { alpha = 0.42f }
                 )
             }
 
             Box(
-                modifier = Modifier.fillMaxSize().background(Color(0xFF190D18).copy(alpha = 0.28f))
+                modifier = Modifier.fillMaxSize().background(Color(0xFF190D18).copy(alpha = 0.48f))
             )
 
             Box(
                 modifier = Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
                         colors = listOf(
-                            Color(0xFFBE185D).copy(alpha = 0.42f),
-                            Color(0xFF9D174D).copy(alpha = 0.52f),
-                            Color(0xFF230C1D).copy(alpha = 0.78f)
+                            Color(0xFFBE185D).copy(alpha = 0.30f),
+                            Color(0xFF9D174D).copy(alpha = 0.40f),
+                            Color(0xFF230C1D).copy(alpha = 0.68f)
                         )
                     )
                 )
