@@ -156,14 +156,35 @@ fun FullscreenLyricsDialog(
                 )
             )
 
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .safeDrawingPadding()
                     .padding(horizontal = 22.dp, vertical = 12.dp)
             ) {
+                // Lyrics fill the full safe screen area, independent of the header,
+                // keeping the active line at the actual visual centre.
+                LyricsView(
+                    lyricsData = activeLyricsData,
+                    currentPositionMs = currentPositionMs,
+                    isPlaying = isPlaying,
+                    songOffsetMs = songOffsetMs,
+                    config = lyricsConfig.copy(
+                        formatMode = fullscreenFormatMode,
+                        highlightCurrentLine = false,
+                        currentLineColorHex = "#FFFFFF"
+                    ),
+                    showFocusControls = false,
+                    floatingFocusMode = false,
+                    rotatingSections = true,
+                    onSeekTo = onSeekTo,
+                    onOpenSettings = onOpenSettings,
+                    onOffsetChange = onLyricsOffsetChange,
+                    modifier = Modifier.fillMaxSize()
+                )
+
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
+                    modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -209,26 +230,6 @@ fun FullscreenLyricsDialog(
                     }
                 }
 
-                // Lyrics are deliberately rendered directly on the artwork backdrop:
-                // no lyric card, border, seek bar, or playback-control row.
-                LyricsView(
-                    lyricsData = activeLyricsData,
-                    currentPositionMs = currentPositionMs,
-                    isPlaying = isPlaying,
-                    songOffsetMs = songOffsetMs,
-                    config = lyricsConfig.copy(
-                        formatMode = fullscreenFormatMode,
-                        highlightCurrentLine = false,
-                        currentLineColorHex = "#FFFFFF"
-                    ),
-                    showFocusControls = false,
-                    floatingFocusMode = false,
-                    rotatingSections = true,
-                    onSeekTo = onSeekTo,
-                    onOpenSettings = onOpenSettings,
-                    onOffsetChange = onLyricsOffsetChange,
-                    modifier = Modifier.weight(1f).fillMaxWidth()
-                )
             }
         }
     }
