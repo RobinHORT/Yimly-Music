@@ -297,16 +297,31 @@ fun LyricsView(
                 contentAlignment = Alignment.Center
             ) {
                 currentLine?.let { line ->
-                    Text(
-                        text = formatLyricText(line.text, config.textCase),
-                        fontSize = config.currentLineFontSizeSp.sp,
-                        fontFamily = composeFontFamily,
-                        fontWeight = FontWeight.Bold,
-                        color = currentLineColor.copy(alpha = 0.96f),
-                        textAlign = TextAlign.Center,
-                        lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
-                                                modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
-                    )
+                    if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
+                        SynchronizedLyricContent(
+                            line = line,
+                            isCurrent = true,
+                            currentPositionMs = currentPositionMs,
+                            effectiveOffsetMs = effectiveOffset,
+                            config = config,
+                            currentLineColor = currentLineColor,
+                            composeFontFamily = composeFontFamily,
+                            textAlign = TextAlign.Center,
+                            isPlaying = isPlaying,
+                            modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
+                        )
+                    } else {
+                        Text(
+                            text = formatLyricText(line.text, config.textCase),
+                            fontSize = config.currentLineFontSizeSp.sp,
+                            fontFamily = composeFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = currentLineColor.copy(alpha = 0.96f),
+                            textAlign = TextAlign.Center,
+                            lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
+                            modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
+                        )
+                    }
                 }
             }
         } else if (rotatingSections) {
