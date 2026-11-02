@@ -366,7 +366,8 @@ fun FullPlayerScreen(
                         lyricsData = lyricsData,
                         currentPositionMs = currentPos,
                         songOffsetMs = songOffsetMs,
-                        config = lyricsConfig,
+                        // Match the lyrics highlight to the Yimly media-control accent.
+                        config = lyricsConfig.copy(currentLineColorHex = "#FF4FA3"),
                         onSeekTo = onSeekTo,
                         onOpenSettings = { showLyricsSettings = true },
                         onOffsetChange = onLyricsOffsetChange,
