@@ -311,9 +311,13 @@ fun LyricsView(
         } else if (rotatingSections) {
             val sectionCount = 5
             val adjustedPosition = currentPositionMs + effectiveOffset
+            // Fullscreen has five simultaneous lyric slots, so use a larger
+            // dedicated type size rather than the compact cover-art/list size.
+            val fullscreenLyricFontSize = maxOf(config.currentLineFontSizeSp * 1.25f, 30f)
+            val fullscreenLyricsConfig = config.copy(currentLineFontSizeSp = fullscreenLyricFontSize)
             Column(
                 modifier = Modifier.fillMaxSize().testTag("fullscreen_rotating_lyrics"),
-                verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterVertically),
+                verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 (0 until sectionCount).forEach { section ->
@@ -331,17 +335,17 @@ fun LyricsView(
                             else (1f - ((adjustedPosition - nextLineStart).toFloat() / (fadeEnd - nextLineStart).toFloat())).coerceIn(0f, 1f)
                         Box(Modifier.fillMaxWidth().weight(1f).alpha(fade), contentAlignment = Alignment.Center) {
                             if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
-                                SynchronizedLyricContent(line, true, currentPositionMs, effectiveOffset, config, currentLineColor, composeFontFamily, TextAlign.Center, isPlaying, Modifier.fillMaxWidth())
+                                SynchronizedLyricContent(line, true, currentPositionMs, effectiveOffset, fullscreenLyricsConfig, currentLineColor, composeFontFamily, TextAlign.Center, isPlaying, Modifier.fillMaxWidth())
                             } else {
                                 Text(
                                     text = formatLyricText(line.text, config.textCase),
                                     modifier = Modifier.fillMaxWidth(),
                                     color = currentLineColor.copy(alpha = 1f),
-                                    fontSize = config.currentLineFontSizeSp.sp,
+                                    fontSize = fullscreenLyricFontSize.sp,
                                     fontFamily = composeFontFamily,
                                     fontWeight = FontWeight.Bold,
                                     textAlign = TextAlign.Center,
-                                    lineHeight = (config.currentLineFontSizeSp * 1.2f).sp
+                                    lineHeight = (fullscreenLyricFontSize * 1.2f).sp
                                 )
                             }
                         }
