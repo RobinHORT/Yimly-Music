@@ -1,8 +1,14 @@
 package com.example.ui.lyrics
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -325,52 +331,57 @@ fun LyricsView(
                 }
             }
         } else if (rotatingSections) {
-            val sectionCount = 5
-            val adjustedPosition = currentPositionMs + effectiveOffset
-            // Fullscreen has five simultaneous lyric slots, so use a larger
-            // dedicated type size rather than the compact cover-art/list size.
-            val fullscreenLyricFontSize = maxOf(config.currentLineFontSizeSp * 1.25f, 30f)
-            val fullscreenLyricsConfig = config.copy(currentLineFontSizeSp = fullscreenLyricFontSize)
-            // Reserve two lyric-row heights above and three below the five-section
-            // stack. Each section receives two row heights, with no gap between sections.
-            val lyricRowHeight = (fullscreenLyricFontSize * 1.2f).dp
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(
-                        top = lyricRowHeight * 3,
-                        bottom = lyricRowHeight * 5
-                    )
-                    .testTag("fullscreen_rotating_lyrics"),
-                verticalArrangement = Arrangement.spacedBy(0.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                (0 until sectionCount).forEach { section ->
-                    val (line, fade, isVisible) = LyricsParser.calculateRotatingSectionSlot(
-                        lines = lines,
-                        section = section,
-                        sectionCount = sectionCount,
-                        currentPositionMs = currentPositionMs,
-                        effectiveOffsetMs = effectiveOffset
-                    )
-                    if (line != null) {
-                        Box(Modifier.fillMaxWidth().weight(1f).alpha(if (isVisible) fade else 0f), contentAlignment = Alignment.Center) {
-                            if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
-                                SynchronizedLyricContent(line, true, currentPositionMs, effectiveOffset, fullscreenLyricsConfig, currentLineColor, composeFontFamily, TextAlign.Center, isPlaying, Modifier.fillMaxWidth())
-                            } else {
-                                Text(
-                                    text = formatLyricText(line.text, config.textCase),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    color = currentLineColor.copy(alpha = if (isVisible) 1f else 0f),
-                                    fontSize = fullscreenLyricFontSize.sp,
-                                    fontFamily = composeFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = (fullscreenLyricFontSize * 1.2f).sp
-                                )
-                            }
+            // Cinematic credit-style fullscreen lyrics: keep the active line locked
+            // to the centre while the previous line exits upward and the next enters
+            // from below. eLRC retains its timestamp-driven word sweep.
+            val activeLineIndex = slotState.currentIndex
+            AnimatedContent(
+                targetState = activeLineIndex,
+                modifier = Modifier.fillMaxSize().testTag("fullscreen_credit_lyrics"),
+                transitionSpec = {
+                    (slideInVertically(
+                        initialOffsetY = { height -> height },
+                        animationSpec = tween(durationMillis = 520)
+                    ) + fadeIn(animationSpec = tween(durationMillis = 360))) togetherWith
+                        (slideOutVertically(
+                            targetOffsetY = { height -> -height },
+                            animationSpec = tween(durationMillis = 520)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 360)))
+                },
+                label = "fullscreen_credit_line_transition"
+            ) { lineIndex ->
+                val activeLine = lines.getOrNull(lineIndex)
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    activeLine?.let { line ->
+                        if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
+                            SynchronizedLyricContent(
+                                line = line,
+                                isCurrent = true,
+                                currentPositionMs = currentPositionMs,
+                                effectiveOffsetMs = effectiveOffset,
+                                config = config,
+                                currentLineColor = currentLineColor,
+                                composeFontFamily = composeFontFamily,
+                                textAlign = TextAlign.Center,
+                                isPlaying = isPlaying,
+                                modifier = Modifier.fillMaxWidth().testTag("fullscreen_credit_active_line")
+                            )
+                        } else {
+                            Text(
+                                text = formatLyricText(line.text, config.textCase),
+                                modifier = Modifier.fillMaxWidth().testTag("fullscreen_credit_active_line"),
+                                color = currentLineColor,
+                                fontSize = config.currentLineFontSizeSp.sp,
+                                fontFamily = composeFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                textAlign = TextAlign.Center,
+                                lineHeight = (config.currentLineFontSizeSp * 1.2f).sp
+                            )
                         }
-                    } else Spacer(Modifier.weight(1f))
+                    }
                 }
             }
         } else if (viewMode == 0) {
