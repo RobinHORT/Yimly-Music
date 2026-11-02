@@ -338,8 +338,8 @@ fun LyricsView(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
-                        top = lyricRowHeight * 2,
-                        bottom = lyricRowHeight * 3
+                        top = lyricRowHeight * 3,
+                        bottom = lyricRowHeight * 4
                     )
                     .testTag("fullscreen_rotating_lyrics"),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
