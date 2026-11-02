@@ -78,6 +78,7 @@ import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsFormatMode
 import com.example.data.models.Song
 import com.example.playback.PlaybackInfo
 import com.example.playback.RepeatMode
@@ -367,7 +368,7 @@ fun FullPlayerScreen(
                         currentPositionMs = currentPos,
                         songOffsetMs = songOffsetMs,
                         // Match the lyrics highlight to the Yimly media-control accent.
-                        config = lyricsConfig.copy(currentLineColorHex = "#FF4FA3"),
+                        config = lyricsConfig.copy(formatMode = LyricsFormatMode.LRC, currentLineColorHex = "#FFFFFF"),
                         onSeekTo = onSeekTo,
                         onOpenSettings = { showLyricsSettings = true },
                         onOffsetChange = onLyricsOffsetChange,
