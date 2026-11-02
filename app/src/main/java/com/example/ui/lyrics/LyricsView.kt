@@ -95,6 +95,7 @@ fun LyricsView(
     isPlaying: Boolean = true,
     showFocusControls: Boolean = true,
     floatingFocusMode: Boolean = false,
+    rotatingSections: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var viewMode by remember { mutableStateOf(0) } // 0 = Focus Mode, 1 = Full Synced List
@@ -305,6 +306,37 @@ fun LyricsView(
                         lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
                                                 modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
                     )
+                }
+            }
+        } else if (rotatingSections) {
+            val sectionCount = 5
+            val adjustedPosition = currentPositionMs + effectiveOffset
+            Column(
+                modifier = Modifier.fillMaxSize().testTag("fullscreen_rotating_lyrics"),
+                verticalArrangement = Arrangement.spacedBy(18.dp, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                (0 until sectionCount).forEach { section ->
+                    val lineIndex = lines.indices.lastOrNull { index ->
+                        index % sectionCount == section && lines[index].timeMs <= adjustedPosition
+                    }
+                    if (lineIndex != null) {
+                        val line = lines[lineIndex]
+                        val nextLineStart = lines.getOrNull(lineIndex + 1)?.timeMs ?: line.timeMs
+                        val replacementStart = lines.getOrNull(lineIndex + sectionCount)?.timeMs ?: line.endTimeMs ?: nextLineStart
+                        val fadeEnd = maxOf(line.endTimeMs ?: nextLineStart, replacementStart - 1500L)
+                        val fade = if (adjustedPosition <= nextLineStart || fadeEnd <= nextLineStart) 1f
+                            else (1f - ((adjustedPosition - nextLineStart).toFloat() / (fadeEnd - nextLineStart).toFloat())).coerceIn(0f, 1f)
+                        Box(Modifier.fillMaxWidth().weight(1f).alpha(fade), contentAlignment = Alignment.Center) {
+                            if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
+                                SynchronizedLyricContent(line, true, currentPositionMs, effectiveOffset, config, currentLineColor, composeFontFamily, TextAlign.Center, isPlaying, Modifier.fillMaxWidth())
+                            } else {
+                                Text(formatLyricText(line.text, config.textCase), config.currentLineFontSizeSp.sp, composeFontFamily,
+                                    FontWeight.Bold, currentLineColor, textAlign = TextAlign.Center,
+                                    lineHeight = (config.currentLineFontSizeSp * 1.2f).sp, modifier = Modifier.fillMaxWidth())
+                            }
+                        }
+                    } else Spacer(Modifier.weight(1f))
                 }
             }
         } else if (viewMode == 0) {
