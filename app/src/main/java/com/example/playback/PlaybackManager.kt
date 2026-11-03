@@ -602,7 +602,16 @@ class PlaybackManager(
                         ?: if (isSameSong && p.playbackState != Player.STATE_ENDED) p.currentPosition.coerceAtLeast(0L) else 0L
 
                     val activeIndex = p.currentMediaItemIndex
-                    if (isSameSong && activeIndex in 0 until p.mediaItemCount) {
+                    val queueMatchesPlayerTimeline = p.mediaItemCount == info.queue.size &&
+                        info.currentQueueIndex in 0 until p.mediaItemCount &&
+                        (p.getMediaItemAt(info.currentQueueIndex).mediaId.removeSuffix("_inst") == song.id)
+
+                    if (queueMatchesPlayerTimeline) {
+                        p.replaceMediaItem(info.currentQueueIndex, mediaItem)
+                        if (p.currentMediaItemIndex != info.currentQueueIndex || currentPos > 0L) {
+                            p.seekTo(info.currentQueueIndex, currentPos)
+                        }
+                    } else if (isSameSong && activeIndex in 0 until p.mediaItemCount) {
                         p.replaceMediaItem(activeIndex, mediaItem)
                         p.seekTo(activeIndex, currentPos)
                     } else {
@@ -992,8 +1001,129 @@ class PlaybackManager(
         snapshotRestoreCompleted.await()
     }
 
-    private fun restorePlaybackSnapshot() {
+    internal suspend fun restoreFromSnapshot(snapshot: PlaybackSnapshot): Boolean {
         val restoreRequestId = playbackRequestId
+        if (snapshot.queue.isEmpty()) return false
+        if (restoreRequestId != playbackRequestId) return false
+
+        val originalIndex = snapshot.currentQueueIndex.coerceIn(snapshot.queue.indices)
+
+        val resolvedEntries = mutableListOf<ResolvedQueueEntry>()
+        for ((i, song) in snapshot.queue.withIndex()) {
+            if (restoreRequestId != playbackRequestId) return false
+            try {
+                val wantInst = if (i == originalIndex) {
+                    snapshot.isInstrumental && song.hasInstrumentalEffective
+                } else {
+                    song.isInstrumentalTrack || (snapshot.isInstrumental && song.hasInstrumentalEffective)
+                }
+                val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInst)
+                val audioUrl = resolvedTrack.playableUrl
+                if (audioUrl.isNotBlank()) {
+                    val parsedAudioUri = Uri.parse(audioUrl)
+                    val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
+                    val mediaItem = MediaItem.Builder()
+                        .setMediaId(if (wantInst) "${song.id}_inst" else song.id)
+                        .setUri(parsedAudioUri)
+                        .setRequestMetadata(
+                            MediaItem.RequestMetadata.Builder()
+                                .setMediaUri(parsedAudioUri)
+                                .build()
+                        )
+                        .setMediaMetadata(
+                            MediaMetadata.Builder()
+                                .setTitle(song.title)
+                                .setArtist(song.artist)
+                                .setAlbumTitle(song.album)
+                                .setArtworkUri(artworkUri)
+                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                                .setIsPlayable(true)
+                                .build()
+                        )
+                        .build()
+                    resolvedEntries.add(
+                        ResolvedQueueEntry(
+                            song = song,
+                            mediaItem = mediaItem,
+                            isOriginalCurrent = (i == originalIndex),
+                            isInstrumental = wantInst
+                        )
+                    )
+                } else {
+                    Log.w("PlaybackManager", "Skipping unresolvable track in snapshot: ${song.id}")
+                }
+            } catch (e: Exception) {
+                Log.w("PlaybackManager", "Failed to resolve track ${song.id} in snapshot", e)
+            }
+        }
+
+        if (resolvedEntries.isEmpty()) {
+            Log.w("PlaybackManager", "No tracks in saved queue could be resolved")
+            return false
+        }
+
+        val targetEntryIndex = resolvedEntries.indexOfFirst { it.isOriginalCurrent }.let { idx ->
+            if (idx >= 0) idx else 0
+        }
+        val activeEntry = resolvedEntries[targetEntryIndex]
+        val restoredPositionMs = if (activeEntry.isOriginalCurrent) {
+            snapshot.currentPositionMs.coerceAtLeast(0L)
+        } else {
+            0L
+        }
+
+        withContext(Dispatchers.Main) {
+            if (restoreRequestId != playbackRequestId) return@withContext
+            if (_playbackInfo.value.currentSong != null || _playbackInfo.value.queue.isNotEmpty()) return@withContext
+
+            val validQueue = resolvedEntries.map { it.song }
+            val mediaItems = resolvedEntries.map { it.mediaItem }
+
+            shuffleHistory.clear()
+            shuffleHistory.addAll(
+                snapshot.shuffleHistory
+                    .filter { it in snapshot.queue.indices }
+                    .mapNotNull { origIdx ->
+                        val origSong = snapshot.queue.getOrNull(origIdx) ?: return@mapNotNull null
+                        validQueue.indexOfFirst { it.id == origSong.id }.takeIf { it >= 0 }
+                    }
+            )
+
+            val p = ensurePlayerInitialized()
+            p.repeatMode = when (snapshot.repeatMode) {
+                RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+                RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+                RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+            }
+            p.shuffleModeEnabled = snapshot.isShuffle
+
+            p.setMediaItems(mediaItems, targetEntryIndex, restoredPositionMs)
+            p.prepare()
+            p.playWhenReady = false
+
+            _playbackInfo.value = PlaybackInfo(
+                currentSong = activeEntry.song,
+                currentPositionMs = restoredPositionMs,
+                queue = validQueue,
+                currentQueueIndex = targetEntryIndex,
+                isShuffle = snapshot.isShuffle,
+                repeatMode = snapshot.repeatMode,
+                hasInstrumental = activeEntry.song.hasInstrumentalEffective,
+                isInstrumental = activeEntry.isInstrumental
+            )
+            _playbackPositionMs.value = restoredPositionMs
+            _lyricsPositionMs.value = restoredPositionMs
+            updatePlaybackInfo()
+
+            Log.i(
+                "PlaybackManager",
+                "Restored ${mediaItems.size} queued tracks into Media3 player timeline at index $targetEntryIndex"
+            )
+        }
+        return true
+    }
+
+    private fun restorePlaybackSnapshot() {
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val snapshot = try {
@@ -1001,35 +1131,12 @@ class PlaybackManager(
                 } catch (e: Exception) {
                     Log.w("PlaybackManager", "Failed to load playback snapshot", e)
                     null
-                } ?: return@launch
-                if (snapshot.queue.isEmpty()) return@launch
-                withContext(Dispatchers.Main) {
-                    // A user action or logout may have happened while DataStore was loading.
-                    if (restoreRequestId != playbackRequestId) return@withContext
-                    if (_playbackInfo.value.currentSong != null || _playbackInfo.value.queue.isNotEmpty()) return@withContext
-                    val index = snapshot.currentQueueIndex.coerceIn(snapshot.queue.indices)
-                    val song = snapshot.queue[index]
-                    shuffleHistory.clear()
-                    shuffleHistory.addAll(snapshot.shuffleHistory.filter { it in snapshot.queue.indices })
-                    _playbackInfo.value = PlaybackInfo(
-                        currentSong = song,
-                        currentPositionMs = snapshot.currentPositionMs.coerceAtLeast(0L),
-                        queue = snapshot.queue,
-                        currentQueueIndex = index,
-                        isShuffle = snapshot.isShuffle,
-                        repeatMode = snapshot.repeatMode,
-                        hasInstrumental = song.hasInstrumentalEffective,
-                        isInstrumental = snapshot.isInstrumental
-                    )
-                    _playbackPositionMs.value = snapshot.currentPositionMs.coerceAtLeast(0L)
-                    _lyricsPositionMs.value = snapshot.currentPositionMs.coerceAtLeast(0L)
-                    playCurrentQueueIndex(
-                        targetInstrumental = snapshot.isInstrumental,
-                        autoPlay = false,
-                        initialPositionMs = snapshot.currentPositionMs
-                    )
-                    Log.i("PlaybackManager", "Restored ${snapshot.queue.size} queued tracks at index ${index}")
                 }
+                if (snapshot != null) {
+                    restoreFromSnapshot(snapshot)
+                }
+            } catch (e: Exception) {
+                Log.e("PlaybackManager", "Error during playback snapshot restoration", e)
             } finally {
                 snapshotRestoreCompleted.complete(Unit)
             }
@@ -1066,3 +1173,10 @@ class PlaybackManager(
         _playbackInfo.value = PlaybackInfo()
     }
 }
+
+private data class ResolvedQueueEntry(
+    val song: Song,
+    val mediaItem: MediaItem,
+    val isOriginalCurrent: Boolean,
+    val isInstrumental: Boolean
+)
