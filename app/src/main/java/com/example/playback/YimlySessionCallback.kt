@@ -549,6 +549,7 @@ class YimlySessionCallback(
         controller: MediaSession.ControllerInfo,
         mediaItems: List<MediaItem>
     ): ListenableFuture<List<MediaItem>> {
+        playbackManager.startPlaybackService()
         val future = SettableFuture.create<List<MediaItem>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {

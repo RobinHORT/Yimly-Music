@@ -242,14 +242,21 @@ class MusicRepository(
     val allPlaylists: Flow<List<Playlist>> = musicDao.getAllPlaylists().map { list -> list.map { it.toPlaylist() } }
 
     suspend fun getSongById(id: String): Song? = withContext(Dispatchers.IO) {
-        try {            val remoteSong = apiService.getSongById(id)
+        val trimmedId = id.trim()
+        val localSongEntity = musicDao.getSongById(trimmedId)
+        val localSong = localSongEntity?.toSong()
+        if (localSong != null) {
+            return@withContext localSong
+        }
+        try {
+            val remoteSong = apiService.getSongById(trimmedId)
             musicDao.upsertSongs(listOf(remoteSong.toEntity()))
             remoteSong
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
         } catch (e: Exception) {
-            Log.w("MusicRepository", "Remote song lookup failed for $id; using local cache", e)
-            musicDao.getSongById(id)?.toSong()
+            Log.w("MusicRepository", "Remote song lookup failed for $id; returning null", e)
+            null
         }
     }
 

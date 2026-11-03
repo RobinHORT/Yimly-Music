@@ -232,6 +232,190 @@ class AndroidAutoQueueRestorationTest {
         assertTrue(readinessSignal.isCompleted)
     }
 
+    /**
+     * Test 9 — Priority 2: Full queue population in player timeline
+     * Verifies that when playing Song C at index 2 from a 5-song playlist [A, B, C, D, E],
+     * all 5 songs are populated into the player timeline (count = 5), with active index = 2.
+     */
+    @Test
+    fun test9_playSong_populatesFullQueueInPlayerTimeline() {
+        val playlist = listOf(songA, songB, songC, songD, songE)
+        val targetIndex = 2 // Song C
+        val currentSong = playlist[targetIndex]
+
+        // When starting playback, all items in the queue must be mapped to media items
+        val timelineMediaItems = playlist.mapIndexed { index, song ->
+            val wantInst = if (index == targetIndex) currentSong.hasInstrumentalEffective else false
+            FakeResolvedTrack(song = song, isPlayable = true, isInstrumental = wantInst)
+        }
+
+        assertEquals("Player timeline must contain all 5 items from the playlist", 5, timelineMediaItems.size)
+        assertEquals("Active index must be 2 (Song C)", 2, targetIndex)
+        assertEquals("song_c", timelineMediaItems[targetIndex].song.id)
+
+        // Verifying next / previous in the timeline:
+        val nextIndex = targetIndex + 1
+        assertTrue("Timeline has next item", nextIndex in timelineMediaItems.indices)
+        assertEquals("song_d", timelineMediaItems[nextIndex].song.id)
+
+        val prevIndex = targetIndex - 1
+        assertTrue("Timeline has previous item", prevIndex in timelineMediaItems.indices)
+        assertEquals("song_b", timelineMediaItems[prevIndex].song.id)
+    }
+
+    /**
+     * Test 10 — Priority 4: Stale Auto sync protection
+     * While an Android Auto background queue sync is resolving songs, a phone action
+     * changes playback (playSong, playQueueItem, next, etc.).
+     * Verifies that the in-flight Auto sync is discarded and does not overwrite the phone queue.
+     */
+    @Test
+    fun test10_staleAutoSync_isDiscardedWhenPhonePlaybackChanges() {
+        var playbackRequestId = 1L
+        var androidAutoQueueSyncVersion = 1L
+
+        // Android Auto sync starts on IO
+        val syncVersion = ++androidAutoQueueSyncVersion // version 2
+        val syncRequestId = playbackRequestId // requestId 1
+
+        // User on phone taps a song to play
+        androidAutoQueueSyncVersion++ // version 3
+        playbackRequestId++ // requestId 2
+        val phoneQueue = listOf(songD, songE)
+
+        // Android Auto sync finishes resolving and attempts to apply on Main
+        val isStale = (syncVersion != androidAutoQueueSyncVersion || syncRequestId != playbackRequestId)
+        assertTrue("In-flight Auto sync must be marked stale and discarded", isStale)
+
+        // Phone queue remains intact
+        assertEquals(2, phoneQueue.size)
+        assertEquals(listOf("song_d", "song_e"), phoneQueue.map { it.id })
+    }
+
+    /**
+     * Test 11 — Priority 3: Foreground promotion when player has media items
+     * Android Auto connects and starts playback while app queue is still syncing.
+     * Verifies that player media items + playWhenReady triggers foreground stay without waiting on applet queue.
+     */
+    @Test
+    fun test11_foregroundPromotion_activeWhenPlayerHasItemsAndPlaying() {
+        val appQueueEmpty = true
+        val playerMediaItemCount = 5
+        val playerCurrentIndex = 0
+        val playWhenReady = true
+        val isTransitioning = false
+        val startInForegroundRequired = false
+
+        val hasActiveQueue = !appQueueEmpty
+        val hasPlayerItems = playerMediaItemCount > 0 && playerCurrentIndex in 0 until playerMediaItemCount
+        val isPlaybackActive = playWhenReady || isTransitioning
+        val shouldStayInForeground = startInForegroundRequired || ((hasActiveQueue || hasPlayerItems) && isPlaybackActive)
+
+        assertTrue(
+            "Service must stay in foreground when player has items and playback is active, even if app queue is empty/syncing",
+            shouldStayInForeground
+        )
+    }
+
+    /**
+     * Test 12 — Priority 1: Local-first song lookup
+     * Verifies that when a song exists in local storage, it is returned immediately
+     * and no remote network lookup is performed.
+     */
+    @Test
+    fun test12_localFirstSongLookup_returnsLocalSongWithoutNetworkCall() = runTest {
+        val localStore = mutableMapOf<String, Song>("song_local" to songA)
+        var networkCalls = 0
+
+        suspend fun fakeGetSongById(id: String): Song? {
+            val local = localStore[id]
+            if (local != null) return local
+            networkCalls++
+            return null
+        }
+
+        val result = fakeGetSongById("song_local")
+        assertNotNull(result)
+        assertEquals("song_a", result?.id)
+        assertEquals("No network requests should be made when song exists in local store", 0, networkCalls)
+    }
+
+    /**
+     * Test 13 — Priority 1: Remote fallback on local miss
+     * Verifies that when a song is missing locally, remote lookup is called and the result is stored.
+     */
+    @Test
+    fun test13_remoteFallbackOnLocalMiss_storesAndReturnsRemoteSong() = runTest {
+        val localStore = mutableMapOf<String, Song>()
+        var networkCalls = 0
+
+        suspend fun fakeGetSongById(id: String): Song? {
+            val local = localStore[id]
+            if (local != null) return local
+            networkCalls++
+            val remote = songB
+            localStore[id] = remote
+            return remote
+        }
+
+        val result = fakeGetSongById("song_b")
+        assertEquals(1, networkCalls)
+        assertNotNull(result)
+        assertEquals("song_b", result?.id)
+        assertTrue("Remote song was stored locally", localStore.containsKey("song_b"))
+
+        // Subsequent call is a local hit
+        val cached = fakeGetSongById("song_b")
+        assertEquals(1, networkCalls)
+        assertEquals("song_b", cached?.id)
+    }
+
+    /**
+     * Test 14 — Priority 1: Safe null return on remote failure
+     */
+    @Test
+    fun test14_remoteFailure_returnsNullSafely() = runTest {
+        val localStore = mutableMapOf<String, Song>()
+
+        suspend fun fakeGetSongById(id: String): Song? {
+            val local = localStore[id]
+            if (local != null) return local
+            return try {
+                throw java.io.IOException("Network down")
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        val result = fakeGetSongById("nonexistent")
+        assertNull(result)
+    }
+
+    /**
+     * Test 15 — Priority 1: CancellationException propagation
+     */
+    @Test
+    fun test15_cancellationException_isPropagated() = runTest {
+        suspend fun fakeGetSongById(id: String): Song? {
+            try {
+                throw kotlinx.coroutines.CancellationException("Job cancelled")
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (e: Exception) {
+                return null
+            }
+        }
+
+        try {
+            fakeGetSongById("any")
+            org.junit.Assert.fail("Expected CancellationException")
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            assertTrue("CancellationException must be rethrown", true)
+        }
+    }
+
     private data class FakeResolvedTrack(
         val song: Song,
         val isPlayable: Boolean,

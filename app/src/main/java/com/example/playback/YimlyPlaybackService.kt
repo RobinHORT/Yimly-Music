@@ -68,7 +68,9 @@ class YimlyPlaybackService : MediaLibraryService() {
         val info = manager?.playbackInfo?.value
         val hasActiveQueue = info != null && info.queue.isNotEmpty() && info.currentQueueIndex in info.queue.indices
         val player = session.player
-        val shouldStayInForeground = startInForegroundRequired || (hasActiveQueue && (player.playWhenReady || manager?.isTransitioning == true))
+        val hasPlayerItems = player.mediaItemCount > 0 && player.currentMediaItemIndex in 0 until player.mediaItemCount
+        val isPlaybackActive = player.playWhenReady || player.isPlaying || manager?.isTransitioning == true
+        val shouldStayInForeground = startInForegroundRequired || ((hasActiveQueue || hasPlayerItems) && isPlaybackActive)
         super.onUpdateNotification(session, shouldStayInForeground)
     }
 
@@ -81,8 +83,8 @@ class YimlyPlaybackService : MediaLibraryService() {
         // though playWhenReady is true and the queue transition is in progress.
         val hasQueuedTrack = manager?.playbackInfo?.value?.let { info ->
             info.currentSong != null && info.currentQueueIndex in info.queue.indices
-        } == true
-        val playbackRequested = player?.playWhenReady == true
+        } == true || (player != null && player.mediaItemCount > 0)
+        val playbackRequested = player?.playWhenReady == true || player?.isPlaying == true
         val transitioning = manager?.isTransitioning == true
 
         if (hasQueuedTrack && (playbackRequested || transitioning)) {

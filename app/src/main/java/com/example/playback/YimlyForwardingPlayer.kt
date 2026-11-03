@@ -135,6 +135,18 @@ class YimlyForwardingPlayer(
         }
     }
 
+    override fun play() {
+        playbackManager.startPlaybackService()
+        super.play()
+    }
+
+    override fun setPlayWhenReady(playWhenReady: Boolean) {
+        if (playWhenReady) {
+            playbackManager.startPlaybackService()
+        }
+        super.setPlayWhenReady(playWhenReady)
+    }
+
     override fun stop() {
         playbackManager.pause()
         super.stop()

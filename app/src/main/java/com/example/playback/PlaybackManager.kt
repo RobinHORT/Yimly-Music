@@ -341,6 +341,9 @@ class PlaybackManager(
     }
 
     fun playSong(song: Song, queue: List<Song> = listOf(song), startIndex: Int = 0) {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         ensurePlayerInitialized()
         startPlaybackService()
         val finalQueue = if (queue.isEmpty()) listOf(song) else queue
@@ -379,12 +382,13 @@ class PlaybackManager(
         if (songIds.none { it != null }) return
 
         val syncVersion = ++androidAutoQueueSyncVersion
+        val syncRequestId = playbackRequestId
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = coroutineScope.launch(Dispatchers.IO) {
             try {
                 val resolvedSongs = songIds.map { id -> id?.let { musicRepository.getSongById(it) } }
                 withContext(Dispatchers.Main) {
-                    if (syncVersion != androidAutoQueueSyncVersion) return@withContext
+                    if (syncVersion != androidAutoQueueSyncVersion || syncRequestId != playbackRequestId) return@withContext
                     val activeId = _player?.currentMediaItem?.mediaId ?: return@withContext
                     val activeSongId = androidAutoSongId(activeId) ?: return@withContext
                     val mediaIndex = _player?.currentMediaItemIndex ?: return@withContext
@@ -446,6 +450,9 @@ class PlaybackManager(
     fun playQueueItem(index: Int) {
         val info = _playbackInfo.value
         if (index in info.queue.indices) {
+            androidAutoQueueSyncVersion++
+            androidAutoQueueSyncJob?.cancel()
+            androidAutoQueueSyncJob = null
             ensurePlayerInitialized()
             startPlaybackService()
             _playbackInfo.value = info.copy(
@@ -462,6 +469,9 @@ class PlaybackManager(
     }
 
     fun next(manual: Boolean = true) {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         if (info.queue.isEmpty()) {
             isTransitioning = false
@@ -498,6 +508,9 @@ class PlaybackManager(
     }
 
     fun previous() {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         if (info.queue.isEmpty()) return
         
@@ -539,6 +552,44 @@ class PlaybackManager(
         next(manual = false)
     }
 
+    private fun isQueueMatchingPlayerTimeline(player: Player, queue: List<Song>): Boolean {
+        if (player.mediaItemCount != queue.size) return false
+        for (i in queue.indices) {
+            val itemMediaId = player.getMediaItemAt(i).mediaId.removeSuffix("_inst")
+            if (itemMediaId != queue[i].id) {
+                return false
+            }
+        }
+        return true
+    }
+
+    internal suspend fun buildMediaItem(song: Song, wantInstrumental: Boolean): MediaItem {
+        val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInstrumental)
+        val audioUrl = resolvedTrack.playableUrl
+        val parsedAudioUri = Uri.parse(audioUrl)
+        val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
+
+        return MediaItem.Builder()
+            .setMediaId(if (wantInstrumental) "${song.id}_inst" else song.id)
+            .setUri(parsedAudioUri)
+            .setRequestMetadata(
+                MediaItem.RequestMetadata.Builder()
+                    .setMediaUri(parsedAudioUri)
+                    .build()
+            )
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(song.title)
+                    .setArtist(song.artist)
+                    .setAlbumTitle(song.album)
+                    .setArtworkUri(artworkUri)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
+                    .setIsPlayable(true)
+                    .build()
+            )
+            .build()
+    }
+
     private fun playCurrentQueueIndex(
         targetInstrumental: Boolean? = null,
         autoPlay: Boolean = true,
@@ -563,33 +614,35 @@ class PlaybackManager(
                     releaseTransitionWakeLock()
                     return@launch
                 }
-                val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInst)
+
+                val currentQueue = info.queue
+                val targetIndex = info.currentQueueIndex
+
+                val timelineMatches = withContext(Dispatchers.Main) {
+                    val p = _player
+                    p != null && isQueueMatchingPlayerTimeline(p, currentQueue)
+                }
+
                 if (requestId != playbackRequestId) {
                     releaseTransitionWakeLock()
                     return@launch
                 }
-                val audioUrl = resolvedTrack.playableUrl
-                
-                val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
-                val parsedAudioUri = Uri.parse(audioUrl)
 
-                val mediaItem = MediaItem.Builder()
-                    .setMediaId(if (wantInst) "${song.id}_inst" else song.id)
-                    .setUri(parsedAudioUri)
-                    .setRequestMetadata(
-                        MediaItem.RequestMetadata.Builder()
-                            .setMediaUri(parsedAudioUri)
-                            .build()
-                    )
-                    .setMediaMetadata(
-                        MediaMetadata.Builder()
-                            .setTitle(song.title)
-                            .setArtist(song.artist)
-                            .setAlbumTitle(song.album)
-                            .setArtworkUri(artworkUri)
-                            .build()
-                    )
-                    .build()
+                val allMediaItems: List<MediaItem>? = if (!timelineMatches) {
+                    currentQueue.mapIndexed { i, qSong ->
+                        if (requestId != playbackRequestId) return@launch
+                        val wantItemInst = if (i == targetIndex) {
+                            wantInst
+                        } else {
+                            qSong.isInstrumentalTrack || (info.isInstrumental && qSong.hasInstrumentalEffective)
+                        }
+                        buildMediaItem(qSong, wantItemInst)
+                    }
+                } else {
+                    null
+                }
+
+                val activeMediaItem = allMediaItems?.getOrNull(targetIndex) ?: buildMediaItem(song, wantInst)
 
                 withContext(Dispatchers.Main) {
                     if (requestId != playbackRequestId) {
@@ -601,21 +654,13 @@ class PlaybackManager(
                     val currentPos = initialPositionMs?.coerceAtLeast(0L)
                         ?: if (isSameSong && p.playbackState != Player.STATE_ENDED) p.currentPosition.coerceAtLeast(0L) else 0L
 
-                    val activeIndex = p.currentMediaItemIndex
-                    val queueMatchesPlayerTimeline = p.mediaItemCount == info.queue.size &&
-                        info.currentQueueIndex in 0 until p.mediaItemCount &&
-                        (p.getMediaItemAt(info.currentQueueIndex).mediaId.removeSuffix("_inst") == song.id)
-
-                    if (queueMatchesPlayerTimeline) {
-                        p.replaceMediaItem(info.currentQueueIndex, mediaItem)
-                        if (p.currentMediaItemIndex != info.currentQueueIndex || currentPos > 0L) {
-                            p.seekTo(info.currentQueueIndex, currentPos)
-                        }
-                    } else if (isSameSong && activeIndex in 0 until p.mediaItemCount) {
-                        p.replaceMediaItem(activeIndex, mediaItem)
-                        p.seekTo(activeIndex, currentPos)
+                    if (allMediaItems != null) {
+                        p.setMediaItems(allMediaItems, targetIndex, currentPos)
                     } else {
-                        p.setMediaItem(mediaItem, currentPos)
+                        p.replaceMediaItem(targetIndex, activeMediaItem)
+                        if (p.currentMediaItemIndex != targetIndex || currentPos > 0L) {
+                            p.seekTo(targetIndex, currentPos)
+                        }
                     }
                     p.prepare()
                     p.playWhenReady = autoPlay
@@ -707,6 +752,9 @@ class PlaybackManager(
     }
     /** Start the current Android Auto/app queue at a random track and enable shuffle. */
     fun shuffleCurrentQueue() {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         if (info.queue.isEmpty()) return
         setShuffle(true)
@@ -753,6 +801,9 @@ class PlaybackManager(
     }
 
     fun addToQueue(song: Song) {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         val newQueue = info.queue + song
         shuffleHistory.clear()
@@ -764,6 +815,9 @@ class PlaybackManager(
     }
 
     fun playNext(song: Song) {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         val queue = info.queue.toMutableList()
         val insertIndex = if (info.currentQueueIndex in queue.indices) info.currentQueueIndex + 1 else queue.size
@@ -777,6 +831,9 @@ class PlaybackManager(
     }
 
     fun removeFromQueue(index: Int) {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         val queue = info.queue.toMutableList()
         if (index !in queue.indices) return
@@ -883,6 +940,9 @@ class PlaybackManager(
     }
 
     fun reorderQueue(fromIndex: Int, toIndex: Int) {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         val queue = info.queue.toMutableList()
         if (fromIndex in queue.indices && toIndex in queue.indices) {
@@ -925,6 +985,9 @@ class PlaybackManager(
     }
 
     fun clearUpcomingQueue() {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         val currentSong = info.currentSong
         if (currentSong != null) {
@@ -1017,41 +1080,15 @@ class PlaybackManager(
                 } else {
                     song.isInstrumentalTrack || (snapshot.isInstrumental && song.hasInstrumentalEffective)
                 }
-                val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInst)
-                val audioUrl = resolvedTrack.playableUrl
-                if (audioUrl.isNotBlank()) {
-                    val parsedAudioUri = Uri.parse(audioUrl)
-                    val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
-                    val mediaItem = MediaItem.Builder()
-                        .setMediaId(if (wantInst) "${song.id}_inst" else song.id)
-                        .setUri(parsedAudioUri)
-                        .setRequestMetadata(
-                            MediaItem.RequestMetadata.Builder()
-                                .setMediaUri(parsedAudioUri)
-                                .build()
-                        )
-                        .setMediaMetadata(
-                            MediaMetadata.Builder()
-                                .setTitle(song.title)
-                                .setArtist(song.artist)
-                                .setAlbumTitle(song.album)
-                                .setArtworkUri(artworkUri)
-                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                .setIsPlayable(true)
-                                .build()
-                        )
-                        .build()
-                    resolvedEntries.add(
-                        ResolvedQueueEntry(
-                            song = song,
-                            mediaItem = mediaItem,
-                            isOriginalCurrent = (i == originalIndex),
-                            isInstrumental = wantInst
-                        )
+                val mediaItem = buildMediaItem(song, wantInst)
+                resolvedEntries.add(
+                    ResolvedQueueEntry(
+                        song = song,
+                        mediaItem = mediaItem,
+                        isOriginalCurrent = (i == originalIndex),
+                        isInstrumental = wantInst
                     )
-                } else {
-                    Log.w("PlaybackManager", "Skipping unresolvable track in snapshot: ${song.id}")
-                }
+                )
             } catch (e: Exception) {
                 Log.w("PlaybackManager", "Failed to resolve track ${song.id} in snapshot", e)
             }
