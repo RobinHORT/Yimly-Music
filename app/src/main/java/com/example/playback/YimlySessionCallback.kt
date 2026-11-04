@@ -21,6 +21,7 @@ import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
+import com.example.data.models.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
@@ -35,6 +36,47 @@ class YimlySessionCallback(
     companion object {
         const val ACTION_TOGGLE_INSTRUMENTAL = "com.example.ACTION_TOGGLE_INSTRUMENTAL"
         const val ACTION_SHUFFLE_PLAYLIST = "com.example.ACTION_SHUFFLE_PLAYLIST"
+    }
+
+    private data class CachedSearchResults(
+        val songs: List<Song>,
+        val cachedAtMs: Long
+    )
+
+    private val searchResultsCache = java.util.concurrent.ConcurrentHashMap<String, CachedSearchResults>()
+
+    private fun searchCacheKey(browser: MediaSession.ControllerInfo, query: String): String =
+        "${browser.uid}:${browser.packageName}:${query.trim().lowercase()}"
+
+    private fun cacheSearchResults(
+        browser: MediaSession.ControllerInfo,
+        query: String,
+        songs: List<Song>
+    ) {
+        if (searchResultsCache.size >= 50) {
+            val now = System.currentTimeMillis()
+            searchResultsCache.entries.removeIf { now - it.value.cachedAtMs > SEARCH_CACHE_TTL_MS }
+            if (searchResultsCache.size >= 50) searchResultsCache.clear()
+        }
+        searchResultsCache[searchCacheKey(browser, query)] =
+            CachedSearchResults(songs, System.currentTimeMillis())
+    }
+
+    private fun getCachedSearchResults(
+        browser: MediaSession.ControllerInfo,
+        query: String
+    ): List<Song>? {
+        val key = searchCacheKey(browser, query)
+        val cached = searchResultsCache[key] ?: return null
+        if (System.currentTimeMillis() - cached.cachedAtMs > SEARCH_CACHE_TTL_MS) {
+            searchResultsCache.remove(key, cached)
+            return null
+        }
+        return cached.songs
+    }
+
+    private companion object SearchCacheConfig {
+        const val SEARCH_CACHE_TTL_MS = 30_000L
     }
 
     override fun onConnect(
@@ -466,9 +508,10 @@ class YimlySessionCallback(
         val future = SettableFuture.create<LibraryResult<Void>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
-                val resultCount = playbackManager.musicRepository.searchSongs(query).size
+                val songs = playbackManager.musicRepository.searchSongs(query)
+                cacheSearchResults(browser, query, songs)
                 withContext(Dispatchers.Main) {
-                    session.notifySearchResultChanged(browser, query, resultCount, params)
+                    session.notifySearchResultChanged(browser, query, songs.size, params)
                     future.set(LibraryResult.ofVoid())
                 }
             } catch (e: Throwable) {
@@ -499,7 +542,13 @@ class YimlySessionCallback(
         val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
-                val songs = playbackManager.musicRepository.searchSongs(query)
+                // onSearch already resolved this query before notifying the browser.
+                // Reuse that exact result set for all requested pages rather than
+                // issuing a second (potentially remote) API request.
+                val songs = getCachedSearchResults(browser, query)
+                    ?: playbackManager.musicRepository.searchSongs(query).also {
+                        cacheSearchResults(browser, query, it)
+                    }
                 val mediaItems = songs.map { song ->
                     val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
                     val metadata = MediaMetadata.Builder()
