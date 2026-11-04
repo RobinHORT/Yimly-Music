@@ -73,7 +73,8 @@ class MusicRepository(
     private val apiService: YimlyApiService,
     private val coroutineScope: CoroutineScope,
     private val context: android.content.Context? = null,
-    private val preferencesManager: PreferencesManager? = null
+    private val preferencesManager: PreferencesManager? = null,
+    private val replacementApiService: YimlyApiService? = null
 ) {
 
     private val playlistLastSyncTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -830,6 +831,42 @@ class MusicRepository(
             musicDao.deleteAllLyricResourcesForSong(songId.trim())
             musicDao.cleanOrphanPlaylistSongs()
             musicDao.cleanOrphanPlayHistory()
+            Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun replaceSongRecordingSource(songId: String, youtubeUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val cleanId = songId.trim()
+            require(cleanId.toLongOrNull() != null) { "This song has an invalid server ID and cannot be replaced." }
+            require(youtubeUrl.trim().isNotBlank()) { "A YouTube URL is required." }
+            val response = (replacementApiService ?: apiService).replaceSongRecordingSource(
+                cleanId,
+                mapOf("youtubeUrl" to youtubeUrl.trim())
+            )
+            if (response["success"] == false) {
+                throw IOException(response["message"]?.toString() ?: "Recording replacement failed.")
+            }
+            Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun replaceSongInstrumental(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val cleanId = songId.trim()
+            require(cleanId.toLongOrNull() != null) { "This song has an invalid server ID and cannot be reprocessed." }
+            val response = (replacementApiService ?: apiService).replaceSongInstrumental(cleanId)
+            if (response["success"] == false) {
+                throw IOException(response["message"]?.toString() ?: "Instrumental regeneration failed.")
+            }
             Result.success(Unit)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled

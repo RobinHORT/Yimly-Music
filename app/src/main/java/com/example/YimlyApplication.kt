@@ -43,7 +43,8 @@ class YimlyApplication : Application(), ImageLoaderFactory {
             apiService = networkModule.apiService,
             coroutineScope = applicationScope,
             context = this,
-            preferencesManager = preferencesManager
+            preferencesManager = preferencesManager,
+            replacementApiService = networkModule.replacementApiService
         )
     }
 

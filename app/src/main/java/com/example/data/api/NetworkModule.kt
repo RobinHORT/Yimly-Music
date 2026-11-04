@@ -50,10 +50,25 @@ class NetworkModule(
         .retryOnConnectionFailure(true)
         .build()
 
+    // These endpoints respond only after download/separation completes; isolate the extended timeout.
+    val replacementOkHttpClient: OkHttpClient = okHttpClient.newBuilder()
+        .readTimeout(30, TimeUnit.MINUTES)
+        .callTimeout(35, TimeUnit.MINUTES)
+        .build()
+
     val apiService: YimlyApiService by lazy {
         Retrofit.Builder()
             .baseUrl(PreferencesManager.DEFAULT_SERVER_URL.let { if (it.endsWith("/")) it else "$it/" })
             .client(okHttpClient)
+            .addConverterFactory(MoshiConverterFactory.create(moshi))
+            .build()
+            .create(YimlyApiService::class.java)
+    }
+
+    val replacementApiService: YimlyApiService by lazy {
+        Retrofit.Builder()
+            .baseUrl(PreferencesManager.DEFAULT_SERVER_URL.let { if (it.endsWith("/")) it else "$it/" })
+            .client(replacementOkHttpClient)
             .addConverterFactory(MoshiConverterFactory.create(moshi))
             .build()
             .create(YimlyApiService::class.java)

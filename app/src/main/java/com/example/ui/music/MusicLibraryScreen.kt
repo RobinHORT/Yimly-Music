@@ -337,7 +337,8 @@ fun MusicLibraryScreen(
                                     onToggleFavorite = { onToggleFavorite(song.id) },
                                     onPlay = { onSongClick(song, allSongs) },
                                     onAddToNowPlaying = { onAddToNowPlaying(song) },
-                                    onAddToPlaylist = { onAddToPlaylist(song) }
+                                    onAddToPlaylist = { onAddToPlaylist(song) },
+                                    showAudioReplacementActions = true
                                 )
                             }
                         }
