@@ -902,7 +902,7 @@ class MusicRepository(
                 startFailure = startResult.exceptionOrNull()
             }
 
-            val status = runCatching { apiService.getSongReplacementStatus(songId) }.getOrNull()
+            val status = runCatching { apiService.getSongReplacementStatus(songId, startedAt) }.getOrNull()
             val activeJob = status?.get("job") as? Map<*, *>
             val activeJobId = activeJob?.get("jobId")?.toString()?.takeIf { it.isNotBlank() }
             if (activeJobId != null) jobId = activeJobId
