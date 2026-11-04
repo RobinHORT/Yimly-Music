@@ -87,6 +87,8 @@ class MusicRepositoryLookupTest {
     private class FakeApiService : YimlyApiService {
         var remoteSongs = mutableMapOf<String, Song>()
         var apiCalled = false
+        var remoteSearchSongs: List<Song> = emptyList()
+        var searchCalled = false
         
         override suspend fun getSongById(id: String): Song {
             apiCalled = true
@@ -121,7 +123,10 @@ class MusicRepositoryLookupTest {
         override suspend fun getFavorites(): List<Song> = throw NotImplementedError("getFavorites")
         override suspend fun addFavorite(songId: String): Map<String, Any> = throw NotImplementedError("addFavorite")
         override suspend fun removeFavorite(songId: String): Map<String, Any> = throw NotImplementedError("removeFavorite")
-        override suspend fun search(query: String): SearchResult = throw NotImplementedError("search")
+        override suspend fun search(query: String): SearchResult {
+            searchCalled = true
+            return SearchResult(songs = remoteSearchSongs)
+        }
         override suspend fun getLyrics(songId: String): ResponseBody = throw NotImplementedError("getLyrics")
         override suspend fun createLyrics(songId: String, body: okhttp3.RequestBody): ResponseBody = throw NotImplementedError("createLyrics")
         override suspend fun updateLyrics(songId: String, body: okhttp3.RequestBody): ResponseBody = throw NotImplementedError("updateLyrics")
@@ -172,6 +177,23 @@ class MusicRepositoryLookupTest {
         assertEquals(songId, result?.id)
         assertEquals("Local Song", result?.title)
         assertEquals(false, fakeApiService.apiCalled)
+    }
+
+    @Test
+    fun `searchSongs merges Yimly API results with local cache and persists remote songs`() = runTest {
+        val fakeMusicDao = FakeMusicDao()
+        val fakeApiService = FakeApiService()
+        val localSong = Song(id = "local_1", title = "Song Local", artist = "Local Artist")
+        val remoteSong = Song(id = "remote_1", title = "Song Remote", artist = "Remote Artist")
+        fakeMusicDao.searchResults = listOf(localSong.toEntity())
+        fakeApiService.remoteSearchSongs = listOf(remoteSong)
+
+        val repository = MusicRepository(fakeMusicDao, fakeApiService, testScope)
+        val results = repository.searchSongs("Song")
+
+        assertEquals(setOf("local_1", "remote_1"), results.map { it.id }.toSet())
+        assertEquals(true, fakeApiService.searchCalled)
+        assertEquals("remote_1", fakeMusicDao.songs["remote_1"]?.id)
     }
 
     @Test
