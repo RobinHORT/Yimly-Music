@@ -798,7 +798,7 @@ fun SongItemRow(
                     onClick = {
                         val cleanUrl = replacementSourceUrl.trim()
                         val host = Uri.parse(cleanUrl).host?.lowercase()
-                        if (host !in setOf("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be")) {
+                        if (host == null || host !in setOf("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be")) {
                             replacementError = "Enter a valid YouTube video link."
                         } else {
                             val viewModel = getViewModel()
