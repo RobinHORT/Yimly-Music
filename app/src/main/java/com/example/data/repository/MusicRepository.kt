@@ -35,6 +35,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -73,7 +75,8 @@ class MusicRepository(
     private val apiService: YimlyApiService,
     private val coroutineScope: CoroutineScope,
     private val context: android.content.Context? = null,
-    private val preferencesManager: PreferencesManager? = null
+    private val preferencesManager: PreferencesManager? = null,
+    private val replacementApiService: YimlyApiService? = null
 ) {
 
     private val playlistLastSyncTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -836,6 +839,110 @@ class MusicRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    suspend fun replaceSongRecordingSource(songId: String, youtubeUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val cleanId = songId.trim()
+            require(cleanId.toLongOrNull() != null) { "This song has an invalid server ID and cannot be replaced." }
+            require(youtubeUrl.trim().isNotBlank()) { "A YouTube URL is required." }
+            awaitSongReplacement(cleanId) {
+                (replacementApiService ?: apiService).replaceSongRecordingSource(
+                    cleanId,
+                    mapOf("youtubeUrl" to youtubeUrl.trim())
+                )
+            }
+            Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    suspend fun replaceSongInstrumental(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            val cleanId = songId.trim()
+            require(cleanId.toLongOrNull() != null) { "This song has an invalid server ID and cannot be reprocessed." }
+            awaitSongReplacement(cleanId) {
+                (replacementApiService ?: apiService).replaceSongInstrumental(cleanId)
+            }
+            Result.success(Unit)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * The server runs replacement synchronously, while its status endpoints expose the
+     * in-flight job. Polling lets the client recover if the reverse proxy times out the
+     * long POST after the server has already started processing it.
+     */
+    private suspend fun awaitSongReplacement(
+        songId: String,
+        startRequest: suspend () -> Map<String, Any>
+    ) = supervisorScope {
+        val startedAt = System.currentTimeMillis()
+        val startCall = async { runCatching { startRequest() } }
+        var jobId: String? = null
+        var startFailure: Throwable? = null
+
+        while (System.currentTimeMillis() - startedAt < 35 * 60 * 1000L) {
+            if (startCall.isCompleted && startFailure == null) {
+                val startResult = startCall.await()
+                if (startResult.isSuccess) {
+                    val response = startResult.getOrThrow()
+                    if (response["success"] == false) {
+                        throw IOException(response["message"]?.toString() ?: "Audio replacement failed.")
+                    }
+                    return@supervisorScope
+                }
+                startFailure = startResult.exceptionOrNull()
+            }
+
+            val status = runCatching { apiService.getSongReplacementStatus(songId) }.getOrNull()
+            val activeJob = status?.get("job") as? Map<*, *>
+            val activeJobId = activeJob?.get("jobId")?.toString()?.takeIf { it.isNotBlank() }
+            if (activeJobId != null) jobId = activeJobId
+
+            val currentJobId = jobId
+            if (currentJobId != null) {
+                val job = runCatching { apiService.getSongReplacementJob(currentJobId) }.getOrNull()
+                if (job != null) {
+                    when (job["status"]?.toString()?.lowercase()) {
+                        "completed" -> {
+                            val result = job["result"] as? Map<*, *>
+                            if (result?.get("success") == false) {
+                                throw IOException(result["message"]?.toString() ?: "Audio replacement failed.")
+                            }
+                            startCall.cancel()
+                            return@supervisorScope
+                        }
+                        "failed" -> {
+                            throw IOException(
+                                job["error"]?.toString()
+                                    ?: job["message"]?.toString()
+                                    ?: "Audio replacement failed on the server."
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (startFailure != null && jobId == null) {
+                val code = (startFailure as? HttpException)?.code()
+                val mayBeProxyTimeout = code == 502 || code == 504 || code == 524
+                if (!mayBeProxyTimeout || System.currentTimeMillis() - startedAt > 15000L) {
+                    throw startFailure!!
+                }
+            }
+
+            delay(1000)
+        }
+
+        throw IOException("Audio replacement did not finish within 35 minutes.")
     }
 
     suspend fun getLyricsOffset(songId: String): Long? = withContext(Dispatchers.IO) {

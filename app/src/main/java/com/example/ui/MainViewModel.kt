@@ -927,6 +927,54 @@ class MainViewModel(
         }
     }
 
+    fun replaceSongRecordingSource(
+        songId: String,
+        youtubeUrl: String,
+        onResult: ((Result<Unit>) -> Unit)? = null
+    ) {
+        runSongAudioReplacement(songId, onResult, "Recording and instrumental replaced successfully") {
+            musicRepository.replaceSongRecordingSource(songId, youtubeUrl)
+        }
+    }
+
+    fun replaceSongInstrumental(
+        songId: String,
+        onResult: ((Result<Unit>) -> Unit)? = null
+    ) {
+        runSongAudioReplacement(songId, onResult, "Instrumental regenerated successfully") {
+            musicRepository.replaceSongInstrumental(songId)
+        }
+    }
+
+    private fun runSongAudioReplacement(
+        songId: String,
+        onResult: ((Result<Unit>) -> Unit)?,
+        successMessage: String,
+        operation: suspend () -> Result<Unit>
+    ) {
+        viewModelScope.launch {
+            val result: Result<Unit> = if (!isAdmin.value) {
+                Result.failure(IllegalAccessException("Administrator privileges are required."))
+            } else {
+                operation()
+            }
+            if (result.isSuccess) {
+                syncLibrary()
+                _uiMessage.value = successMessage
+            } else {
+                val error = result.exceptionOrNull()
+                _uiMessage.value = when {
+                    error is retrofit2.HttpException && error.code() == 403 ->
+                        "Access denied: Administrator privileges required."
+                    error is retrofit2.HttpException && error.code() == 404 ->
+                        "Song not found on server."
+                    else -> "Audio replacement failed: ${error?.message ?: "Unknown error"}"
+                }
+            }
+            onResult?.invoke(result)
+        }
+    }
+
     private var offsetUpdateJob: kotlinx.coroutines.Job? = null
 
     fun setLyricsOffset(offsetMs: Long) {
