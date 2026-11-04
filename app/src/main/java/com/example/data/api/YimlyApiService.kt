@@ -152,6 +152,12 @@ interface YimlyApiService {
     @POST("api/songs/{id}/replace-instrumental")
     suspend fun replaceSongInstrumental(@Path("id") id: String): Map<String, Any>
 
+    @GET("api/songs/{id}/replace-status")
+    suspend fun getSongReplacementStatus(@Path("id") id: String): Map<String, Any>
+
+    @GET("api/songs/replace-jobs/{jobId}")
+    suspend fun getSongReplacementJob(@Path("jobId") jobId: String): Map<String, Any>
+
     @GET("api/songs/{id}/lyrics/offset")
     suspend fun getLyricsOffset(@Path("id") id: String): com.example.data.models.LyricsOffsetResponse
 
