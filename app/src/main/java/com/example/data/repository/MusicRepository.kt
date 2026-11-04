@@ -231,7 +231,7 @@ class MusicRepository(
         }
 
         SearchUtils.sortSongsByRelevance(
-            (localSongs + remoteSongs).distinctBy { it.id.trim() },
+            (remoteSongs + localSongs).distinctBy { it.id.trim() },
             cleanQuery
         )
     }
