@@ -910,21 +910,23 @@ class MusicRepository(
             val currentJobId = jobId
             if (currentJobId != null) {
                 val job = runCatching { apiService.getSongReplacementJob(currentJobId) }.getOrNull()
-                when (job?.get("status")?.toString()?.lowercase()) {
-                    "completed" -> {
-                        val result = job["result"] as? Map<*, *>
-                        if (result?.get("success") == false) {
-                            throw IOException(result["message"]?.toString() ?: "Audio replacement failed.")
+                if (job != null) {
+                    when (job["status"]?.toString()?.lowercase()) {
+                        "completed" -> {
+                            val result = job["result"] as? Map<*, *>
+                            if (result?.get("success") == false) {
+                                throw IOException(result["message"]?.toString() ?: "Audio replacement failed.")
+                            }
+                            startCall.cancel()
+                            return@supervisorScope
                         }
-                        startCall.cancel()
-                        return@supervisorScope
-                    }
-                    "failed" -> {
-                        throw IOException(
-                            job["error"]?.toString()
-                                ?: job["message"]?.toString()
-                                ?: "Audio replacement failed on the server."
-                        )
+                        "failed" -> {
+                            throw IOException(
+                                job["error"]?.toString()
+                                    ?: job["message"]?.toString()
+                                    ?: "Audio replacement failed on the server."
+                            )
+                        }
                     }
                 }
             }
