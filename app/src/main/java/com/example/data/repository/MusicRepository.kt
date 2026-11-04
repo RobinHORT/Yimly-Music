@@ -204,9 +204,36 @@ class MusicRepository(
         musicDao.getAllSongsList().map { it.toSong() }
     }
 
-    /** Search the repository's injected Room database for Android Auto library search. */
+    /**
+     * Search the local catalogue and the authenticated Yimly API for Android Auto.
+     * The server is the source of truth; merging with Room keeps recently cached
+     * matches available during transient API failures and persists newly found songs
+     * so onAddMediaItems can resolve their media IDs locally.
+     */
     suspend fun searchSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
-        musicDao.searchSongs(query).map { it.toSong() }
+        val cleanQuery = query.trim()
+        if (cleanQuery.isBlank()) return@withContext emptyList()
+
+        val localSongs = musicDao.searchSongs(cleanQuery).map { it.toSong() }
+        val remoteSongs = try {
+            apiService.search(cleanQuery).songs
+                .filter { it.id.isNotBlank() && it.title.isNotBlank() }
+                .distinctBy { it.id.trim() }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Android Auto remote search failed; using local matches", e)
+            emptyList()
+        }
+
+        if (remoteSongs.isNotEmpty()) {
+            musicDao.upsertSongs(remoteSongs.map { it.toEntity() })
+        }
+
+        SearchUtils.sortSongsByRelevance(
+            (localSongs + remoteSongs).distinctBy { it.id.trim() },
+            cleanQuery
+        )
     }
 
     val recentlyAddedSongs: Flow<List<Song>> = musicDao.getRecentlyAddedSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }
