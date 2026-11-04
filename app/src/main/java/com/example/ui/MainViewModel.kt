@@ -953,7 +953,7 @@ class MainViewModel(
         operation: suspend () -> Result<Unit>
     ) {
         viewModelScope.launch {
-            val result = if (!isAdmin.value) {
+            val result: Result<Unit> = if (!isAdmin.value) {
                 Result.failure(IllegalAccessException("Administrator privileges are required."))
             } else {
                 operation()
