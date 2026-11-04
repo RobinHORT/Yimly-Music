@@ -36,6 +36,7 @@ class YimlySessionCallback(
     companion object {
         const val ACTION_TOGGLE_INSTRUMENTAL = "com.example.ACTION_TOGGLE_INSTRUMENTAL"
         const val ACTION_SHUFFLE_PLAYLIST = "com.example.ACTION_SHUFFLE_PLAYLIST"
+        private const val SEARCH_CACHE_TTL_MS = 30_000L
     }
 
     private data class CachedSearchResults(
@@ -75,9 +76,6 @@ class YimlySessionCallback(
         return cached.songs
     }
 
-    private companion object SearchCacheConfig {
-        const val SEARCH_CACHE_TTL_MS = 30_000L
-    }
 
     override fun onConnect(
         session: MediaSession,
