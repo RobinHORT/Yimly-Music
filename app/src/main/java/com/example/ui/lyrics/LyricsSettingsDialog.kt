@@ -178,8 +178,8 @@ fun LyricsSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Visible Lines", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("$visibleLines lines", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
+                        Text("Lyric Sections", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
+                        Text("$visibleLines sections", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
