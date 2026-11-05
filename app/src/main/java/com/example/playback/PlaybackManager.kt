@@ -266,7 +266,7 @@ class PlaybackManager(
         try {
             if (transitionWakeLock?.isHeld == true) {
                 transitionWakeLock?.release()
-                Log.d("PlaybackManager", "Released transition WakeLock")
+                if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Released transition WakeLock")
             }
         } catch (e: Exception) {
             Log.e("PlaybackManager", "Failed to release transition WakeLock", e)
@@ -301,7 +301,7 @@ class PlaybackManager(
                 networkRecoveryJob?.cancel()
                 Log.w(
                     "PlaybackManager",
-                    "Playback error (code=${error.errorCode}, message=${error.message}); retry ${attempt}/${MAX_NETWORK_RECOVERY_ATTEMPTS} in ${delayMs}ms"
+                    "Playback error code=${error.errorCode}; retry ${attempt}/${MAX_NETWORK_RECOVERY_ATTEMPTS} in ${delayMs}ms"
                 )
                 networkRecoveryJob = coroutineScope.launch {
                     delay(delayMs)
@@ -310,7 +310,7 @@ class PlaybackManager(
                         latest.currentSong?.id != songIdAtFailure ||
                         latest.currentQueueIndex !in latest.queue.indices
                     ) {
-                        Log.d("PlaybackManager", "Skipping stale recovery for song $songIdAtFailure")
+                        if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Skipping stale recovery for song $songIdAtFailure")
                         return@launch
                     }
                     networkRecoveryJob = null
@@ -489,10 +489,12 @@ class PlaybackManager(
                     )
                     updatePlaybackInfo()
                     persistPlaybackSnapshot(force = true)
-                    Log.d(
-                        "PlaybackManager",
-                        "Synced Android Auto queue: ${songs.size} songs, activeIndex=${activeQueueIndex}, active=${currentActiveSong.id}, isInstrumental=${userPrefInstrumental}"
-                    )
+                    if (BuildConfig.DEBUG) {
+                        Log.d(
+                            "PlaybackManager",
+                            "Synced Android Auto queue: ${songs.size} songs, activeIndex=${activeQueueIndex}, active=${currentActiveSong.id}, isInstrumental=${userPrefInstrumental}"
+                        )
+                    }
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -666,7 +668,7 @@ class PlaybackManager(
             coroutineScope.launch(Dispatchers.IO) {
                 musicRepository.recordPlayHistory(newSong.id)
             }
-            Log.d("PlaybackManager", "Transitioned to ${newSong.title} (index $matchedIndex, reason $reason)")
+            if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Transitioned to ${newSong.title} (index $matchedIndex, reason $reason)")
         }
     }
 
@@ -684,7 +686,7 @@ class PlaybackManager(
         }
 
         if (isTransitioning) {
-            Log.d("PlaybackManager", "handleSongEnded ignored: already transitioning")
+            if (BuildConfig.DEBUG) Log.d("PlaybackManager", "handleSongEnded ignored: already transitioning")
             return
         }
         isTransitioning = true
