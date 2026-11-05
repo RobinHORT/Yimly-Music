@@ -214,14 +214,14 @@ object LyricsParser {
                     fracStr.length == 2 -> fracStr.toLong() * 10L
                     else -> fracStr.take(3).toLong()
                 }
-                // lineStartMs already includes the file-level [offset] tag; apply it only once.
-                val wordTimeMs = (min * 60 * 1000) + (sec * 1000) + millis
+                val wordTimeMs = (min * 60 * 1000) + (sec * 1000) + millis + offsetMs
                 rawTags.add(Pair(wordTimeMs, match.range.last + 1))
             }
 
             // Enforce monotonic start times
             val monotonicTags = mutableListOf<Pair<Long, Int>>()
-            var runningMaxTime = lineStartMs
+            // Compare raw word timestamps against the unshifted line start; both receive offsetMs below.
+            var runningMaxTime = lineStartMs - offsetMs
             for (tag in rawTags) {
                 val safeStart = maxOf(tag.first, runningMaxTime)
                 monotonicTags.add(Pair(safeStart, tag.second))
