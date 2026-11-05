@@ -139,10 +139,14 @@ class AuthRepository(
             } else {
                 // Clear any stored credentials from disk so they do not persist after app close
                 preferencesManager.saveAuthSession(
-                    token = "",
-                    userId = "",
-                    username = "",
-                    email = null,
+                    token = token,
+                    userId = user.id,
+                    username = user.username,
+                    email = user.email,
+                    displayName = user.displayName,
+                    avatarUrl = user.avatarUrl,
+                    role = user.role,
+                    isAdmin = user.isAdmin,
                     rememberMe = false
                 )
             }
