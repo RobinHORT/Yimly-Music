@@ -493,7 +493,7 @@ fun LyricsView(
                 itemsIndexed(lines) { index, line ->
                     val isCurrent = index == slotState.currentIndex
                     val targetColor = if (isCurrent) {
-                        if (config.formatMode == LyricsFormatMode.LRC) {
+                        if (config.formatMode == LyricsFormatMode.LRC && config.highlightCurrentLine) {
                             val highlightProgress = calculateLrcHighlightProgress(
                                 currentPositionMs = currentPositionMs,
                                 effectiveOffsetMs = effectiveOffset,
@@ -591,7 +591,7 @@ fun SynchronizedLyricContent(
             transitionOverlapMs = config.lyricTransitionOverlapMs
         )
     } else 1f
-    val lrcTextColor = if (config.formatMode == LyricsFormatMode.LRC) {
+    val lrcTextColor = if (config.formatMode == LyricsFormatMode.LRC && config.highlightCurrentLine) {
         lerp(TextPrimaryDark, currentLineColor, lrcHighlightProgress)
     } else currentLineColor
     val elrcFadeAlpha = if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
