@@ -9,6 +9,7 @@ import androidx.compose.ui.test.performScrollTo
 import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricLine
+import com.example.data.models.LyricWord
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
@@ -188,6 +189,41 @@ class LyricsSettingsComprehensiveTest {
         composeTestRule.onNodeWithText("Four").assertIsDisplayed()
     }
 
+
+
+    @Test
+    fun testElrcLineEntersFadeWindowBeforeFirstWord() {
+        val lyricsData = LyricsData(
+            songId = "elrc_fade_window",
+            hasWordSync = true,
+            lines = listOf(
+                LyricLine(
+                    timeMs = 3000L,
+                    text = "fade in lyric",
+                    words = listOf(LyricWord("fade", 3000L, 3400L), LyricWord("in", 3400L, 3800L), LyricWord("lyric", 3800L, 4500L)),
+                    hasWordTimestamps = true
+                )
+            ),
+            isSynced = true
+        )
+
+        composeTestRule.setContent {
+            LyricsView(
+                lyricsData = lyricsData,
+                currentPositionMs = 1800L,
+                songOffsetMs = 0L,
+                config = LyricsDisplayConfig(
+                    formatMode = com.example.data.models.LyricsFormatMode.ELRC,
+                    elrcFadeInDurationMs = 1500
+                ),
+                onSeekTo = {},
+                onOffsetChange = {}
+            )
+        }
+
+        // The line is mounted in the 1.5-second fade window, before its first word starts.
+        composeTestRule.onNodeWithTag("synchronized_elrc_row", useUnmergedTree = true).assertExists()
+    }
 
     @Test
     fun testLrcLineAppearsAtConfiguredEarlyDisplayBoundary() {
