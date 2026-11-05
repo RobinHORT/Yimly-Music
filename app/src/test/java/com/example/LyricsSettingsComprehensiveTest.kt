@@ -14,6 +14,7 @@ import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.formatLyricText
+import com.example.data.models.calculateLrcHighlightProgress
 import com.example.data.models.toTitleCase
 import com.example.ui.lyrics.LyricsSettingsDialog
 import com.example.ui.lyrics.LyricsView
@@ -30,6 +31,22 @@ class LyricsSettingsComprehensiveTest {
 
     @get:Rule
     val composeTestRule = createComposeRule()
+
+
+    @Test
+    fun lrcHighlightWaitsUntilConfiguredOverlapBeforeLineTimestamp() {
+        val lineTimeMs = 10_000L
+        assertEquals(0f, calculateLrcHighlightProgress(8_500L, 0L, lineTimeMs, 300), 0.001f)
+        assertEquals(0f, calculateLrcHighlightProgress(9_700L, 0L, lineTimeMs, 300), 0.001f)
+        assertEquals(0.5f, calculateLrcHighlightProgress(9_850L, 0L, lineTimeMs, 300), 0.001f)
+        assertEquals(1f, calculateLrcHighlightProgress(10_000L, 0L, lineTimeMs, 300), 0.001f)
+    }
+
+    @Test
+    fun lrcHighlightRespectsOffsetAndZeroOverlap() {
+        assertEquals(1f, calculateLrcHighlightProgress(9_000L, 1_000L, 10_000L, 0), 0.001f)
+        assertEquals(0f, calculateLrcHighlightProgress(8_999L, 1_000L, 10_000L, 0), 0.001f)
+    }
 
     @Test
     fun testTitleCaseTransformationRules() {
