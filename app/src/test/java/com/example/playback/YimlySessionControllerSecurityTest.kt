@@ -1,6 +1,5 @@
 package com.example.playback
 
-import androidx.media3.common.util.UnstableApi
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
