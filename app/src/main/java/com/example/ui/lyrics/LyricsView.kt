@@ -499,25 +499,26 @@ fun LyricsView(
                 }
             }
         } else if (viewMode == 0) {
-            // Focus Mode: Supports configurable visible lines (1, 3, 5, 7)
-            val radius = ((config.visibleLines - 1) / 2).coerceAtLeast(0)
+            // Focus Mode: show 1–5 lyric slots, with the active line kept at a stable centre.
+            val sectionCount = config.visibleLines.coerceIn(1, 5)
+            val previousCount = (sectionCount - 1) / 2
+            val nextCount = sectionCount - 1 - previousCount
             val currentIndex = slotState.currentIndex
 
-            val previousLines = if (currentIndex >= 0 && radius > 0) {
-                (1..radius).mapNotNull { offset ->
-                    val idx = currentIndex - (radius - offset + 1)
-                    if (idx >= 0) lines.getOrNull(idx) else null
+            val previousLines = if (currentIndex >= 0 && previousCount > 0) {
+                (previousCount downTo 1).mapNotNull { distance ->
+                    lines.getOrNull(currentIndex - distance)
                 }
             } else emptyList()
 
             val currentLine = if (currentIndex >= 0) lines.getOrNull(currentIndex) else null
 
-            val nextLines = if (currentIndex >= 0 && radius > 0) {
-                (1..radius).mapNotNull { offset ->
-                    lines.getOrNull(currentIndex + offset)
+            val nextLines = if (currentIndex >= 0 && nextCount > 0) {
+                (1..nextCount).mapNotNull { distance ->
+                    lines.getOrNull(currentIndex + distance)
                 }
             } else if (currentIndex == -1) {
-                lines.take(config.visibleLines)
+                lines.take(sectionCount)
             } else emptyList()
 
             Box(
