@@ -81,28 +81,42 @@ class YimlySessionCallback(
         session: MediaSession,
         controller: MediaSession.ControllerInfo
     ): MediaSession.ConnectionResult {
-        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}")
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}, packageVerified=${controller.isPackageNameVerified}")
 
-        val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
-            .add(SessionCommand(ACTION_TOGGLE_INSTRUMENTAL, Bundle.EMPTY))
-            .add(SessionCommand(ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY))
-            .build()
+        // Only grant playback controls to trusted controllers, or verified Android Auto /
+        // Automotive OS packages. Package-name checks alone are not an authorization check.
+        val isVerifiedCarController = controller.isPackageNameVerified &&
+            (session.isAutoCompanionController(controller) || session.isAutomotiveController(controller))
+        val canControlPlayback = controller.isTrusted || isVerifiedCarController
 
-        val playerCommands = session.player.availableCommands.buildUpon()
-            .add(Player.COMMAND_PLAY_PAUSE)
-            .add(Player.COMMAND_PREPARE)
-            .add(Player.COMMAND_STOP)
-            .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-            .add(Player.COMMAND_SEEK_TO_NEXT)
-            .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-            .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-            .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-            .add(Player.COMMAND_SET_REPEAT_MODE)
-            .add(Player.COMMAND_SET_SHUFFLE_MODE)
-            .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
-            .add(Player.COMMAND_GET_TIMELINE)
-            .add(Player.COMMAND_GET_METADATA)
-            .build()
+        val sessionCommands = if (canControlPlayback) {
+            MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+                .add(SessionCommand(ACTION_TOGGLE_INSTRUMENTAL, Bundle.EMPTY))
+                .add(SessionCommand(ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY))
+                .build()
+        } else {
+            MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_AND_LIBRARY_COMMANDS
+        }
+
+        val playerCommands = if (canControlPlayback) {
+            session.player.availableCommands.buildUpon()
+                .add(Player.COMMAND_PLAY_PAUSE)
+                .add(Player.COMMAND_PREPARE)
+                .add(Player.COMMAND_STOP)
+                .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_NEXT)
+                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+                .add(Player.COMMAND_SET_REPEAT_MODE)
+                .add(Player.COMMAND_SET_SHUFFLE_MODE)
+                .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+                .add(Player.COMMAND_GET_TIMELINE)
+                .add(Player.COMMAND_GET_METADATA)
+                .build()
+        } else {
+            MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_PLAYER_COMMANDS
+        }
 
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
             .setAvailableSessionCommands(sessionCommands)
