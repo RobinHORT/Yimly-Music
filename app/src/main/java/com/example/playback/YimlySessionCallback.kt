@@ -46,6 +46,17 @@ class YimlySessionCallback(
 
     private val searchResultsCache = java.util.concurrent.ConcurrentHashMap<String, CachedSearchResults>()
 
+    private fun canControlPlayback(
+        session: MediaSession,
+        controller: MediaSession.ControllerInfo
+    ): Boolean {
+        // Media3's car-controller helpers identify packages, not trust by themselves.
+        // Require package/UID verification before using them as an explicit allowlist.
+        val verifiedCarController = controller.isPackageNameVerified &&
+            (session.isAutoCompanionController(controller) || session.isAutomotiveController(controller))
+        return controller.isTrusted || verifiedCarController
+    }
+
     private fun searchCacheKey(browser: MediaSession.ControllerInfo, query: String): String =
         "${browser.uid}:${browser.packageName}:${query.trim().lowercase()}"
 
@@ -85,9 +96,7 @@ class YimlySessionCallback(
 
         // Only grant playback controls to trusted controllers, or verified Android Auto /
         // Automotive OS packages. Package-name checks alone are not an authorization check.
-        val isVerifiedCarController = controller.isPackageNameVerified &&
-            (session.isAutoCompanionController(controller) || session.isAutomotiveController(controller))
-        val canControlPlayback = controller.isTrusted || isVerifiedCarController
+        val canControlPlayback = canControlPlayback(session, controller)
 
         val sessionCommands = if (canControlPlayback) {
             MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
@@ -143,6 +152,11 @@ class YimlySessionCallback(
         controller: MediaSession.ControllerInfo,
         intent: Intent
     ): Boolean {
+        if (!canControlPlayback(session, controller)) {
+            android.util.Log.w("YimlySessionCallback", "Ignoring media buttons from untrusted controller: ${controller.packageName}")
+            return true
+        }
+
         val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
         } else {
