@@ -1213,8 +1213,7 @@ class MusicRepository(
     companion object {
         const val PLAYLIST_FRESHNESS_WINDOW_MS = 5 * 60 * 1000L // 5 minutes
 
-        private fun normalizeTrackIdentityPart(value: String): String =
-            value.trim().lowercase().replace(Regex("\\s+"), " ")
+        private fun normalizeTrackIdentityPart(value: String): String = SearchUtils.normalize(value)
 
         fun externalTrackIdentity(track: com.example.data.models.ExternalTrack): String {
             val base = "${normalizeTrackIdentityPart(track.title)}|${normalizeTrackIdentityPart(track.artist)}"
