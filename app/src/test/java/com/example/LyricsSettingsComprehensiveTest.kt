@@ -72,6 +72,7 @@ class LyricsSettingsComprehensiveTest {
         // Section Headers
         composeTestRule.onNodeWithText("Lyrics Settings").assertExists()
         composeTestRule.onNodeWithText("Lyrics Display").assertExists()
+        composeTestRule.onNodeWithText("Lyric Sections").assertExists()
         composeTestRule.onNodeWithText("Text Case").assertExists()
         composeTestRule.onNodeWithText("Current Line").assertExists()
         composeTestRule.onNodeWithText("Previous & Next Lines").assertExists()
