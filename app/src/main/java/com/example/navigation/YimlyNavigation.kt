@@ -135,6 +135,7 @@ fun YimlyNavigation(
     val currentRoute = navBackStackEntry?.destination?.route
 
     var isPlayerExpanded by remember { mutableStateOf(false) }
+    var libraryInitialTab by remember { mutableIntStateOf(0) }
     var songToAddToPlaylist by remember { mutableStateOf<Song?>(null) }
     var externalTrackToAddToPlaylist by remember { mutableStateOf<ExternalTrack?>(null) }
 
@@ -189,6 +190,9 @@ fun YimlyNavigation(
 
         BackHandler(enabled = drawerState.isOpen) {
             coroutineScope.launch { drawerState.close() }
+        }
+        BackHandler(enabled = isPlayerExpanded && !drawerState.isOpen) {
+            isPlayerExpanded = false
         }
 
         ModalNavigationDrawer(
@@ -472,7 +476,8 @@ fun YimlyNavigation(
                             onArtistClick = { artist -> navController.navigate(Screen.ArtistDetail.createRoute(artist.id)) },
                             onPlaylistClick = { playlist -> navController.navigate(Screen.PlaylistDetail.createRoute(playlist.id)) },
                             onFavoritesClick = {
-                                navController.navigate(Screen.Music.route)
+                                libraryInitialTab = 4
+                                navController.navigate(Screen.Music.route) { launchSingleTop = true }
                             },
                             onToggleFavorite = { songId -> viewModel.toggleFavorite(songId) },
                             onPlayNext = { song -> viewModel.playNext(song) },
@@ -485,6 +490,8 @@ fun YimlyNavigation(
                     // 2. Music Library
                     composable(Screen.Music.route) {
                         MusicLibraryScreen(
+                            initialSelectedTab = libraryInitialTab,
+                            onInitialSelectedTabConsumed = { libraryInitialTab = 0 },
                             allSongs = allSongs,
                             albums = albums,
                             artists = artists,
