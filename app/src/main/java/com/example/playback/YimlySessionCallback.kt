@@ -618,7 +618,7 @@ class YimlySessionCallback(
                     }
 
                     if (song != null) {
-                        val wantInst = playbackManager.playbackInfo.value.isInstrumental && song.hasInstrumentalEffective
+                        val wantInst = song.isInstrumentalTrack || (playbackManager.playbackInfo.value.isInstrumental && song.hasInstrumentalEffective)
                         val resolvedTrack = playbackManager.musicRepository.resolvePlayableTrack(song, wantInst)
                         val audioUrl = resolvedTrack.playableUrl
                         val artworkUri = playbackManager.getResolvedArtworkUrl(song)?.let { Uri.parse(it) }

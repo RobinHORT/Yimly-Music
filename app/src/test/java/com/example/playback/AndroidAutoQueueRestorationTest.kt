@@ -1,28 +1,55 @@
 package com.example.playback
 
+import android.content.Context
+import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
+import androidx.test.core.app.ApplicationProvider
+import com.example.YimlyApplication
+import com.example.data.db.toEntity
 import com.example.data.models.Song
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowLooper
 
 /**
  * Focused regression tests for Android Auto queue restoration, timeline consistency,
  * cold-start readiness, and error handling.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 @OptIn(ExperimentalCoroutinesApi::class)
 class AndroidAutoQueueRestorationTest {
+
+    private lateinit var context: Context
+    private lateinit var app: YimlyApplication
+    private lateinit var playbackManager: PlaybackManager
 
     private val songA = Song(id = "song_a", title = "Song A", artist = "Artist 1", durationSeconds = 180)
     private val songB = Song(id = "song_b", title = "Song B", artist = "Artist 2", durationSeconds = 200)
     private val songC = Song(id = "song_c", title = "Song C", artist = "Artist 3", durationSeconds = 220, hasInstrumental = true)
     private val songD = Song(id = "song_d", title = "Song D", artist = "Artist 4", durationSeconds = 240)
     private val songE = Song(id = "song_e", title = "Song E", artist = "Artist 5", durationSeconds = 260)
+
+    @Before
+    fun setUp() {
+        context = ApplicationProvider.getApplicationContext()
+        app = context as YimlyApplication
+        playbackManager = app.playbackManager
+        playbackManager.clearQueueAndStop()
+    }
 
     /**
      * Test 1 — Full queue restoration
@@ -495,70 +522,212 @@ class AndroidAutoQueueRestorationTest {
     }
 
     /**
-     * Test 19 — Queue mutations (add, remove, reorder, clearUpcoming)
+     * Test 19 — Production Integration: Android Auto queue sync preserves instrumental preference and variant
      */
     @Test
-    fun test19_queueMutations_preserveOrderAndIndices() {
-        val queue = mutableListOf(songA, songB, songC)
-        var currentIndex = 1 // songB active
+    fun testProduction_androidAutoQueueSync_preservesInstrumentalPreferenceAndVariant() = runTest {
+        app.database.musicDao().upsertSong(songA.toEntity()) // hasInstrumental = false
+        app.database.musicDao().upsertSong(songC.toEntity()) // hasInstrumental = true
 
-        // Add to queue
-        queue.add(songD)
-        assertEquals(listOf("song_a", "song_b", "song_c", "song_d"), queue.map { it.id })
-        assertEquals(1, currentIndex)
+        playbackManager.ensurePlayerInitialized()
+        playbackManager.toggleInstrumental()
+        assertTrue("User preference set to instrumental", playbackManager.playbackInfo.value.isInstrumental)
 
-        // Play next (inserts after currentIndex)
-        val insertIndex = currentIndex + 1
-        queue.add(insertIndex, songE)
-        assertEquals(listOf("song_a", "song_b", "song_e", "song_c", "song_d"), queue.map { it.id })
-        assertEquals(1, currentIndex)
+        val autoItem1 = MediaItem.Builder()
+            .setMediaId("playlist_song|rock|song_c")
+            .setUri("http://example.com/audio/song_c.mp3")
+            .build()
+        val autoItem2 = MediaItem.Builder()
+            .setMediaId("playlist_song|rock|song_a")
+            .setUri("http://example.com/audio/song_a.mp3")
+            .build()
+        val player = playbackManager.player!!
+        player.setMediaItems(listOf(autoItem1, autoItem2), 0, 0L)
 
-        // Remove item before current
-        queue.removeAt(0) // removes songA
-        currentIndex--
-        assertEquals(listOf("song_b", "song_e", "song_c", "song_d"), queue.map { it.id })
-        assertEquals(0, currentIndex)
-        assertEquals("song_b", queue[currentIndex].id)
+        playbackManager.syncAndroidAutoQueueFromPlayer(autoItem1)
+        advanceUntilIdle()
 
-        // Reorder upcoming items
-        val item = queue.removeAt(2) // songC
-        queue.add(1, item)
-        assertEquals(listOf("song_b", "song_c", "song_e", "song_d"), queue.map { it.id })
+        val info = playbackManager.playbackInfo.value
+        assertEquals(2, info.queue.size)
+        assertEquals("song_c", info.currentSong?.id)
+        assertTrue("User instrumental preference must be preserved during AA sync", info.isInstrumental)
+        assertTrue("Song C hasInstrumental must be true", info.hasInstrumental)
 
-        // Clear upcoming
-        val currentSong = queue[currentIndex]
-        val clearedQueue = listOf(currentSong)
-        assertEquals(1, clearedQueue.size)
-        assertEquals("song_b", clearedQueue[0].id)
+        // When switching to Song A (which lacks instrumental)
+        player.seekTo(1, 0L)
+        playbackManager.syncAndroidAutoQueueFromPlayer(autoItem2)
+        advanceUntilIdle()
+        val info2 = playbackManager.playbackInfo.value
+        assertEquals("song_a", info2.currentSong?.id)
+        assertFalse("Song A lacks instrumental", info2.hasInstrumental)
+        assertTrue("User instrumental preference must stay true even when song lacks instrumental", info2.isInstrumental)
     }
 
     /**
-     * Test 20 — Adding a song when currentSong == null starts the added song
+     * Test 20 — Production Integration: Natural track transitions preserve instrumental playback
      */
     @Test
-    fun test20_addingSongWhenCurrentSongIsNull_startsAddedSong() {
-        val existingQueue = listOf(songA, songB)
-        val newSong = songC
-        val combinedQueue = existingQueue + newSong
+    fun testProduction_naturalTrackTransition_preservesInstrumentalPlayback() = runTest {
+        app.database.musicDao().upsertSong(songA.toEntity())
+        app.database.musicDao().upsertSong(songC.toEntity())
 
-        // When currentSong == null, start added song (songC) instead of existing index 0 (songA)
-        val targetIndex = combinedQueue.indexOfFirst { it.id == newSong.id }.coerceAtLeast(0)
-        assertEquals(2, targetIndex)
-        assertEquals("song_c", combinedQueue[targetIndex].id)
+        playbackManager.playSong(songA, listOf(songA, songC), startIndex = 0)
+        playbackManager.toggleInstrumental()
+        assertTrue(playbackManager.playbackInfo.value.isInstrumental)
+
+        val mediaItemC = playbackManager.buildMediaItem(songC, wantInstrumental = true)
+        playbackManager.handleMediaItemTransition(mediaItemC, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+        advanceUntilIdle()
+
+        val info = playbackManager.playbackInfo.value
+        assertEquals("song_c", info.currentSong?.id)
+        assertEquals(1, info.currentQueueIndex)
+        assertTrue("Instrumental preference preserved across natural transition", info.isInstrumental)
+        assertTrue("Song C hasInstrumental is true", info.hasInstrumental)
     }
 
     /**
-     * Test 21 — Android Auto indexed seek preserves target track and position
+     * Test 21 — Production Integration: Deleting non-current song removes from app queue and Media3 timeline
      */
     @Test
-    fun test21_androidAutoIndexedSeek_targetsCorrectTrackAndPosition() {
-        val queue = listOf(songA, songB, songC)
-        val targetIndex = 2
-        val targetPositionMs = 35000L
+    fun testProduction_deleteNonCurrentSong_removesFromAppQueueAndMedia3Timeline() = runTest {
+        playbackManager.playSong(songA, listOf(songA, songB, songC), startIndex = 0)
+        val player = playbackManager.player!!
+        assertEquals(3, player.mediaItemCount)
+        assertEquals(3, playbackManager.playbackInfo.value.queue.size)
+        assertEquals(0, playbackManager.playbackInfo.value.currentQueueIndex)
 
-        val selectedSong = queue[targetIndex]
-        assertEquals("song_c", selectedSong.id)
-        assertEquals(35000L, targetPositionMs)
+        // Delete non-current song (songB)
+        playbackManager.removeSongFromQueue(songB.id)
+        advanceUntilIdle()
+
+        val info = playbackManager.playbackInfo.value
+        assertEquals(2, info.queue.size)
+        assertEquals(listOf("song_a", "song_c"), info.queue.map { it.id })
+        assertEquals(0, info.currentQueueIndex)
+        assertEquals("song_a", info.currentSong?.id)
+
+        // Verify Media3 timeline also removed songB
+        assertEquals(2, player.mediaItemCount)
+        assertEquals("song_a", playbackManager.extractBaseSongId(player.getMediaItemAt(0).mediaId))
+        assertEquals("song_c", playbackManager.extractBaseSongId(player.getMediaItemAt(1).mediaId))
+    }
+
+    /**
+     * Test 22 — Production Integration: Deleting active song preserves replacement track and playback state
+     */
+    @Test
+    fun testProduction_deleteActiveSong_preservesReplacementTrackAndPlaybackState() = runTest {
+        playbackManager.playSong(songA, listOf(songA, songB, songC), startIndex = 0)
+        playbackManager.toggleInstrumental()
+        assertTrue(playbackManager.playbackInfo.value.isInstrumental)
+
+        val player = playbackManager.player!!
+        player.play()
+        assertTrue(player.playWhenReady)
+
+        // Delete the currently playing song (songA)
+        playbackManager.removeSongFromQueue(songA.id)
+        advanceUntilIdle()
+
+        val info = playbackManager.playbackInfo.value
+        assertEquals(2, info.queue.size)
+        assertEquals("song_b", info.currentSong?.id)
+        assertEquals(0, info.currentQueueIndex)
+        assertTrue("Instrumental preference preserved when active song removed", info.isInstrumental)
+
+        assertEquals(2, player.mediaItemCount)
+        assertEquals("song_b", playbackManager.extractBaseSongId(player.getMediaItemAt(0).mediaId))
+    }
+
+    /**
+     * Test 23 — Production Integration: Multiple occurrences of same song ID during deletion
+     */
+    @Test
+    fun testProduction_deleteSongWithMultipleOccurrences_updatesIndicesAndTimeline() = runTest {
+        playbackManager.playSong(songB, listOf(songA, songB, songA, songC), startIndex = 1)
+        val player = playbackManager.player!!
+        assertEquals(4, player.mediaItemCount)
+
+        // Remove all occurrences of songA
+        playbackManager.removeSongFromQueue(songA.id)
+        advanceUntilIdle()
+
+        val info = playbackManager.playbackInfo.value
+        assertEquals(2, info.queue.size)
+        assertEquals(listOf("song_b", "song_c"), info.queue.map { it.id })
+        assertEquals(0, info.currentQueueIndex)
+        assertEquals("song_b", info.currentSong?.id)
+
+        assertEquals(2, player.mediaItemCount)
+        assertEquals("song_b", playbackManager.extractBaseSongId(player.getMediaItemAt(0).mediaId))
+        assertEquals("song_c", playbackManager.extractBaseSongId(player.getMediaItemAt(1).mediaId))
+    }
+
+    /**
+     * Test 24 — Production Integration: Queue synchronization with Android Auto prefixed media IDs
+     */
+    @Test
+    fun testProduction_queueSynchronization_withAndroidAutoPrefixedMediaIds() = runTest {
+        playbackManager.playSong(songA, listOf(songA, songB, songC), startIndex = 0)
+        val player = playbackManager.player!!
+
+        // Remove using Android Auto prefixed ID: "playlist_song|rock|song_b"
+        playbackManager.removeSongFromQueue("playlist_song|rock|song_b")
+        advanceUntilIdle()
+
+        val info = playbackManager.playbackInfo.value
+        assertEquals(2, info.queue.size)
+        assertEquals(listOf("song_a", "song_c"), info.queue.map { it.id })
+        assertEquals(2, player.mediaItemCount)
+        assertEquals("song_a", playbackManager.extractBaseSongId(player.getMediaItemAt(0).mediaId))
+        assertEquals("song_c", playbackManager.extractBaseSongId(player.getMediaItemAt(1).mediaId))
+    }
+
+
+    /**
+     * Test 25 — Production Integration: Repeat and shuffle behavior with actual player state
+     */
+    @Test
+    fun testProduction_repeatAndShuffleBehavior_withActualPlayerState() {
+        playbackManager.playSong(songA, listOf(songA, songB, songC), startIndex = 0)
+        val player = playbackManager.player!!
+
+        playbackManager.setRepeatMode(RepeatMode.ALL)
+        assertEquals(Player.REPEAT_MODE_ALL, player.repeatMode)
+        assertEquals(RepeatMode.ALL, playbackManager.playbackInfo.value.repeatMode)
+
+        playbackManager.setRepeatMode(RepeatMode.ONE)
+        assertEquals(Player.REPEAT_MODE_ONE, player.repeatMode)
+        assertEquals(RepeatMode.ONE, playbackManager.playbackInfo.value.repeatMode)
+
+        playbackManager.setRepeatMode(RepeatMode.OFF)
+        assertEquals(Player.REPEAT_MODE_OFF, player.repeatMode)
+        assertEquals(RepeatMode.OFF, playbackManager.playbackInfo.value.repeatMode)
+
+        playbackManager.setShuffle(true)
+        assertTrue(player.shuffleModeEnabled)
+        assertTrue(playbackManager.playbackInfo.value.isShuffle)
+
+        playbackManager.setShuffle(false)
+        assertFalse(player.shuffleModeEnabled)
+        assertFalse(playbackManager.playbackInfo.value.isShuffle)
+    }
+
+    /**
+     * Test 26 — Production Integration: Queue changes during async resolution bump requestId
+     */
+    @Test
+    fun testProduction_queueChanges_duringAsyncResolution_abortsStaleResolution() = runBlocking {
+        playbackManager.playSong(songA, listOf(songA, songB), startIndex = 0)
+        val initialRequestId = playbackManager.playbackRequestId
+
+        playbackManager.addToQueue(songC)
+        val newRequestId = playbackManager.playbackRequestId
+        assertTrue("Queue mutation must bump playbackRequestId", newRequestId > initialRequestId)
+
+        playbackManager.removeFromQueue(0)
+        assertTrue("Queue removal must bump playbackRequestId", playbackManager.playbackRequestId > newRequestId)
     }
 
     private data class FakeResolvedTrack(
