@@ -202,6 +202,26 @@ class SearchEngineComprehensiveTest {
     }
 
 
+
+    @Test
+    fun testExternalTrackIdentityUsesAccentAndPunctuationNormalization() {
+        val librarySong = Song(
+            id = "halo-library",
+            title = "Halo",
+            artist = "Beyonce",
+            album = "I Am Sasha Fierce",
+            durationSeconds = 261L
+        )
+        val resolvedTrack = com.example.data.models.ExternalTrack(
+            title = "Halo",
+            artist = "Beyoncé",
+            album = "I Am Sasha Fierce",
+            durationSeconds = 261L
+        )
+
+        assertTrue(MusicRepository.isSameExternalTrack(librarySong, resolvedTrack))
+    }
+
     @Test
     fun testDownloadedTrackIndexingAcceptsReusedLibraryRecord() {
         val track = com.example.data.models.ExternalTrack(
