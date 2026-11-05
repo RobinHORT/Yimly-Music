@@ -6,8 +6,13 @@ import androidx.media3.session.MediaSession
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @OptIn(UnstableApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class YimlySessionControllerSecurityTest {
 
     private fun controller(
