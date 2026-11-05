@@ -230,6 +230,22 @@ class LyricsAuditFixesTest {
     }
 
     @Test
+    fun testLrcParsesMultipleTimestampsOnOneLine() {
+        val parsed = LyricsParser.parse(
+            rawText = "[00:01.00][00:02.50]Repeated lyric\n[00:04.00]Next lyric",
+            songId = "multi_timestamp",
+            mode = LyricsFormatMode.LRC
+        )
+
+        assertTrue(parsed.isSynced)
+        assertEquals(3, parsed.lines.size)
+        assertEquals(listOf(1000L, 2500L, 4000L), parsed.lines.map { it.timeMs })
+        assertEquals("Repeated lyric", parsed.lines[0].text)
+        assertEquals("Repeated lyric", parsed.lines[1].text)
+        assertEquals("Next lyric", parsed.lines[2].text)
+    }
+
+    @Test
     fun testEffectiveElrcPathDetection() {
         val songWithElrcPath = Song(
             id = "song_elrc",

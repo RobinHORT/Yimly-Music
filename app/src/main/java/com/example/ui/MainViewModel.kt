@@ -402,6 +402,12 @@ class MainViewModel(
     fun registerPendingPlaylistAdd(track: com.example.data.models.ExternalTrack, playlistId: String) {
         val key = MusicRepository.externalTrackIdentity(track)
         viewModelScope.launch {
+            // Register first so a failed add remains retryable even when the song
+            // already exists locally and no download/pending-processing path runs.
+            synchronized(pendingPlaylistRequests) {
+                val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                if (playlistId !in list) list.add(playlistId)
+            }
             try {
                 val existingId = getCompletedSongId(track)
                     ?: musicRepository.getAllSongsSnapshot()
@@ -410,20 +416,16 @@ class MainViewModel(
                 if (existingId != null) {
                     completedTrackSongIdMap[key] = existingId
                     _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existingId)
+                    musicRepository.addSongToPlaylist(playlistId, existingId)
                     synchronized(pendingPlaylistRequests) {
                         val pending = pendingPlaylistRequests[key]
                         pending?.remove(playlistId)
                         if (pending.isNullOrEmpty()) pendingPlaylistRequests.remove(key)
                     }
-                    musicRepository.addSongToPlaylist(playlistId, existingId)
                     _uiMessage.value = "Added to playlist"
                     return@launch
                 }
 
-                synchronized(pendingPlaylistRequests) {
-                    val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
-                    if (playlistId !in list) list.add(playlistId)
-                }
                 downloadExternalTrack(track)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
@@ -763,7 +765,7 @@ class MainViewModel(
             try {
                 val created = musicRepository.createPlaylist(name, description, isPublic)
                 registerPendingPlaylistAdd(track, created.id)
-                _uiMessage.value = "Added to '$name'"
+                _uiMessage.value = "Playlist '$name' created; song will be added after download completes"
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
@@ -802,7 +804,10 @@ class MainViewModel(
             try {
                 val collaborators = musicRepository.getCollaborators(playlistId)
                 onResult(collaborators)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
+                _uiMessage.value = e.message ?: "Failed to load playlist collaborators"
                 onResult(emptyList())
             }
         }

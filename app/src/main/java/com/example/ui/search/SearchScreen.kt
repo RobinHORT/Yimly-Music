@@ -71,6 +71,7 @@ import com.example.data.models.ExternalTrack
 import com.example.data.models.Playlist
 import com.example.data.models.SearchResult
 import com.example.data.models.Song
+import com.example.data.repository.MusicRepository
 import com.example.ui.components.ArtistAvatarItem
 import com.example.ui.components.MediaCard
 import com.example.ui.components.SectionHeader
@@ -501,7 +502,7 @@ fun SearchScreen(
                         SectionHeader(title = "Available for Download (${searchResult.externalSongs.size})")
                     }
                     items(searchResult.externalSongs) { externalTrack ->
-                        val trackKey = "${externalTrack.title}|${externalTrack.artist}".lowercase()
+                        val trackKey = MusicRepository.externalTrackIdentity(externalTrack)
                         ExternalSongItemRow(
                             track = externalTrack,
                             status = downloadStatusMap[trackKey],

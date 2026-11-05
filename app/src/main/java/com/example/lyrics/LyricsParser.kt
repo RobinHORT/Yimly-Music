@@ -7,7 +7,7 @@ import java.util.regex.Pattern
 
 object LyricsParser {
 
-    private val LRC_LINE_PATTERN = Pattern.compile("\\[(\\d{1,2}):(\\d{1,2})(?:[.:](\\d{1,3}))?](.*)")
+    private val LRC_TIMESTAMP_PREFIX_PATTERN = Pattern.compile("^\\[(\\d{1,2}):(\\d{1,2})(?:[.:](\\d{1,3}))?]")
     private val OFFSET_TAG_PATTERN = Pattern.compile("\\[offset:\\s*([+-]?\\d+)\\]", Pattern.CASE_INSENSITIVE)
     private val INLINE_WORD_TAG_REGEX = Regex("[<\\(](\\d{1,2}):(\\d{1,2})(?:[.:](\\d{1,3}))?[>\\)]")
 
@@ -54,9 +54,13 @@ object LyricsParser {
                 continue
             }
 
-            // Extract line timestamps (e.g. [01:23.45] text or [01:23.45][02:34.56] text)
-            val matcher = LRC_LINE_PATTERN.matcher(trimmed)
-            if (matcher.find()) {
+            // One LRC row may contain several leading timestamps for the same lyric text.
+            var remaining = trimmed
+            val timestamps = mutableListOf<Long>()
+            while (true) {
+                val matcher = LRC_TIMESTAMP_PREFIX_PATTERN.matcher(remaining)
+                if (!matcher.find()) break
+
                 val min = matcher.group(1)?.toLongOrNull() ?: 0L
                 val sec = matcher.group(2)?.toLongOrNull() ?: 0L
                 val fracStr = matcher.group(3)
@@ -66,10 +70,13 @@ object LyricsParser {
                     fracStr.length == 2 -> fracStr.toLong() * 10L
                     else -> fracStr.take(3).toLong()
                 }
-                val lineContent = matcher.group(4)?.trim().orEmpty()
-                val timestamp = (min * 60 * 1000) + (sec * 1000) + millis + offsetMs
+                timestamps.add((min * 60 * 1000) + (sec * 1000) + millis + offsetMs)
+                remaining = remaining.substring(matcher.end()).trimStart()
+            }
 
-                if (lineContent.isNotBlank()) {
+            val lineContent = remaining.trim()
+            if (lineContent.isNotBlank()) {
+                timestamps.forEach { timestamp ->
                     rawParsedLines.add(Pair(timestamp, lineContent))
                 }
             }

@@ -531,8 +531,9 @@ class MusicRepository(
             apiService.revokeShare(playlistId, userId)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
-        } catch (e: Exception) {
-            Log.w("MusicRepository", "Primary playlist share revoke failed; trying collaborator removal", e)
+        } catch (e: retrofit2.HttpException) {
+            if (e.code() != 404 && e.code() != 405) throw e
+            Log.w("MusicRepository", "Share-revoke endpoint unavailable; using collaborator removal", e)
             apiService.removeCollaborator(playlistId, userId)
         }
     }
@@ -818,6 +819,7 @@ class MusicRepository(
         try {
             apiService.deleteLrc(songId)
             musicDao.deleteAllLyricResourcesForSong(songId.trim())
+            musicDao.clearSongLyricsMetadata(songId.trim())
             Result.success(Unit)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
@@ -1154,7 +1156,7 @@ class MusicRepository(
                     } else {
                         try {
                             val plSongs = apiService.getPlaylistSongs(pl.id.trim())
-                            musicDao.safeSyncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
+                            musicDao.safeSyncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() }, serverReportedCount = plSongs.size)
                             markPlaylistSynced(pl.id.trim())
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled
