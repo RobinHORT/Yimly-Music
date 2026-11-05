@@ -402,6 +402,12 @@ class MainViewModel(
     fun registerPendingPlaylistAdd(track: com.example.data.models.ExternalTrack, playlistId: String) {
         val key = MusicRepository.externalTrackIdentity(track)
         viewModelScope.launch {
+            // Register first so a failed add remains retryable even when the song
+            // already exists locally and no download/pending-processing path runs.
+            synchronized(pendingPlaylistRequests) {
+                val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                if (playlistId !in list) list.add(playlistId)
+            }
             try {
                 val existingId = getCompletedSongId(track)
                     ?: musicRepository.getAllSongsSnapshot()
@@ -420,10 +426,6 @@ class MainViewModel(
                     return@launch
                 }
 
-                synchronized(pendingPlaylistRequests) {
-                    val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
-                    if (playlistId !in list) list.add(playlistId)
-                }
                 downloadExternalTrack(track)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
