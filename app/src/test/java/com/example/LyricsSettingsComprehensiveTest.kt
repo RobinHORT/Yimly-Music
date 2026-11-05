@@ -211,7 +211,7 @@ class LyricsSettingsComprehensiveTest {
             )
         }
 
-        // The line is visible 1.5 seconds before its source timestamp.
+        // The line has completed its overlap fade and is visible 1.2 seconds before its source timestamp.
         composeTestRule.onNodeWithText("early lyric line").assertIsDisplayed()
     }
 
