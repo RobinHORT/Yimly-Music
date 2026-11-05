@@ -185,7 +185,7 @@ fun LyricsSettingsDialog(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        listOf(1, 3, 5, 7).forEach { lines ->
+                        (1..5).forEach { lines ->
                             FilterChip(
                                 selected = visibleLines == lines,
                                 onClick = { visibleLines = lines },
