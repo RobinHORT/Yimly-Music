@@ -1230,6 +1230,21 @@ class MusicRepository(
             }
         }
 
+        /**
+         * Prefer a newly indexed match, but accept an existing matching library record
+         * after a confirmed download. Some download/index pipelines update an existing
+         * record instead of inserting a new song ID.
+         */
+        fun findMatchingExternalTrack(
+            songs: List<Song>,
+            track: com.example.data.models.ExternalTrack,
+            preExistingIds: Set<String>
+        ): Song? {
+            return songs.firstOrNull { song ->
+                song.id !in preExistingIds && isSameExternalTrack(song, track)
+            } ?: songs.firstOrNull { song -> isSameExternalTrack(song, track) }
+        }
+
         fun isSameExternalTrack(
             song: Song,
             track: com.example.data.models.ExternalTrack
