@@ -104,7 +104,7 @@ class YimlySessionCallback(
         session: MediaSession,
         controller: MediaSession.ControllerInfo
     ): MediaSession.ConnectionResult {
-        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}, packageVerified=${controller.isPackageNameVerified}")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}, packageVerified=${controller.isPackageNameVerified}")
 
         // Only grant playback controls to trusted controllers, or verified Android Auto /
         // Automotive OS packages. Package-name checks alone are not an authorization check.
@@ -295,7 +295,7 @@ class YimlySessionCallback(
         browser: MediaSession.ControllerInfo,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<MediaItem>> {
-        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() START package=${browser.packageName}, uid=${browser.uid}, params=$params")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() START package=${browser.packageName}, uid=${browser.uid}, params=$params")
         val rootMetadata = MediaMetadata.Builder()
             .setTitle("Yimly Music")
             .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
@@ -307,7 +307,7 @@ class YimlySessionCallback(
             .setMediaMetadata(rootMetadata)
             .build()
         val result = LibraryResult.ofItem(rootItem, params)
-        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() SUCCESS rootId=${rootItem.mediaId}")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() SUCCESS rootId=${rootItem.mediaId}")
         return Futures.immediateFuture(result)
     }
 
@@ -319,7 +319,7 @@ class YimlySessionCallback(
         pageSize: Int,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
-        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() START package=${browser.packageName}, parentId=$parentId, page=$page, pageSize=$pageSize")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() START package=${browser.packageName}, parentId=$parentId, page=$page, pageSize=$pageSize")
         val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
@@ -468,7 +468,7 @@ class YimlySessionCallback(
                 }
 
                 val immutableList = com.google.common.collect.ImmutableList.copyOf(pagedList)
-                android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() SUCCESS parentId=$parentId, totalFound=${mediaItems.size}, returnedCount=${immutableList.size}")
+                if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() SUCCESS parentId=$parentId, totalFound=${mediaItems.size}, returnedCount=${immutableList.size}")
                 future.set(LibraryResult.ofItemList(immutableList, params))
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() ERROR parentId=$parentId: ${e.message}", e)
@@ -489,7 +489,7 @@ class YimlySessionCallback(
         browser: MediaSession.ControllerInfo,
         mediaId: String
     ): ListenableFuture<LibraryResult<MediaItem>> {
-        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() START package=${browser.packageName}, mediaId=$mediaId")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() START package=${browser.packageName}, mediaId=$mediaId")
         val future = SettableFuture.create<LibraryResult<MediaItem>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
@@ -517,7 +517,7 @@ class YimlySessionCallback(
                         .setMediaId(mediaId)
                         .setMediaMetadata(metadata)
                         .build()
-                    android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() SUCCESS mediaId=$mediaId, title=${song.title}")
+                    if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() SUCCESS mediaId=$mediaId, title=${song.title}")
                     future.set(LibraryResult.ofItem(item, null))
                 } else {
                     android.util.Log.w("AA_DIAG", "YimlySessionCallback.onGetItem() NOT FOUND mediaId=$mediaId")
@@ -542,7 +542,7 @@ class YimlySessionCallback(
         query: String,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<Void>> {
-        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onSearch() package=${browser.packageName}, query=$query")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onSearch() package=${browser.packageName}, query=$query")
         val future = SettableFuture.create<LibraryResult<Void>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
@@ -576,7 +576,7 @@ class YimlySessionCallback(
         pageSize: Int,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
-        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() START package=${browser.packageName}, query=$query, page=$page, pageSize=$pageSize")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() START package=${browser.packageName}, query=$query, page=$page, pageSize=$pageSize")
         val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
@@ -616,7 +616,7 @@ class YimlySessionCallback(
                     mediaItems
                 }
                 val immutableList = com.google.common.collect.ImmutableList.copyOf(pagedList)
-                android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() SUCCESS query=$query, count=${immutableList.size}")
+                if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() SUCCESS query=$query, count=${immutableList.size}")
                 future.set(LibraryResult.ofItemList(immutableList, params))
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetSearchResult() ERROR query=$query: ${e.message}", e)
