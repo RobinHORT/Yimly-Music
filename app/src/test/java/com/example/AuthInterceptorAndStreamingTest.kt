@@ -21,6 +21,7 @@ import org.junit.After
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
+import kotlinx.coroutines.flow.firstOrNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -233,6 +234,22 @@ class AuthInterceptorAndStreamingTest {
         assertEquals(30000, mediaClient.readTimeoutMillis)
         assertEquals(30000, mediaClient.writeTimeoutMillis)
         assertEquals(15000, mediaClient.connectTimeoutMillis)
+    }
+
+    @Test
+    fun testRememberMeDisabledKeepsTokenInMemoryButDoesNotPersistIt() = kotlinx.coroutines.runBlocking {
+        preferencesManager.saveAuthSession(
+            token = "session_only_token",
+            userId = "usr_session",
+            username = "sessionuser",
+            email = "session@example.com",
+            rememberMe = false
+        )
+
+        assertEquals("session_only_token", AuthTokenHolder.token)
+        assertNull("Non-persistent token must not be stored in DataStore",
+            preferencesManager.authTokenFlow.firstOrNull())
+        assertFalse(preferencesManager.rememberMeFlow.firstOrNull() ?: true)
     }
 
     @Test
