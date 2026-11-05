@@ -42,6 +42,7 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -507,7 +508,7 @@ class MusicRepository(
         // Do not replace an existing cross-reference with the optimistic sentinel
         // order index: if the server rejects a duplicate add, rollback must not
         // remove a song that was already in the playlist.
-        val alreadyInPlaylist = kotlinx.coroutines.flow.first(musicDao.getSongsForPlaylist(playlistId))
+        val alreadyInPlaylist = musicDao.getSongsForPlaylist(playlistId).first()
             .any { it.id == songId }
         val insertedOptimistically = !alreadyInPlaylist
         if (insertedOptimistically) {
