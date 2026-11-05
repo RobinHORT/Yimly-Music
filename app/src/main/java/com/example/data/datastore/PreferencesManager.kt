@@ -249,11 +249,9 @@ class PreferencesManager(private val context: Context) {
         rememberMe: Boolean = true
     ) {
         val now = System.currentTimeMillis()
-        if (rememberMe) {
-            AuthTokenHolder.token = token
-        } else {
-            AuthTokenHolder.token = null
-        }
+        // Keep the active session token in memory for this process even when
+        // Remember Me is disabled. Only persistence to DataStore is conditional.
+        AuthTokenHolder.token = token
         context.dataStore.edit { preferences ->
             preferences[KEY_REMEMBER_ME] = rememberMe
             preferences[KEY_AUTH_TIMESTAMP] = now
