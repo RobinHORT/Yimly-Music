@@ -220,6 +220,7 @@ class SearchEngineComprehensiveTest {
         )
 
         assertTrue(MusicRepository.isSameExternalTrack(librarySong, resolvedTrack))
+        assertTrue(MusicRepository.matchesExternalTrackMetadata("Halo", "Beyoncé", resolvedTrack))
     }
 
     @Test
