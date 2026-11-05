@@ -56,6 +56,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -73,6 +74,7 @@ import com.example.data.models.LyricLine
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.LyricsFormatMode
+import com.example.data.models.calculateLrcHighlightProgress
 import com.example.data.models.formatLyricText
 import com.example.lyrics.LyricsParser
 import com.example.ui.theme.SurfaceBorderDark
@@ -305,31 +307,18 @@ fun LyricsView(
                 contentAlignment = Alignment.Center
             ) {
                 currentLine?.let { line ->
-                    if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
-                        SynchronizedLyricContent(
-                            line = line,
-                            isCurrent = true,
-                            currentPositionMs = currentPositionMs,
-                            effectiveOffsetMs = effectiveOffset,
-                            config = config,
-                            currentLineColor = currentLineColor,
-                            composeFontFamily = composeFontFamily,
-                            textAlign = TextAlign.Center,
-                            isPlaying = isPlaying,
-                            modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
-                        )
-                    } else {
-                        Text(
-                            text = formatLyricText(line.text, config.textCase),
-                            fontSize = config.currentLineFontSizeSp.sp,
-                            fontFamily = composeFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            color = currentLineColor.copy(alpha = 0.96f),
-                            textAlign = TextAlign.Center,
-                            lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
-                            modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
-                        )
-                    }
+                    SynchronizedLyricContent(
+                        line = line,
+                        isCurrent = true,
+                        currentPositionMs = currentPositionMs,
+                        effectiveOffsetMs = effectiveOffset,
+                        config = config,
+                        currentLineColor = currentLineColor,
+                        composeFontFamily = composeFontFamily,
+                        textAlign = TextAlign.Center,
+                        isPlaying = isPlaying,
+                        modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
+                    )
                 }
             }
         } else if (viewMode == 0) {
@@ -586,19 +575,23 @@ fun SynchronizedLyricContent(
     modifier: Modifier = Modifier
 ) {
     val adjustedPos = currentPositionMs + effectiveOffsetMs
-    val overlapMs = config.lyricTransitionOverlapMs.coerceIn(0, 2000).toLong()
-    val lrcLeadInMs = config.lrcDisplayLeadInMs.coerceIn(1500, 5000).toLong()
-    val effectiveTransitionMs = overlapMs.coerceAtMost(lrcLeadInMs)
-    val transitionAlpha = if (!isCurrent || effectiveTransitionMs == 0L || config.formatMode == LyricsFormatMode.ELRC) 1f else {
-        val transitionStart = line.timeMs - lrcLeadInMs
-        ((adjustedPos - transitionStart).toFloat() / effectiveTransitionMs.toFloat()).coerceIn(0f, 1f)
-    }
+    val lrcHighlightProgress = if (isCurrent && config.formatMode == LyricsFormatMode.LRC) {
+        calculateLrcHighlightProgress(
+            currentPositionMs = currentPositionMs,
+            effectiveOffsetMs = effectiveOffsetMs,
+            lineTimeMs = line.timeMs,
+            transitionOverlapMs = config.lyricTransitionOverlapMs
+        )
+    } else 1f
+    val lrcTextColor = if (config.formatMode == LyricsFormatMode.LRC) {
+        lerp(TextPrimaryDark, currentLineColor, lrcHighlightProgress)
+    } else currentLineColor
     val elrcFadeAlpha = if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
         val fadeDurationMs = config.elrcFadeInDurationMs.coerceIn(300, 5000).toLong()
         val firstWordStartMs = line.words.minOf { it.startTimeMs }
         ((adjustedPos - (firstWordStartMs - fadeDurationMs)).toFloat() / fadeDurationMs.toFloat()).coerceIn(0f, 1f)
     } else 1f
-    val lyricAlpha = (transitionAlpha * elrcFadeAlpha).coerceIn(0f, 1f)
+    val lyricAlpha = elrcFadeAlpha.coerceIn(0f, 1f)
 
     if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
         val spaceDp = (config.currentLineFontSizeSp * 0.25f).dp
@@ -635,7 +628,7 @@ fun SynchronizedLyricContent(
             fontSize = config.currentLineFontSizeSp.sp,
             fontFamily = composeFontFamily,
             fontWeight = FontWeight.Bold,
-            color = currentLineColor,
+            color = lrcTextColor,
             textAlign = textAlign,
             lineHeight = (config.currentLineFontSizeSp * 1.3f).sp,
             modifier = modifier.alpha(lyricAlpha)
