@@ -795,7 +795,10 @@ class MainViewModel(
             try {
                 val collaborators = musicRepository.getCollaborators(playlistId)
                 onResult(collaborators)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
+                _uiMessage.value = e.message ?: "Failed to load playlist collaborators"
                 onResult(emptyList())
             }
         }
