@@ -1227,6 +1227,15 @@ class MusicRepository(
 
         private fun normalizeTrackIdentityPart(value: String): String = SearchUtils.normalize(value)
 
+        fun matchesExternalTrackMetadata(
+            title: String,
+            artist: String,
+            track: com.example.data.models.ExternalTrack
+        ): Boolean {
+            return normalizeTrackIdentityPart(title) == normalizeTrackIdentityPart(track.title) &&
+                normalizeTrackIdentityPart(artist) == normalizeTrackIdentityPart(track.artist)
+        }
+
         fun externalTrackIdentity(track: com.example.data.models.ExternalTrack): String {
             val base = "${normalizeTrackIdentityPart(track.title)}|${normalizeTrackIdentityPart(track.artist)}"
             val album = normalizeTrackIdentityPart(track.album)
