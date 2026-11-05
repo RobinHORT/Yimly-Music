@@ -504,11 +504,22 @@ class MusicRepository(
     }
 
     suspend fun addSongToPlaylistOptimistic(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
-        musicDao.insertPlaylistSongCrossRef(PlaylistSongCrossRef(playlistId, songId, orderIndex = 9999))
+        // Do not replace an existing cross-reference with the optimistic sentinel
+        // order index: if the server rejects a duplicate add, rollback must not
+        // remove a song that was already in the playlist.
+        val alreadyInPlaylist = kotlinx.coroutines.flow.first(musicDao.getSongsForPlaylist(playlistId))
+            .any { it.id == songId }
+        val insertedOptimistically = !alreadyInPlaylist
+        if (insertedOptimistically) {
+            musicDao.insertPlaylistSongCrossRef(PlaylistSongCrossRef(playlistId, songId, orderIndex = 9999))
+        }
         try {
             addSongToPlaylist(playlistId, songId)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            if (insertedOptimistically) musicDao.removeSongFromPlaylist(playlistId, songId)
+            throw cancelled
         } catch (e: Exception) {
-            musicDao.removeSongFromPlaylist(playlistId, songId)
+            if (insertedOptimistically) musicDao.removeSongFromPlaylist(playlistId, songId)
             throw e
         }
     }
