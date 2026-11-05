@@ -81,22 +81,23 @@ if errorlevel 1 (
 
 :: 11. Locate newest APK in app\build\outputs\apk\release
 set "LATEST_APK="
-for /f "delims=" %%f in ('dir /b /s "app\build\outputs\apk\release\*.apk" 2^>nul') do (
+for /f "delims=" %%f in ('powershell -NoProfile -Command "Get-ChildItem -Path app/build/outputs/apk/release -Filter *.apk -File -Recurse | Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName"') do (
     set "LATEST_APK=%%f"
+)
+
+if not defined LATEST_APK (
+    echo [ERROR] Gradle reported success but no release APK was found.
+    goto :build_failed
 )
 
 echo.
 echo ===================================================
 echo BUILD SUCCESSFUL
 echo ===================================================
-if defined LATEST_APK (
-    for %%I in ("%LATEST_APK%") do (
-        echo APK Filename: %%~nxI
-        echo Full Path:    %%~fI
-        echo APK Size:     %%~zI bytes
-    )
-) else (
-    echo [INFO] APK built successfully. Check app\build\outputs\apk\release
+for %%I in ("%LATEST_APK%") do (
+    echo APK Filename: %%~nxI
+    echo Full Path:    %%~fI
+    echo APK Size:     %%~zI bytes
 )
 echo ===================================================
 goto :end
