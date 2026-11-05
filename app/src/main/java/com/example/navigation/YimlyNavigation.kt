@@ -659,7 +659,7 @@ fun YimlyNavigation(
                                     { songId -> viewModel.removeSongFromPlaylist(playlist.id, songId) }
                                 } else null,
                                 onSharePlaylist = if (playlist.isOwner || playlist.permission == "owner") {
-                                    { username, perm ->
+                                    { username, perm, onComplete ->
                                         viewModel.sharePlaylist(playlist.id, username, perm, onComplete)
                                     }
                                 } else null,
