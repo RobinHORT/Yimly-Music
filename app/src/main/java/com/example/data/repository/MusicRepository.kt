@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.data.api.YimlyApiService
 import com.example.data.datastore.PreferencesManager
+import com.example.data.datastore.AuthTokenHolder
 import com.example.data.datastore.ServerUrlConfig
 import com.example.data.db.LyricResourceEntity
 import com.example.data.db.MusicDao
@@ -1016,7 +1017,8 @@ class MusicRepository(
         return Pair(uniqueSongs, true)
     }
     suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
-        val token = preferencesManager?.authTokenFlow?.firstOrNull()
+        val token = AuthTokenHolder.token?.takeIf { it.isNotBlank() }
+            ?: preferencesManager?.authTokenFlow?.firstOrNull()
         if (preferencesManager != null && token.isNullOrBlank()) {
             Log.i("MusicRepository", "Skipping backend sync because user is not authenticated.")
             return@withContext Result.success(Unit)
