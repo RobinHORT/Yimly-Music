@@ -763,7 +763,7 @@ class MainViewModel(
             try {
                 val created = musicRepository.createPlaylist(name, description, isPublic)
                 registerPendingPlaylistAdd(track, created.id)
-                _uiMessage.value = "Added to '$name'"
+                _uiMessage.value = "Playlist '$name' created; song will be added after download completes"
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
