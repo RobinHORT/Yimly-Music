@@ -124,9 +124,29 @@ class YimlyForwardingPlayer(
     }
 
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
+        if (mediaItemIndex !in 0 until mediaItemCount) return
+
+        // Android Auto supplies a Media3 timeline index. Resolve that timeline
+        // item to its logical queue occurrence by media ID before changing tracks;
+        // shuffle or an externally supplied AA timeline can make the indices differ.
+        val requestedItem = getMediaItemAt(mediaItemIndex)
+        val targetQueueIndex = playbackManager.findQueueIndexForMediaItem(
+            requestedItem.mediaId,
+            mediaItemIndex
+        )
+        if (targetQueueIndex < 0) {
+            // Keep Media3's native behaviour for a timeline item not yet mirrored
+            // into the app queue; its transition callback will reconcile the queue.
+            super.seekTo(mediaItemIndex, positionMs)
+            return
+        }
+
         val info = playbackManager.playbackInfo.value
-        if (mediaItemIndex != info.currentQueueIndex && mediaItemIndex in info.queue.indices) {
-            playbackManager.playQueueItem(mediaItemIndex, initialPositionMs = positionMs.takeIf { it > 0L })
+        if (targetQueueIndex != info.currentQueueIndex) {
+            playbackManager.playQueueItem(
+                targetQueueIndex,
+                initialPositionMs = positionMs.coerceAtLeast(0L)
+            )
         } else {
             playbackManager.seekTo(positionMs)
         }
