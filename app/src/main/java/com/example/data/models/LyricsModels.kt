@@ -88,6 +88,10 @@ data class LyricsDisplayConfig(
     // Lyrics Format Mode (eLRC: Word-level sync vs LRC: Line-level sync)
     val formatMode: LyricsFormatMode = LyricsFormatMode.ELRC,
     val elrcHighlightMode: String = ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING,
+    // Full-line eLRC fade-in duration and LRC early-display / transition timing.
+    val elrcFadeInDurationMs: Int = 1500,
+    val lyricTransitionOverlapMs: Int = 300,
+    val lrcDisplayLeadInMs: Int = 1500,
 
     // Lyrics Display
     val visibleLines: Int = 3,
