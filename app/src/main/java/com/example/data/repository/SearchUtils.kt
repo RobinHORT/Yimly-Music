@@ -78,6 +78,10 @@ object SearchUtils {
         if (title.contains(normalizedQuery)) return 80
 
         if (tokens.all { title.contains(it) }) return 70
+        val titleAndArtistTokensMatch = tokens.all { title.contains(it) || artist.contains(it) } &&
+            tokens.any { title.contains(it) } &&
+            tokens.any { artist.contains(it) }
+        if (titleAndArtistTokensMatch) return 60
         if (tokens.all { artist.contains(it) }) return 40
         if (tokens.all { album.contains(it) }) return 20
         if (tokens.all { genre.contains(it) }) return 10
