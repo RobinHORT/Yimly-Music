@@ -1,5 +1,6 @@
 package com.example.navigation
 
+import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.LibraryMusic
@@ -18,13 +19,13 @@ sealed class Screen(val route: String) {
     data object Settings : Screen("settings")
     data object Login : Screen("login")
     data object AlbumDetail : Screen("album/{albumId}") {
-        fun createRoute(albumId: String) = "album/$albumId"
+        fun createRoute(albumId: String) = "album/${Uri.encode(albumId)}"
     }
     data object ArtistDetail : Screen("artist/{artistId}") {
-        fun createRoute(artistId: String) = "artist/$artistId"
+        fun createRoute(artistId: String) = "artist/${Uri.encode(artistId)}"
     }
     data object PlaylistDetail : Screen("playlist/{playlistId}") {
-        fun createRoute(playlistId: String) = "playlist/$playlistId"
+        fun createRoute(playlistId: String) = "playlist/${Uri.encode(playlistId)}"
     }
 }
 
