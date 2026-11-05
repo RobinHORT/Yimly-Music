@@ -23,7 +23,7 @@ class YimlyPlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onCreate() called")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onCreate() called")
         createNotificationChannel()
 
         val provider = androidx.media3.session.DefaultMediaNotificationProvider.Builder(this)
@@ -40,7 +40,7 @@ class YimlyPlaybackService : MediaLibraryService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onStartCommand() intent=$intent")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onStartCommand() intent=$intent")
         val app = application as? YimlyApplication
         val session = app?.playbackManager?.mediaSession
         if (session != null && !sessions.contains(session)) {
@@ -50,7 +50,7 @@ class YimlyPlaybackService : MediaLibraryService() {
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
-        android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onGetSession() package=${controllerInfo.packageName}, uid=${controllerInfo.uid}")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onGetSession() package=${controllerInfo.packageName}, uid=${controllerInfo.uid}")
         val app = application as? YimlyApplication
         val session = app?.playbackManager?.mediaSession
         if (session != null && !sessions.contains(session)) {
@@ -88,17 +88,21 @@ class YimlyPlaybackService : MediaLibraryService() {
         val transitioning = manager?.isTransitioning == true
 
         if (hasQueuedTrack && (playbackRequested || transitioning)) {
-            android.util.Log.d(
-                "YimlyPlaybackService",
-                "Task removed; keeping playback service alive (playWhenReady=$playbackRequested, transitioning=$transitioning, state=${player?.playbackState})"
-            )
+            if (com.example.BuildConfig.DEBUG) {
+                android.util.Log.d(
+                    "YimlyPlaybackService",
+                    "Task removed; keeping playback service alive (playWhenReady=$playbackRequested, transitioning=$transitioning, state=${player?.playbackState})"
+                )
+            }
             return
         }
 
-        android.util.Log.d(
-            "YimlyPlaybackService",
-            "Task removed with no active playback request; stopping service"
-        )
+        if (com.example.BuildConfig.DEBUG) {
+            android.util.Log.d(
+                "YimlyPlaybackService",
+                "Task removed with no active playback request; stopping service"
+            )
+        }
         stopSelf()
     }
 
