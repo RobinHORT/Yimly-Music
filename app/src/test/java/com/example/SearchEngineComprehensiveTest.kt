@@ -120,6 +120,31 @@ class SearchEngineComprehensiveTest {
         assertTrue("Album match score ($scoreAlbum) must be > genre score ($scoreGenre)", scoreAlbum > scoreGenre)
     }
 
+
+    @Test
+    fun testCombinedTitleAndArtistQueryRanksAboveArtistOnlyMatch() {
+        val titleAndArtistMatch = Song(
+            id = "mixed",
+            title = "Ariana's Song",
+            artist = "Grande",
+            album = "Album",
+            durationSeconds = 200L
+        )
+        val artistOnlyMatch = Song(
+            id = "artist-only",
+            title = "Different Song",
+            artist = "Ariana Grande",
+            album = "Album",
+            durationSeconds = 200L
+        )
+
+        assertTrue(SearchUtils.matchesSong(titleAndArtistMatch, "Ariana Grande"))
+        assertTrue(
+            SearchUtils.getSongRelevanceScore(titleAndArtistMatch, "Ariana Grande") >
+                SearchUtils.getSongRelevanceScore(artistOnlyMatch, "Ariana Grande")
+        )
+    }
+
     @Test
     fun testProductionOrderingPrioritizesAllTitleTokensOverMetadataMatches() {
         val titleMatch = Song(
