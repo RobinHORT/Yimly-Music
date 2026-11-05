@@ -58,7 +58,10 @@ class LyricsSettingsComprehensiveTest {
             textCase = LyricTextCase.ORIGINAL,
             currentLineFontSizeSp = 24f,
             otherLineFontSizeSp = 15f,
-            otherLinesOpacity = 0.35f
+            otherLinesOpacity = 0.35f,
+            elrcFadeInDurationMs = 2200,
+            lyricTransitionOverlapMs = 450,
+            lrcDisplayLeadInMs = 1800
         )
 
         composeTestRule.setContent {
@@ -77,6 +80,12 @@ class LyricsSettingsComprehensiveTest {
         composeTestRule.onNodeWithText("Current Line").assertExists()
         composeTestRule.onNodeWithText("Previous & Next Lines").assertExists()
         composeTestRule.onNodeWithText("Other").assertExists()
+        composeTestRule.onNodeWithText("eLRC Full-line Fade In").assertExists()
+        composeTestRule.onNodeWithText("Transition Overlap").assertExists()
+        composeTestRule.onNodeWithText("LRC Early Display").assertExists()
+        composeTestRule.onNodeWithText("2200 ms").assertExists()
+        composeTestRule.onNodeWithText("450 ms").assertExists()
+        composeTestRule.onNodeWithText("1800 ms").assertExists()
 
         // Verify all 4 text case options exist
         composeTestRule.onNodeWithText("Original").assertExists()
@@ -92,6 +101,9 @@ class LyricsSettingsComprehensiveTest {
 
         // Check saved config
         assertEquals(LyricTextCase.TITLE_CASE, savedConfig?.textCase)
+        assertEquals(2200, savedConfig?.elrcFadeInDurationMs)
+        assertEquals(450, savedConfig?.lyricTransitionOverlapMs)
+        assertEquals(1800, savedConfig?.lrcDisplayLeadInMs)
     }
 
     @Test
