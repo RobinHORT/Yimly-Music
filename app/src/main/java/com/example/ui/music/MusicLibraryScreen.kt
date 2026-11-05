@@ -39,6 +39,7 @@ import androidx.compose.material3.TabRowDefaults.SecondaryIndicator
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -75,6 +76,8 @@ import com.example.ui.theme.YimlyPink
 
 @Composable
 fun MusicLibraryScreen(
+    initialSelectedTab: Int = 0,
+    onInitialSelectedTabConsumed: () -> Unit = {},
     allSongs: List<Song>,
     albums: List<Album>,
     artists: List<Artist>,
@@ -95,6 +98,12 @@ fun MusicLibraryScreen(
     modifier: Modifier = Modifier
 ) {
     var selectedTab by remember { mutableIntStateOf(0) }
+    LaunchedEffect(initialSelectedTab) {
+        if (initialSelectedTab == 4) {
+            selectedTab = 4
+            onInitialSelectedTabConsumed()
+        }
+    }
     val tabTitles = listOf("Tracks", "Albums", "Artists", "Playlists", "Favorites")
 
     var showCreatePlaylistDialog by remember { mutableStateOf(false) }
