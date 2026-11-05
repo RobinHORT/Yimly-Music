@@ -220,8 +220,8 @@ object LyricsParser {
 
             // Enforce monotonic start times
             val monotonicTags = mutableListOf<Pair<Long, Int>>()
-            // Compare raw word timestamps against the unshifted line start; both receive offsetMs below.
-            var runningMaxTime = lineStartMs - offsetMs
+            // Both lineStartMs and word timestamps already include offsetMs.
+            var runningMaxTime = lineStartMs
             for (tag in rawTags) {
                 val safeStart = maxOf(tag.first, runningMaxTime)
                 monotonicTags.add(Pair(safeStart, tag.second))
