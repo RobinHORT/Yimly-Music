@@ -201,6 +201,39 @@ class SearchEngineComprehensiveTest {
         assertEquals("job-override-5678", jobWithJobId.jobId)
     }
 
+
+    @Test
+    fun testDownloadedTrackIndexingAcceptsReusedLibraryRecord() {
+        val track = com.example.data.models.ExternalTrack(
+            title = "Midnight City",
+            artist = "M83",
+            album = "Hurry Up, We're Dreaming",
+            durationSeconds = 244L
+        )
+        val existing = Song(
+            id = "existing-song-id",
+            title = "Midnight City",
+            artist = "M83",
+            album = "Hurry Up, We're Dreaming",
+            durationSeconds = 244L
+        )
+        val newlyIndexed = existing.copy(id = "new-song-id")
+
+        val preferredNew = MusicRepository.findMatchingExternalTrack(
+            songs = listOf(existing, newlyIndexed),
+            track = track,
+            preExistingIds = setOf(existing.id)
+        )
+        assertEquals("new-song-id", preferredNew?.id)
+
+        val reusedExisting = MusicRepository.findMatchingExternalTrack(
+            songs = listOf(existing),
+            track = track,
+            preExistingIds = setOf(existing.id)
+        )
+        assertEquals("existing-song-id", reusedExisting?.id)
+    }
+
     @Test
     fun testExternalTrackDeduplicationKeepsDifferentAlbumAndDurationVersions() {
         val librarySongs = listOf(
