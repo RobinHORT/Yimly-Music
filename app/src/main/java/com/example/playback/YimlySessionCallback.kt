@@ -28,6 +28,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
+internal fun isPlaybackControllerAuthorized(
+    controller: MediaSession.ControllerInfo,
+    isVerifiedAutoController: Boolean,
+    isVerifiedAutomotiveController: Boolean
+): Boolean {
+    return controller.isTrusted ||
+        (controller.isPackageNameVerified && (isVerifiedAutoController || isVerifiedAutomotiveController))
+}
+
 @OptIn(UnstableApi::class)
 class YimlySessionCallback(
     private val playbackManager: PlaybackManager
@@ -52,9 +61,11 @@ class YimlySessionCallback(
     ): Boolean {
         // Media3's car-controller helpers identify packages, not trust by themselves.
         // Require package/UID verification before using them as an explicit allowlist.
-        val verifiedCarController = controller.isPackageNameVerified &&
-            (session.isAutoCompanionController(controller) || session.isAutomotiveController(controller))
-        return controller.isTrusted || verifiedCarController
+        return isPlaybackControllerAuthorized(
+            controller = controller,
+            isVerifiedAutoController = session.isAutoCompanionController(controller),
+            isVerifiedAutomotiveController = session.isAutomotiveController(controller)
+        )
     }
 
     private fun searchCacheKey(browser: MediaSession.ControllerInfo, query: String): String =
