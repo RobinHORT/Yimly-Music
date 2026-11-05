@@ -88,6 +88,9 @@ class PreferencesManager(private val context: Context) {
         private val KEY_LYRICS_LRC_OFFSET = longPreferencesKey("lyrics_lrc_offset")
         private val KEY_LYRICS_ELRC_OFFSET = longPreferencesKey("lyrics_elrc_offset")
         private val KEY_LYRICS_ELRC_HIGHLIGHT_MODE = stringPreferencesKey("lyrics_elrc_highlight_mode")
+        private val KEY_LYRICS_ELRC_FADE_IN_MS = intPreferencesKey("lyrics_elrc_fade_in_ms")
+        private val KEY_LYRICS_TRANSITION_OVERLAP_MS = intPreferencesKey("lyrics_transition_overlap_ms")
+        private val KEY_LYRICS_LRC_LEAD_IN_MS = intPreferencesKey("lyrics_lrc_lead_in_ms")
 
         const val DEFAULT_SERVER_URL = "https://yimly.robinhort.link"
     }
@@ -183,7 +186,10 @@ class PreferencesManager(private val context: Context) {
             manualOffsetMs = prefs[KEY_LYRICS_MANUAL_OFFSET] ?: 0L,
             lrcOffsetMs = prefs[KEY_LYRICS_LRC_OFFSET] ?: (prefs[KEY_LYRICS_MANUAL_OFFSET] ?: 0L),
             elrcOffsetMs = prefs[KEY_LYRICS_ELRC_OFFSET] ?: 0L,
-            elrcHighlightMode = prefs[KEY_LYRICS_ELRC_HIGHLIGHT_MODE] ?: com.example.data.models.ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING
+            elrcHighlightMode = prefs[KEY_LYRICS_ELRC_HIGHLIGHT_MODE] ?: com.example.data.models.ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING,
+            elrcFadeInDurationMs = (prefs[KEY_LYRICS_ELRC_FADE_IN_MS] ?: 1500).coerceIn(300, 5000),
+            lyricTransitionOverlapMs = (prefs[KEY_LYRICS_TRANSITION_OVERLAP_MS] ?: 300).coerceIn(0, 2000),
+            lrcDisplayLeadInMs = (prefs[KEY_LYRICS_LRC_LEAD_IN_MS] ?: 1500).coerceIn(1500, 5000)
         )
     }
 
@@ -344,6 +350,9 @@ class PreferencesManager(private val context: Context) {
             prefs[KEY_LYRICS_LRC_OFFSET] = config.lrcOffsetMs
             prefs[KEY_LYRICS_ELRC_OFFSET] = config.elrcOffsetMs
             prefs[KEY_LYRICS_ELRC_HIGHLIGHT_MODE] = config.elrcHighlightMode
+            prefs[KEY_LYRICS_ELRC_FADE_IN_MS] = config.elrcFadeInDurationMs.coerceIn(300, 5000)
+            prefs[KEY_LYRICS_TRANSITION_OVERLAP_MS] = config.lyricTransitionOverlapMs.coerceIn(0, 2000)
+            prefs[KEY_LYRICS_LRC_LEAD_IN_MS] = config.lrcDisplayLeadInMs.coerceIn(1500, 5000)
         }
     }
 
