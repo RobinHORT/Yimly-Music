@@ -465,12 +465,14 @@ class MainViewModel(
                 lastSyncError = e
                 emptyList()
             }
-            val newSong = currentSongs.firstOrNull { song ->
-                song.id !in preExistingIds && MusicRepository.isSameExternalTrack(song, track)
-            }
+            val indexedSong = MusicRepository.findMatchingExternalTrack(
+                songs = currentSongs,
+                track = track,
+                preExistingIds = preExistingIds
+            )
 
-            if (newSong != null) {
-                newlyIndexedId = newSong.id
+            if (indexedSong != null) {
+                newlyIndexedId = indexedSong.id
                 break
             }
         }
