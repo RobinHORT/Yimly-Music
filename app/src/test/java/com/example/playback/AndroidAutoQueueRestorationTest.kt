@@ -730,6 +730,76 @@ class AndroidAutoQueueRestorationTest {
         assertTrue("Queue removal must bump playbackRequestId", playbackManager.playbackRequestId > newRequestId)
     }
 
+
+    /**
+     * Regression: when no item is active, adding a duplicate starts the newly
+     * appended queue occurrence rather than the earlier occurrence with the same ID.
+     */
+    @Test
+    fun testProduction_addDuplicateWhenNoCurrentSong_startsNewOccurrence() {
+        val stateField = PlaybackManager::class.java.getDeclaredField("_playbackInfo").apply {
+            isAccessible = true
+        }
+        @Suppress("UNCHECKED_CAST")
+        val state = stateField.get(playbackManager) as kotlinx.coroutines.flow.MutableStateFlow<PlaybackInfo>
+        state.value = state.value.copy(
+            queue = listOf(songA),
+            currentSong = null,
+            currentQueueIndex = -1
+        )
+
+        playbackManager.addToQueue(songA)
+
+        val info = playbackManager.playbackInfo.value
+        assertEquals(listOf("song_a", "song_a"), info.queue.map { it.id })
+        assertEquals("The appended occurrence must be selected", 1, info.currentQueueIndex)
+        assertEquals("song_a", info.currentSong?.id)
+    }
+
+    /**
+     * Invalid removals must not invalidate a pending playback resolution or AA sync.
+     */
+    @Test
+    fun testProduction_invalidQueueRemovals_doNotInvalidatePlaybackRequest() {
+        playbackManager.playSong(songA, listOf(songA, songB), startIndex = 0)
+        val requestBefore = playbackManager.playbackRequestId
+
+        playbackManager.removeFromQueue(-1)
+        assertEquals("Invalid index must not invalidate playback", requestBefore, playbackManager.playbackRequestId)
+
+        playbackManager.removeFromQueue(99)
+        assertEquals("Out-of-range index must not invalidate playback", requestBefore, playbackManager.playbackRequestId)
+
+        playbackManager.removeSongFromQueue("song_not_in_queue")
+        assertEquals("Missing song must not invalidate playback", requestBefore, playbackManager.playbackRequestId)
+
+        assertEquals(listOf("song_a", "song_b"), playbackManager.playbackInfo.value.queue.map { it.id })
+    }
+
+    /**
+     * Exercise the real forwarding-player indexed seek with a Media3 timeline
+     * whose order differs from the logical app queue. The media ID must win.
+     */
+    @Test
+    fun testProduction_forwardingSeek_mapsTimelineItemToLogicalQueueIndex() = runTest {
+        playbackManager.playSong(songA, listOf(songA, songB, songC), startIndex = 0)
+        val player = playbackManager.player!!
+
+        val mediaItemC = playbackManager.buildMediaItem(songC, wantInstrumental = false)
+        val mediaItemA = playbackManager.buildMediaItem(songA, wantInstrumental = false)
+        val mediaItemB = playbackManager.buildMediaItem(songB, wantInstrumental = false)
+        player.setMediaItems(listOf(mediaItemC, mediaItemA, mediaItemB), 0, 0L)
+        playbackManager.setShuffle(true)
+
+        val forwardingPlayer = YimlyForwardingPlayer(player, playbackManager)
+        forwardingPlayer.seekTo(0, 37_000L)
+
+        val info = playbackManager.playbackInfo.value
+        assertEquals("Timeline item C maps to logical queue index 2", 2, info.currentQueueIndex)
+        assertEquals("song_c", info.currentSong?.id)
+        assertEquals(37_000L, info.currentPositionMs)
+    }
+
     private data class FakeResolvedTrack(
         val song: Song,
         val isPlayable: Boolean,
