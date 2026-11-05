@@ -116,7 +116,11 @@ fun LyricsView(
     val effectiveOffset = songOffsetMs + activeManualOffset
     // LRC lines are presented early so the singer has at least the configured lead-in.
     // eLRC remains anchored to the actual word timestamps.
-    val slotPositionMs = currentPositionMs + if (config.formatMode == LyricsFormatMode.LRC) config.lrcDisplayLeadInMs.coerceIn(1500, 5000).toLong() else 0L
+    val lyricLeadInMs = when (config.formatMode) {
+        LyricsFormatMode.LRC -> config.lrcDisplayLeadInMs.coerceIn(1500, 5000)
+        LyricsFormatMode.ELRC -> config.elrcFadeInDurationMs.coerceIn(300, 5000)
+    }.toLong()
+    val slotPositionMs = currentPositionMs + lyricLeadInMs
     val slotState = remember(lines, slotPositionMs, effectiveOffset) {
         LyricsParser.findActiveLyricSlots(lines, slotPositionMs, effectiveOffset)
     }
