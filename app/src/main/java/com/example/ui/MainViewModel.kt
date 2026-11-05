@@ -378,13 +378,16 @@ class MainViewModel(
             pendingPlaylistRequests.remove(key) ?: emptyList()
         }
         val failed = mutableListOf<String>()
-        for (playlistId in pending) {
+        for ((index, playlistId) in pending.withIndex()) {
             try {
                 musicRepository.addSongToPlaylist(playlistId, songId)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                // Only requeue the interrupted request and those not yet attempted.
+                // Earlier playlist additions completed and must not be replayed.
+                val notYetCompleted = pending.drop(index)
                 synchronized(pendingPlaylistRequests) {
                     val existing = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
-                    pending.filterNot { it in existing }.forEach(existing::add)
+                    notYetCompleted.filterNot { it in existing }.forEach(existing::add)
                 }
                 throw cancelled
             } catch (e: Exception) {
