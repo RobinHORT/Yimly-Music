@@ -118,7 +118,9 @@ fun LyricsView(
     // eLRC remains anchored to the actual word timestamps.
     val lyricLeadInMs = when (config.formatMode) {
         LyricsFormatMode.LRC -> config.lrcDisplayLeadInMs.coerceIn(1500, 5000)
-        LyricsFormatMode.ELRC -> config.elrcFadeInDurationMs.coerceIn(300, 5000)
+        LyricsFormatMode.ELRC -> if (lines.any { it.hasWordTimestamps && it.words.isNotEmpty() }) {
+            config.elrcFadeInDurationMs.coerceIn(300, 5000)
+        } else 0
     }.toLong()
     val slotPositionMs = currentPositionMs + lyricLeadInMs
     val slotState = remember(lines, slotPositionMs, effectiveOffset) {
