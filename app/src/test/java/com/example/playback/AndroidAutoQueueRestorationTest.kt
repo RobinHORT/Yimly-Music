@@ -783,6 +783,9 @@ class AndroidAutoQueueRestorationTest {
     @Test
     fun testProduction_forwardingSeek_mapsTimelineItemToLogicalQueueIndex() = runTest {
         playbackManager.playSong(songA, listOf(songA, songB, songC), startIndex = 0)
+        // Wait for the initial production queue resolution before replacing its timeline
+        // with a deliberately different order for the indexed-seek regression.
+        playbackManager.playbackJob?.join()
         val player = playbackManager.player!!
 
         val mediaItemC = playbackManager.buildMediaItem(songC, wantInstrumental = false)
@@ -793,6 +796,8 @@ class AndroidAutoQueueRestorationTest {
 
         val forwardingPlayer = YimlyForwardingPlayer(player, playbackManager)
         forwardingPlayer.seekTo(0, 37_000L)
+        // Wait for playQueueItem's real Media3 handoff, not merely its optimistic state update.
+        playbackManager.playbackJob?.join()
 
         val info = playbackManager.playbackInfo.value
         assertEquals("Timeline item C maps to logical queue index 2", 2, info.currentQueueIndex)
