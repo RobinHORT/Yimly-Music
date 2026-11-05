@@ -757,7 +757,7 @@ fun SynchronizedLyricContent(
     val adjustedPos = currentPositionMs + effectiveOffsetMs
     val overlapMs = config.lyricTransitionOverlapMs.coerceIn(0, 2000).toLong()
     val transitionStartMs = line.timeMs - overlapMs
-    val transitionAlpha = if (!isCurrent || overlapMs == 0L) 1f else {
+    val transitionAlpha = if (!isCurrent || overlapMs == 0L || config.formatMode == LyricsFormatMode.ELRC) 1f else {
         val transitionStart = if (config.formatMode == LyricsFormatMode.LRC) {
             line.timeMs - config.lrcDisplayLeadInMs.coerceIn(1500, 5000).toLong()
         } else transitionStartMs
