@@ -352,15 +352,8 @@ class MainViewModel(
                 _uiMessage.value = message
                 onComplete?.invoke(null)
             } finally {
-                val finalStatus = _downloadStatusMap.value[key].orEmpty()
-                if (finalStatus.startsWith("Failed") ||
-                    finalStatus.startsWith("Access denied") ||
-                    finalStatus == "Cancelled"
-                ) {
-                    synchronized(pendingPlaylistRequests) {
-                        pendingPlaylistRequests.remove(key)
-                    }
-                }
+                // Keep pending playlist requests after failed or cancelled downloads.
+                // A later retry must still know which playlists need the downloaded song.
                 synchronized(downloadingTrackKeys) {
                     downloadingTrackKeys.remove(key)
                 }
