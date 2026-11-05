@@ -403,12 +403,12 @@ class MainViewModel(
                 if (existingId != null) {
                     completedTrackSongIdMap[key] = existingId
                     _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existingId)
+                    musicRepository.addSongToPlaylist(playlistId, existingId)
                     synchronized(pendingPlaylistRequests) {
                         val pending = pendingPlaylistRequests[key]
                         pending?.remove(playlistId)
                         if (pending.isNullOrEmpty()) pendingPlaylistRequests.remove(key)
                     }
-                    musicRepository.addSongToPlaylist(playlistId, existingId)
                     _uiMessage.value = "Added to playlist"
                     return@launch
                 }
