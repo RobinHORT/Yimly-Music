@@ -527,6 +527,41 @@ class ExternalDownloaderCorrectionsTest {
     }
 
     @Test
+    fun testFailedPlaylistAddForExistingSongRemainsRetryable() = runBlocking {
+        val track = ExternalTrack(title = "Already Here", artist = "Artist Existing")
+        database.musicDao().insertSong(
+            Song(
+                id = "existing_playlist_song",
+                title = track.title,
+                artist = track.artist
+            ).toEntity()
+        )
+        fakeApi.playlistAddFailuresRemaining = 1
+
+        viewModel.registerPendingPlaylistAdd(track, "existing_playlist_target")
+        var attempts = 0
+        while (fakeApi.playlistAddCalls.size < 1 && attempts < 50) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+        assertEquals(listOf("existing_playlist_target" to "existing_playlist_song"), fakeApi.playlistAddCalls)
+
+        // Retry the same request: it should reuse the existing song and not download it.
+        viewModel.registerPendingPlaylistAdd(track, "existing_playlist_target")
+        attempts = 0
+        while (fakeApi.playlistAddCalls.size < 2 && attempts < 50) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals(2, fakeApi.playlistAddCalls.size)
+        assertEquals("existing_playlist_song", fakeApi.playlistAddCalls.last().second)
+        assertEquals(0, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
     fun testMissingDownloaderSettingsDoesNotFallbackToHardcodedLibrary() = runBlocking {
         val track = ExternalTrack(title = "No Lib Track", artist = "Artist N")
         fakeApi.settingsLibraryId = null // Server returns null/empty library ID
