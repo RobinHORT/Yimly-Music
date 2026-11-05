@@ -145,6 +145,37 @@ class LyricsSettingsComprehensiveTest {
     }
 
     @Test
+    fun testFocusModeSupportsEvenSectionCounts() {
+        val lyricsData = LyricsData(
+            songId = "even_sections",
+            lines = listOf(
+                LyricLine(timeMs = 1000L, text = "one"),
+                LyricLine(timeMs = 2000L, text = "two active"),
+                LyricLine(timeMs = 3000L, text = "three"),
+                LyricLine(timeMs = 4000L, text = "four")
+            ),
+            isSynced = true
+        )
+
+        composeTestRule.setContent {
+            LyricsView(
+                lyricsData = lyricsData,
+                currentPositionMs = 2050L,
+                songOffsetMs = 0L,
+                config = LyricsDisplayConfig(visibleLines = 4, textCase = LyricTextCase.TITLE_CASE),
+                onSeekTo = {},
+                onOffsetChange = {}
+            )
+        }
+
+        // Four slots are one previous, current, and two upcoming lines.
+        composeTestRule.onNodeWithText("One").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Two Active").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Three").assertIsDisplayed()
+        composeTestRule.onNodeWithText("Four").assertIsDisplayed()
+    }
+
+    @Test
     fun testMultipleVisibleLinesRendering() {
         val config = LyricsDisplayConfig(
             visibleLines = 5,
