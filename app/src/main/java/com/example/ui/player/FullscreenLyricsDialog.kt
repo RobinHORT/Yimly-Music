@@ -223,7 +223,7 @@ fun FullscreenLyricsDialog(
                     ),
                     showFocusControls = false,
                     floatingFocusMode = false,
-                    rotatingSections = true,
+                    rotatingSections = false,
                     onSeekTo = onSeekTo,
                     onOpenSettings = onOpenSettings,
                     onOffsetChange = onLyricsOffsetChange,
