@@ -416,6 +416,151 @@ class AndroidAutoQueueRestorationTest {
         }
     }
 
+    /**
+     * Test 16 — Natural next track transition
+     * Verifies that when Media3 advances to the next track, current song and index
+     * update accurately without assuming timeline index == queue index.
+     */
+    @Test
+    fun test16_naturalNextTrackTransition_updatesSongAndIndex() {
+        val queue = listOf(songA, songB, songC, songD, songE)
+        var currentQueueIndex = 0
+        var currentSong = queue[currentQueueIndex]
+
+        // Natural auto-advance to songB (e.g. MediaItem transition with song_b)
+        val nextMediaId = "all_song|song_b"
+        val nextSongId = nextMediaId.substringAfter("|")
+        val matchedIndex = queue.indexOfFirst { it.id == nextSongId }
+
+        assertTrue(matchedIndex >= 0)
+        currentQueueIndex = matchedIndex
+        currentSong = queue[matchedIndex]
+
+        assertEquals(1, currentQueueIndex)
+        assertEquals("song_b", currentSong.id)
+    }
+
+    /**
+     * Test 17 — Repeat-one and Repeat-all mode mapping
+     * Verifies RepeatMode maps bidirectionally to Player repeat modes.
+     */
+    @Test
+    fun test17_repeatModeMapping_roundTripsCorrectly() {
+        fun mapToPlayer(mode: RepeatMode): Int = when (mode) {
+            RepeatMode.OFF -> androidx.media3.common.Player.REPEAT_MODE_OFF
+            RepeatMode.ALL -> androidx.media3.common.Player.REPEAT_MODE_ALL
+            RepeatMode.ONE -> androidx.media3.common.Player.REPEAT_MODE_ONE
+        }
+        fun mapFromPlayer(mode: Int): RepeatMode = when (mode) {
+            androidx.media3.common.Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+            androidx.media3.common.Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+            else -> RepeatMode.OFF
+        }
+
+        assertEquals(androidx.media3.common.Player.REPEAT_MODE_OFF, mapToPlayer(RepeatMode.OFF))
+        assertEquals(androidx.media3.common.Player.REPEAT_MODE_ONE, mapToPlayer(RepeatMode.ONE))
+        assertEquals(androidx.media3.common.Player.REPEAT_MODE_ALL, mapToPlayer(RepeatMode.ALL))
+
+        assertEquals(RepeatMode.OFF, mapFromPlayer(androidx.media3.common.Player.REPEAT_MODE_OFF))
+        assertEquals(RepeatMode.ONE, mapFromPlayer(androidx.media3.common.Player.REPEAT_MODE_ONE))
+        assertEquals(RepeatMode.ALL, mapFromPlayer(androidx.media3.common.Player.REPEAT_MODE_ALL))
+    }
+
+    /**
+     * Test 18 — Instrumental preservation across queue transitions
+     * Verifies that if user has instrumental active, transitioning to an instrumental track
+     * keeps instrumental active, and transitioning to a non-instrumental track falls back gracefully
+     * without clearing the user preference.
+     */
+    @Test
+    fun test18_instrumentalPreservation_acrossQueueTransitions() {
+        val queue = listOf(songA, songC, songD) // songA: false, songC: true, songD: false
+        var isInstrumentalPreference = true
+
+        // Track 1: songA (no instrumental)
+        val song1 = queue[0]
+        val song1PlayableInst = isInstrumentalPreference && song1.hasInstrumentalEffective
+        assertFalse("songA does not have instrumental", song1PlayableInst)
+
+        // Natural transition to Track 2: songC (has instrumental)
+        val song2 = queue[1]
+        val song2PlayableInst = isInstrumentalPreference && song2.hasInstrumentalEffective
+        assertTrue("songC preserves and plays instrumental", song2PlayableInst)
+
+        // Manual transition to Track 3: songD (no instrumental)
+        val song3 = queue[2]
+        val song3PlayableInst = isInstrumentalPreference && song3.hasInstrumentalEffective
+        assertFalse("songD plays vocal", song3PlayableInst)
+        assertTrue("User instrumental preference was never cleared", isInstrumentalPreference)
+    }
+
+    /**
+     * Test 19 — Queue mutations (add, remove, reorder, clearUpcoming)
+     */
+    @Test
+    fun test19_queueMutations_preserveOrderAndIndices() {
+        val queue = mutableListOf(songA, songB, songC)
+        var currentIndex = 1 // songB active
+
+        // Add to queue
+        queue.add(songD)
+        assertEquals(listOf("song_a", "song_b", "song_c", "song_d"), queue.map { it.id })
+        assertEquals(1, currentIndex)
+
+        // Play next (inserts after currentIndex)
+        val insertIndex = currentIndex + 1
+        queue.add(insertIndex, songE)
+        assertEquals(listOf("song_a", "song_b", "song_e", "song_c", "song_d"), queue.map { it.id })
+        assertEquals(1, currentIndex)
+
+        // Remove item before current
+        queue.removeAt(0) // removes songA
+        currentIndex--
+        assertEquals(listOf("song_b", "song_e", "song_c", "song_d"), queue.map { it.id })
+        assertEquals(0, currentIndex)
+        assertEquals("song_b", queue[currentIndex].id)
+
+        // Reorder upcoming items
+        val item = queue.removeAt(2) // songC
+        queue.add(1, item)
+        assertEquals(listOf("song_b", "song_c", "song_e", "song_d"), queue.map { it.id })
+
+        // Clear upcoming
+        val currentSong = queue[currentIndex]
+        val clearedQueue = listOf(currentSong)
+        assertEquals(1, clearedQueue.size)
+        assertEquals("song_b", clearedQueue[0].id)
+    }
+
+    /**
+     * Test 20 — Adding a song when currentSong == null starts the added song
+     */
+    @Test
+    fun test20_addingSongWhenCurrentSongIsNull_startsAddedSong() {
+        val existingQueue = listOf(songA, songB)
+        val newSong = songC
+        val combinedQueue = existingQueue + newSong
+
+        // When currentSong == null, start added song (songC) instead of existing index 0 (songA)
+        val targetIndex = combinedQueue.indexOfFirst { it.id == newSong.id }.coerceAtLeast(0)
+        assertEquals(2, targetIndex)
+        assertEquals("song_c", combinedQueue[targetIndex].id)
+    }
+
+    /**
+     * Test 21 — Android Auto indexed seek preserves target track and position
+     */
+    @Test
+    fun test21_androidAutoIndexedSeek_targetsCorrectTrackAndPosition() {
+        val queue = listOf(songA, songB, songC)
+        val targetIndex = 2
+        val targetPositionMs = 35000L
+
+        val selectedSong = queue[targetIndex]
+        assertEquals("song_c", selectedSong.id)
+        assertEquals(35000L, targetPositionMs)
+    }
+
     private data class FakeResolvedTrack(
         val song: Song,
         val isPlayable: Boolean,

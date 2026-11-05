@@ -141,6 +141,11 @@ class ExternalDownloaderCorrectionsTest {
             retryDownloadCallCount++
             return mapOf("success" to true)
         }
+
+        override suspend fun replaceSongRecordingSource(id: String, request: Map<String, String>): Map<String, Any> = mapOf("success" to true)
+        override suspend fun replaceSongInstrumental(id: String): Map<String, Any> = mapOf("success" to true)
+        override suspend fun getSongReplacementStatus(id: String, sinceEpochMs: Long): Map<String, Any> = mapOf("success" to true)
+        override suspend fun getSongReplacementJob(jobId: String): Map<String, Any> = mapOf("status" to "completed")
     }
 
     private fun pumpLooper(ms: Long = 100L) {

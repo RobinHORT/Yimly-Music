@@ -29,6 +29,7 @@ class MusicRepositoryLookupTest {
         override fun getRecentlyAddedSongs(): Flow<List<SongEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
         override fun getFavoriteSongs(): Flow<List<SongEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
         override suspend fun getSongById(id: String) = songs[id]
+        override suspend fun clearSongLyricsMetadata(songId: String) {}
         override suspend fun updateSongLyricOffset(songId: String, offsetMs: Long) = throw NotImplementedError("updateSongLyricOffset")
         override fun getSongsByAlbum(albumTitle: String): Flow<List<SongEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
         override fun getSongsByArtist(artistName: String): Flow<List<SongEntity>> = kotlinx.coroutines.flow.flowOf(emptyList())
@@ -140,6 +141,10 @@ class MusicRepositoryLookupTest {
         override suspend fun getDownloadJob(jobId: String): DownloaderJobResponse = throw NotImplementedError("getDownloadJob")
         override suspend fun retryDownloadJob(jobId: String): Map<String, Any> = throw NotImplementedError("retryDownloadJob")
         override suspend fun getDownloaderSettings(): DownloaderSettingsResponse = throw NotImplementedError("getDownloaderSettings")
+        override suspend fun replaceSongRecordingSource(id: String, request: Map<String, String>): Map<String, Any> = throw NotImplementedError()
+        override suspend fun replaceSongInstrumental(id: String): Map<String, Any> = throw NotImplementedError()
+        override suspend fun getSongReplacementStatus(id: String, sinceEpochMs: Long): Map<String, Any> = throw NotImplementedError()
+        override suspend fun getSongReplacementJob(jobId: String): Map<String, Any> = throw NotImplementedError()
     }
 
     @Test

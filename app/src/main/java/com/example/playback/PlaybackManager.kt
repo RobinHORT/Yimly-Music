@@ -107,11 +107,19 @@ class PlaybackManager(
                     .build(),
                 true
             )
+            setRepeatMode(
+                when (_playbackInfo.value.repeatMode) {
+                    RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+                    RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+                    RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+                }
+            )
+            setShuffleModeEnabled(_playbackInfo.value.isShuffle)
             addListener(object : Player.Listener {
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
                         Player.STATE_ENDED -> {
-                            Log.d("PlaybackManager", "Song ended, advancing queue...")
+                            Log.d("PlaybackManager", "Song ended, checking queue...")
                             handleSongEnded()
                         }
                         Player.STATE_READY -> {
@@ -124,7 +132,27 @@ class PlaybackManager(
                 }
 
                 override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    syncAndroidAutoQueueFromPlayer(mediaItem)
+                    handleMediaItemTransition(mediaItem, reason)
+                }
+
+                override fun onRepeatModeChanged(repeatMode: Int) {
+                    val mapped = when (repeatMode) {
+                        Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                        Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                        else -> RepeatMode.OFF
+                    }
+                    if (_playbackInfo.value.repeatMode != mapped) {
+                        _playbackInfo.value = _playbackInfo.value.copy(repeatMode = mapped)
+                        persistPlaybackSnapshot(force = true)
+                    }
+                }
+
+                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+                    if (_playbackInfo.value.isShuffle != shuffleModeEnabled) {
+                        if (!shuffleModeEnabled) shuffleHistory.clear()
+                        _playbackInfo.value = _playbackInfo.value.copy(isShuffle = shuffleModeEnabled)
+                        persistPlaybackSnapshot(force = true)
+                    }
                 }
 
                 override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -284,19 +312,21 @@ class PlaybackManager(
                         return@launch
                     }
                     networkRecoveryJob = null
-                    isTransitioning = true
-                    acquireTransitionWakeLock()
-                    if (isDecoderOrResourceError) {
-                        try {
-                            _player?.release()
-                        } catch (e: Exception) {
-                            // ignore
+                    withContext(Dispatchers.Main.immediate) {
+                        isTransitioning = true
+                        acquireTransitionWakeLock()
+                        if (isDecoderOrResourceError) {
+                            try {
+                                _player?.release()
+                            } catch (e: Exception) {
+                                // ignore
+                            }
+                            _player = null
+                            ensurePlayerInitialized()
                         }
-                        _player = null
-                        ensurePlayerInitialized()
+                        val currentPos = _playbackPositionMs.value.coerceAtLeast(0L)
+                        playCurrentQueueIndex(targetInstrumental = latest.isInstrumental, initialPositionMs = currentPos)
                     }
-                    val currentPos = _playbackPositionMs.value.coerceAtLeast(0L)
-                    playCurrentQueueIndex(targetInstrumental = latest.isInstrumental, initialPositionMs = currentPos)
                 }
                 return
             }
@@ -447,7 +477,7 @@ class PlaybackManager(
         }
     }
 
-    fun playQueueItem(index: Int) {
+    fun playQueueItem(index: Int, initialPositionMs: Long? = null) {
         val info = _playbackInfo.value
         if (index in info.queue.indices) {
             androidAutoQueueSyncVersion++
@@ -455,16 +485,17 @@ class PlaybackManager(
             androidAutoQueueSyncJob = null
             ensurePlayerInitialized()
             startPlaybackService()
+            val currentInst = info.isInstrumental
             _playbackInfo.value = info.copy(
                 currentQueueIndex = index,
                 currentSong = info.queue[index],
-                currentPositionMs = 0L,
+                currentPositionMs = initialPositionMs ?: 0L,
                 hasInstrumental = info.queue[index].hasInstrumentalEffective,
-                isInstrumental = false
+                isInstrumental = currentInst
             )
             shuffleHistory.clear()
             persistPlaybackSnapshot(force = true)
-            playCurrentQueueIndex()
+            playCurrentQueueIndex(targetInstrumental = currentInst, initialPositionMs = initialPositionMs)
         }
     }
 
@@ -542,7 +573,72 @@ class PlaybackManager(
         playCurrentQueueIndex()
     }
 
+    private fun handleMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+        if (mediaItem == null) return
+        val currentMediaId = mediaItem.mediaId
+
+        if (isAndroidAutoMediaId(currentMediaId)) {
+            syncAndroidAutoQueueFromPlayer(mediaItem)
+        }
+
+        val songId = when {
+            currentMediaId.startsWith("playlist_song|") -> currentMediaId.substringAfterLast("|").takeIf { it.isNotBlank() }
+            currentMediaId.startsWith("favorite_song|") ||
+                currentMediaId.startsWith("recent_song|") ||
+                currentMediaId.startsWith("all_song|") -> currentMediaId.substringAfter("|").takeIf { it.isNotBlank() }
+            else -> currentMediaId.removeSuffix("_inst").takeIf { it.isNotBlank() }
+        } ?: return
+
+        val info = _playbackInfo.value
+        val queue = info.queue
+        if (queue.isEmpty()) return
+
+        val p = _player
+        val currentMediaIndex = p?.currentMediaItemIndex ?: -1
+        val matchedIndex = if (currentMediaIndex in queue.indices && queue[currentMediaIndex].id == songId) {
+            currentMediaIndex
+        } else {
+            queue.indexOfFirst { it.id == songId }.takeIf { it >= 0 }
+        } ?: return
+
+        val newSong = queue[matchedIndex]
+        val keepInstrumental = info.isInstrumental
+        isTransitioning = false
+        releaseTransitionWakeLock()
+
+        if (info.currentQueueIndex != matchedIndex || info.currentSong?.id != newSong.id || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
+            val newPos = if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) 0L else (p?.currentPosition?.coerceAtLeast(0L) ?: 0L)
+            _playbackInfo.value = info.copy(
+                currentQueueIndex = matchedIndex,
+                currentSong = newSong,
+                currentPositionMs = newPos,
+                hasInstrumental = newSong.hasInstrumentalEffective,
+                isInstrumental = keepInstrumental
+            )
+            _playbackPositionMs.value = newPos
+            _lyricsPositionMs.value = newPos
+            updatePlaybackInfo()
+            persistPlaybackSnapshot()
+            coroutineScope.launch(Dispatchers.IO) {
+                musicRepository.recordPlayHistory(newSong.id)
+            }
+            Log.d("PlaybackManager", "Transitioned to ${newSong.title} (index $matchedIndex, reason $reason)")
+        }
+    }
+
     private fun handleSongEnded() {
+        val p = _player
+        val info = _playbackInfo.value
+        val hasMultiItemTimeline = p != null && p.mediaItemCount > 1 && p.mediaItemCount == info.queue.size
+        if (hasMultiItemTimeline && info.repeatMode == RepeatMode.OFF) {
+            // When timeline contains all items and repeat is OFF, STATE_ENDED means the queue has completed naturally.
+            // Do not call next() to avoid duplicate/unexpected advances.
+            isTransitioning = false
+            releaseTransitionWakeLock()
+            updatePlaybackInfo()
+            return
+        }
+
         if (isTransitioning) {
             Log.d("PlaybackManager", "handleSongEnded ignored: already transitioning")
             return
@@ -707,6 +803,8 @@ class PlaybackManager(
         val p = ensurePlayerInitialized()
         if (p.playbackState == Player.STATE_ENDED) {
             p.seekTo(0)
+        } else if (p.playbackState == Player.STATE_IDLE) {
+            p.prepare()
         }
         p.play()
         updatePlaybackInfo()
@@ -730,6 +828,11 @@ class PlaybackManager(
     }
 
     fun setRepeatMode(mode: RepeatMode) {
+        _player?.repeatMode = when (mode) {
+            RepeatMode.OFF -> Player.REPEAT_MODE_OFF
+            RepeatMode.ALL -> Player.REPEAT_MODE_ALL
+            RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+        }
         _playbackInfo.value = _playbackInfo.value.copy(repeatMode = mode)
         persistPlaybackSnapshot(force = true)
     }
@@ -742,6 +845,7 @@ class PlaybackManager(
 
     fun setShuffle(enabled: Boolean) {
         if (!enabled) shuffleHistory.clear()
+        _player?.shuffleModeEnabled = enabled
         _playbackInfo.value = _playbackInfo.value.copy(isShuffle = enabled)
         persistPlaybackSnapshot(force = true)
     }
@@ -807,10 +911,28 @@ class PlaybackManager(
         val info = _playbackInfo.value
         val newQueue = info.queue + song
         shuffleHistory.clear()
-        _playbackInfo.value = info.copy(queue = newQueue)
-        persistPlaybackSnapshot(force = true)
         if (info.currentSong == null) {
-            playSong(song, newQueue, 0)
+            val playIndex = newQueue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+            playSong(song, newQueue, playIndex)
+        } else {
+            _playbackInfo.value = info.copy(queue = newQueue)
+            persistPlaybackSnapshot(force = true)
+            val syncVer = androidAutoQueueSyncVersion
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val wantInst = song.isInstrumentalTrack || (info.isInstrumental && song.hasInstrumentalEffective)
+                    val mediaItem = buildMediaItem(song, wantInst)
+                    withContext(Dispatchers.Main) {
+                        if (syncVer != androidAutoQueueSyncVersion) return@withContext
+                        val p = _player ?: return@withContext
+                        if (p.mediaItemCount == newQueue.size - 1) {
+                            p.addMediaItem(mediaItem)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("PlaybackManager", "Failed to add media item to player timeline", e)
+                }
+            }
         }
     }
 
@@ -823,10 +945,27 @@ class PlaybackManager(
         val insertIndex = if (info.currentQueueIndex in queue.indices) info.currentQueueIndex + 1 else queue.size
         queue.add(insertIndex, song)
         shuffleHistory.clear()
-        _playbackInfo.value = info.copy(queue = queue)
-        persistPlaybackSnapshot(force = true)
         if (info.currentSong == null) {
             playSong(song, queue, insertIndex)
+        } else {
+            _playbackInfo.value = info.copy(queue = queue)
+            persistPlaybackSnapshot(force = true)
+            val syncVer = androidAutoQueueSyncVersion
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val wantInst = song.isInstrumentalTrack || (info.isInstrumental && song.hasInstrumentalEffective)
+                    val mediaItem = buildMediaItem(song, wantInst)
+                    withContext(Dispatchers.Main) {
+                        if (syncVer != androidAutoQueueSyncVersion) return@withContext
+                        val p = _player ?: return@withContext
+                        if (p.mediaItemCount == queue.size - 1 && insertIndex <= p.mediaItemCount) {
+                            p.addMediaItem(insertIndex, mediaItem)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("PlaybackManager", "Failed to insert media item into player timeline", e)
+                }
+            }
         }
     }
 
@@ -883,6 +1022,11 @@ class PlaybackManager(
         // Removing the active item must also move ExoPlayer to the replacement item.
         if (removedCurrent && newSong != null) {
             playCurrentQueueIndex(targetInstrumental = false)
+        } else {
+            val p = _player
+            if (p != null && index < p.mediaItemCount && p.mediaItemCount == queue.size + 1) {
+                p.removeMediaItem(index)
+            }
         }
     }
 
@@ -963,6 +1107,11 @@ class PlaybackManager(
             )
             shuffleHistory.clear()
             persistPlaybackSnapshot(force = true)
+
+            val p = _player
+            if (p != null && fromIndex < p.mediaItemCount && toIndex < p.mediaItemCount && p.mediaItemCount == queue.size) {
+                p.moveMediaItem(fromIndex, toIndex)
+            }
         }
     }
 
@@ -991,17 +1140,29 @@ class PlaybackManager(
         val info = _playbackInfo.value
         val currentSong = info.currentSong
         if (currentSong != null) {
+            val activeIndex = info.currentQueueIndex
             _playbackInfo.value = info.copy(
                 queue = listOf(currentSong),
                 currentQueueIndex = 0
             )
             shuffleHistory.clear()
             persistPlaybackSnapshot(force = true)
+
+            val p = _player
+            if (p != null && activeIndex in 0 until p.mediaItemCount) {
+                if (activeIndex + 1 < p.mediaItemCount) {
+                    p.removeMediaItems(activeIndex + 1, p.mediaItemCount)
+                }
+                if (activeIndex > 0) {
+                    p.removeMediaItems(0, activeIndex)
+                }
+            }
         } else {
             _playbackInfo.value = info.copy(
                 queue = emptyList(),
                 currentQueueIndex = -1
             )
+            _player?.clearMediaItems()
             clearPersistedPlaybackSnapshot()
         }
     }

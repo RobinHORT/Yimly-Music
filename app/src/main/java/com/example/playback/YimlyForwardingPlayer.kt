@@ -126,18 +126,14 @@ class YimlyForwardingPlayer(
     override fun seekTo(mediaItemIndex: Int, positionMs: Long) {
         val info = playbackManager.playbackInfo.value
         if (mediaItemIndex != info.currentQueueIndex && mediaItemIndex in info.queue.indices) {
-            playbackManager.playQueueItem(mediaItemIndex)
-            if (positionMs > 0L) {
-                playbackManager.seekTo(positionMs)
-            }
+            playbackManager.playQueueItem(mediaItemIndex, initialPositionMs = positionMs.takeIf { it > 0L })
         } else {
             playbackManager.seekTo(positionMs)
         }
     }
 
     override fun play() {
-        playbackManager.startPlaybackService()
-        super.play()
+        playbackManager.play()
     }
 
     override fun setPlayWhenReady(playWhenReady: Boolean) {

@@ -17,6 +17,7 @@ import com.example.playback.YimlySessionCallback
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -268,6 +269,75 @@ class MediaControlsIntegrationTest {
         // Metadata still corresponds to Song 1
         assertEquals("Track One", playbackManager.playbackInfo.value.currentSong?.title)
         assertEquals("Artist A", playbackManager.playbackInfo.value.currentSong?.artist)
+    }
+
+    @Test
+    fun testSetRepeatModePropagatesToPlayer() {
+        val player = playbackManager.ensurePlayerInitialized()
+        playbackManager.setRepeatMode(RepeatMode.ONE)
+        assertEquals(Player.REPEAT_MODE_ONE, player.repeatMode)
+        assertEquals(RepeatMode.ONE, playbackManager.playbackInfo.value.repeatMode)
+
+        playbackManager.setRepeatMode(RepeatMode.ALL)
+        assertEquals(Player.REPEAT_MODE_ALL, player.repeatMode)
+        assertEquals(RepeatMode.ALL, playbackManager.playbackInfo.value.repeatMode)
+
+        playbackManager.setRepeatMode(RepeatMode.OFF)
+        assertEquals(Player.REPEAT_MODE_OFF, player.repeatMode)
+        assertEquals(RepeatMode.OFF, playbackManager.playbackInfo.value.repeatMode)
+    }
+
+    @Test
+    fun testSetShuffleModePropagatesToPlayer() {
+        val player = playbackManager.ensurePlayerInitialized()
+        playbackManager.setShuffle(true)
+        assertTrue(player.shuffleModeEnabled)
+        assertTrue(playbackManager.playbackInfo.value.isShuffle)
+
+        playbackManager.setShuffle(false)
+        assertFalse(player.shuffleModeEnabled)
+        assertFalse(playbackManager.playbackInfo.value.isShuffle)
+    }
+
+    @Test
+    fun testAddToQueueWhenCurrentSongIsNullPlaysAddedSong() {
+        // Clear active song but keep a queue of songs
+        playbackManager.playSong(song1, listOf(song1, song2), startIndex = 0)
+        playbackManager.clearQueueAndStop()
+        assertEquals(-1, playbackManager.playbackInfo.value.currentQueueIndex)
+        assertNull(playbackManager.playbackInfo.value.currentSong)
+
+        // Adding a song when currentSong == null should start the added song
+        playbackManager.addToQueue(song3)
+        assertEquals(song3.id, playbackManager.playbackInfo.value.currentSong?.id)
+        assertEquals(0, playbackManager.playbackInfo.value.currentQueueIndex)
+    }
+
+    @Test
+    fun testYimlyForwardingPlayerSeekToWithPositionPreservesInitialPosition() {
+        playbackManager.playSong(song1, listOf(song1, song2, song3), startIndex = 0)
+        val forwardingPlayer = playbackManager.mediaSession.player as YimlyForwardingPlayer
+
+        // Seek to index 2 with position 25,000ms
+        forwardingPlayer.seekTo(2, 25000L)
+        assertEquals(2, playbackManager.playbackInfo.value.currentQueueIndex)
+        assertEquals(song3.id, playbackManager.playbackInfo.value.currentSong?.id)
+        assertEquals(25000L, playbackManager.playbackInfo.value.currentPositionMs)
+    }
+
+    @Test
+    fun testStopThenPlayPreparesPlayer() {
+        playbackManager.playSong(song1, listOf(song1, song2), startIndex = 0)
+        val forwardingPlayer = playbackManager.mediaSession.player as YimlyForwardingPlayer
+
+        forwardingPlayer.stop()
+        val player = playbackManager.player
+        assertNotNull(player)
+        assertEquals(Player.STATE_IDLE, player!!.playbackState)
+
+        // Calling play after stop must re-prepare the player
+        forwardingPlayer.play()
+        assertFalse("Player must not remain in STATE_IDLE after play()", player.playbackState == Player.STATE_IDLE)
     }
 
     private fun createDummyControllerInfo(): androidx.media3.session.MediaSession.ControllerInfo {
