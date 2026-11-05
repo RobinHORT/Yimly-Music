@@ -93,9 +93,9 @@ fun PlaylistDetailScreen(
     onDeletePlaylist: (() -> Unit)? = null,
     onUpdatePlaylist: ((String, String?, Boolean?) -> Unit)? = null,
     onRemoveSongFromPlaylist: ((String) -> Unit)? = null,
-    onSharePlaylist: ((String, String) -> Unit)? = null,
+    onSharePlaylist: ((String, String, () -> Unit) -> Unit)? = null,
     onGetCollaborators: ((onResult: (List<Collaborator>) -> Unit) -> Unit)? = null,
-    onRevokeShare: ((String) -> Unit)? = null,
+    onRevokeShare: ((String, () -> Unit) -> Unit)? = null,
     onUpdateArtwork: ((String) -> Unit)? = null,
     isAdmin: Boolean = false,
     modifier: Modifier = Modifier
@@ -553,9 +553,10 @@ fun PlaylistDetailScreen(
                     Button(
                         onClick = {
                             if (targetUsername.isNotBlank()) {
-                                onSharePlaylist(targetUsername.trim(), selectedPermission)
+                                onSharePlaylist(targetUsername.trim(), selectedPermission) {
+                                    onGetCollaborators?.invoke { list -> collaborators = list }
+                                }
                                 targetUsername = ""
-                                onGetCollaborators?.invoke { list -> collaborators = list }
                             }
                         },
                         colors = ButtonDefaults.buttonColors(containerColor = YimlyPink),
@@ -584,8 +585,9 @@ fun PlaylistDetailScreen(
                                     if (onRevokeShare != null) {
                                         IconButton(
                                             onClick = {
-                                                onRevokeShare(collab.userId.ifBlank { collab.id })
-                                                onGetCollaborators?.invoke { list -> collaborators = list }
+                                                onRevokeShare(collab.userId.ifBlank { collab.id }) {
+                                                    onGetCollaborators?.invoke { list -> collaborators = list }
+                                                }
                                             }
                                         ) {
                                             Icon(Icons.Default.Close, contentDescription = "Revoke", tint = Color(0xFFFF5252))
