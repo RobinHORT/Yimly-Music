@@ -77,12 +77,17 @@ class ExternalDownloaderCorrectionsTest {
         var pollFailuresRemaining = 0
         var downloadJobPollCount = 0
         val playlistAddCalls = mutableListOf<Pair<String, String>>()
+        var playlistAddFailuresRemaining = 0
 
         override suspend fun addSongToPlaylist(
             id: String,
             request: com.example.data.models.AddPlaylistSongRequest
         ): Map<String, Any> {
             playlistAddCalls.add(id to request.songId)
+            if (playlistAddFailuresRemaining > 0) {
+                playlistAddFailuresRemaining--
+                throw java.io.IOException("Temporary playlist add failure")
+            }
             return mapOf("success" to true)
         }
 
@@ -489,6 +494,36 @@ class ExternalDownloaderCorrectionsTest {
 
         assertEquals(listOf("successful_playlist" to "pending_song_1"), fakeApi.playlistAddCalls)
         assertEquals(2, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
+    fun testFailedPlaylistAddRemainsRetryableAfterDownloadCompletes() = runBlocking {
+        val track = ExternalTrack(title = "Playlist Retry", artist = "Artist R")
+        fakeApi.jobResponse = DownloaderJobResponse(id = "job_playlist_retry", status = "completed")
+        fakeApi.songs = listOf(Song(id = "playlist_retry_song", title = track.title, artist = track.artist))
+        fakeApi.playlistAddFailuresRemaining = 1
+
+        viewModel.registerPendingPlaylistAdd(track, "playlist_retry_target")
+        var attempts = 0
+        while (fakeApi.playlistAddCalls.size < 1 && attempts < 150) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+        assertEquals(listOf("playlist_retry_target" to "playlist_retry_song"), fakeApi.playlistAddCalls)
+
+        // The failed playlist request must remain available after the completed download.
+        viewModel.registerPendingPlaylistAdd(track, "playlist_retry_target")
+        attempts = 0
+        while (fakeApi.playlistAddCalls.size < 2 && attempts < 50) {
+            pumpLooper(50L)
+            kotlinx.coroutines.delay(10L)
+            attempts++
+        }
+
+        assertEquals(2, fakeApi.playlistAddCalls.size)
+        assertEquals("playlist_retry_song", fakeApi.playlistAddCalls.last().second)
+        assertEquals(1, fakeApi.startDownloadCallCount)
     }
 
     @Test
