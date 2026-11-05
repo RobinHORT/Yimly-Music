@@ -327,11 +327,21 @@ fun SearchScreen(
             val showAlbums = selectedFilter == 0 || selectedFilter == 3
             val showPlaylists = selectedFilter == 0 || selectedFilter == 4
 
-            val hasResults = searchResult.songs.isNotEmpty() ||
+            // Empty-state visibility must follow the active filter. Otherwise an
+            // unrelated category can make a filtered search look blank instead of
+            // showing the correct "No results" message.
+            val hasResults = when (selectedFilter) {
+                0 -> searchResult.songs.isNotEmpty() ||
                     searchResult.artists.isNotEmpty() ||
                     searchResult.albums.isNotEmpty() ||
                     searchResult.playlists.isNotEmpty() ||
                     searchResult.externalSongs.isNotEmpty()
+                1 -> searchResult.songs.isNotEmpty() || searchResult.externalSongs.isNotEmpty()
+                2 -> searchResult.artists.isNotEmpty()
+                3 -> searchResult.albums.isNotEmpty()
+                4 -> searchResult.playlists.isNotEmpty()
+                else -> false
+            }
 
             if (!hasResults) {
                 item {
