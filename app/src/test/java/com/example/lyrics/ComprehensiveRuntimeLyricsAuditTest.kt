@@ -146,6 +146,22 @@ class ComprehensiveRuntimeLyricsAuditTest {
     }
 
     @Test
+    fun testElrcWordTimestampsApplyFileOffsetOnlyOnce() {
+        val raw = """
+            [offset:1000]
+            [00:01.00]<00:01.00>Hello <00:01.50>world
+        """.trimIndent()
+
+        val parsed = LyricsParser.parse(raw, "offset_test", mode = LyricsFormatMode.ELRC)
+        val line = parsed.lines.single()
+
+        // Both line and word timestamps should include the file offset exactly once.
+        assertEquals(2000L, line.timeMs)
+        assertEquals(2000L, line.words.first().startTimeMs)
+        assertEquals(2500L, line.words.last().startTimeMs)
+    }
+
+    @Test
     fun testSeekingAndOffsetCalculations() {
         val lines = listOf(
             LyricLine(timeMs = 1000L, text = "Line 1"),
