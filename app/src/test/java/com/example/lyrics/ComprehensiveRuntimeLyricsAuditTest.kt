@@ -30,7 +30,7 @@ class ComprehensiveRuntimeLyricsAuditTest {
     val composeTestRule = createComposeRule()
 
     private val sampleElrc = """
-        [00:01.00]<00:01.00>Hello <00:01.50>world <00:02.00>welcome
+        [00:01.00]<00:00.50>Hello <00:01.50>world <00:02.00>welcome
         [00:03.00]<00:03.00>to <00:03.30>the <00:03.60>music <00:04.00>player
         [00:05.00]<00:05.00>enjoy <00:05.50>the <00:06.00>rhythm
     """.trimIndent()
