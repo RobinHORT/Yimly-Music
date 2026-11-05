@@ -214,7 +214,8 @@ object LyricsParser {
                     fracStr.length == 2 -> fracStr.toLong() * 10L
                     else -> fracStr.take(3).toLong()
                 }
-                val wordTimeMs = (min * 60 * 1000) + (sec * 1000) + millis + offsetMs
+                // lineStartMs already includes the file-level [offset] tag; apply it only once.
+                val wordTimeMs = (min * 60 * 1000) + (sec * 1000) + millis
                 rawTags.add(Pair(wordTimeMs, match.range.last + 1))
             }
 
