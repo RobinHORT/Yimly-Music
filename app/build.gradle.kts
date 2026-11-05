@@ -43,12 +43,8 @@ android {
     } else {
       logger.warn("Release signing is not configured. Release artifacts will remain unsigned; configure KEYSTORE_PATH, STORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD to sign them.")
     }
-    create("debugConfig") {
-      storeFile = file("${rootDir}/debug.keystore")
-      storePassword = "android"
-      keyAlias = "androiddebugkey"
-      keyPassword = "android"
-    }
+    // The Android Gradle Plugin supplies the standard local debug keystore.
+    // Do not require an ignored, manually provisioned debug.keystore in the repo.
   }
 
   buildTypes {
@@ -58,7 +54,7 @@ android {
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
       if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("release")
     }
-    debug { signingConfig = signingConfigs.getByName("debugConfig") }
+    // Keep the Android Gradle Plugin's default debug signing configuration.
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11
