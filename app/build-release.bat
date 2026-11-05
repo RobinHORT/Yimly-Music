@@ -37,19 +37,28 @@ echo [INFO] Found Android SDK at: %SDK_PATH%
 echo sdk.dir=%SDK_PATH:\=\\%> local.properties
 echo [INFO] Updated local.properties with SDK path.
 
-:: 5 & 6. Check Windows user environment variables required for signing and verify keystore
+:: 5 & 6. Require a complete release signing configuration before building
 if not defined KEYSTORE_PATH (
-    echo [WARNING] KEYSTORE_PATH environment variable is not set.
-) else (
-    if not exist "%KEYSTORE_PATH%" (
-        echo [WARNING] Keystore file not found at path specified by KEYSTORE_PATH: %KEYSTORE_PATH%
-    ) else (
-        echo [INFO] Keystore found at: %KEYSTORE_PATH%
-    )
+    echo [ERROR] KEYSTORE_PATH environment variable is not set.
+    goto :error
 )
-if not defined STORE_PASSWORD echo [WARNING] STORE_PASSWORD environment variable is not set.
-if not defined KEY_ALIAS echo [WARNING] KEY_ALIAS environment variable is not set.
-if not defined KEY_PASSWORD echo [WARNING] KEY_PASSWORD environment variable is not set.
+if not exist "%KEYSTORE_PATH%" (
+    echo [ERROR] Keystore file not found at KEYSTORE_PATH.
+    goto :error
+)
+if not defined STORE_PASSWORD (
+    echo [ERROR] STORE_PASSWORD environment variable is not set.
+    goto :error
+)
+if not defined KEY_ALIAS (
+    echo [ERROR] KEY_ALIAS environment variable is not set.
+    goto :error
+)
+if not defined KEY_PASSWORD (
+    echo [ERROR] KEY_PASSWORD environment variable is not set.
+    goto :error
+)
+echo [INFO] Release signing configuration is present and the keystore file exists.
 
 :: 7. Verify the existing Gradle wrapper works
 echo [INFO] Verifying Gradle wrapper version...
