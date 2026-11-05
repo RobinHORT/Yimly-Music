@@ -114,8 +114,11 @@ fun LyricsView(
         if (config.lrcOffsetMs != 0L) config.lrcOffsetMs else config.manualOffsetMs
     }
     val effectiveOffset = songOffsetMs + activeManualOffset
-    val slotState = remember(lines, currentPositionMs, effectiveOffset) {
-        LyricsParser.findActiveLyricSlots(lines, currentPositionMs, effectiveOffset)
+    // LRC lines are presented early so the singer has at least the configured lead-in.
+    // eLRC remains anchored to the actual word timestamps.
+    val slotPositionMs = currentPositionMs + if (config.formatMode == LyricsFormatMode.LRC) config.lrcDisplayLeadInMs.coerceIn(1500, 5000).toLong() else 0L
+    val slotState = remember(lines, slotPositionMs, effectiveOffset) {
+        LyricsParser.findActiveLyricSlots(lines, slotPositionMs, effectiveOffset)
     }
 
     val composeFontFamily = LTKaraoke
@@ -751,15 +754,27 @@ fun SynchronizedLyricContent(
     isPlaying: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
-        val adjustedPos = currentPositionMs + effectiveOffsetMs
+    val adjustedPos = currentPositionMs + effectiveOffsetMs
+    val overlapMs = config.lyricTransitionOverlapMs.coerceIn(0, 2000).toLong()
+    val transitionStartMs = line.timeMs - overlapMs
+    val transitionAlpha = if (!isCurrent || overlapMs == 0L) 1f else {
+        ((adjustedPos - transitionStartMs).toFloat() / overlapMs.toFloat()).coerceIn(0f, 1f)
+    }
+    val elrcFadeAlpha = if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
+        val fadeDurationMs = config.elrcFadeInDurationMs.coerceIn(300, 5000).toLong()
+        val firstWordStartMs = line.words.minOf { it.startTimeMs }
+        ((adjustedPos - (firstWordStartMs - fadeDurationMs)).toFloat() / fadeDurationMs.toFloat()).coerceIn(0f, 1f)
+    } else 1f
+    val lyricAlpha = (transitionAlpha * elrcFadeAlpha).coerceIn(0f, 1f)
 
+    if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
         val spaceDp = (config.currentLineFontSizeSp * 0.25f).dp
         val rowSpacingDp = (config.lineSpacingDp * 0.35f).coerceAtLeast(4f).dp
 
         FlowRow(
             modifier = modifier
                 .fillMaxWidth()
+                .alpha(lyricAlpha)
                 .testTag("synchronized_elrc_row"),
             horizontalArrangement = Arrangement.spacedBy(spaceDp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(rowSpacingDp, Alignment.CenterVertically)
@@ -790,7 +805,7 @@ fun SynchronizedLyricContent(
             color = currentLineColor,
             textAlign = textAlign,
             lineHeight = (config.currentLineFontSizeSp * 1.3f).sp,
-            modifier = modifier
+            modifier = modifier.alpha(lyricAlpha)
         )
     }
 }
