@@ -232,7 +232,7 @@ class LyricsAuditFixesTest {
     @Test
     fun testLrcParsesMultipleTimestampsOnOneLine() {
         val parsed = LyricsParser.parse(
-            rawText = "[00:01.00][00:02.50]Repeated lyric\\n[00:04.00]Next lyric",
+            rawText = "[00:01.00][00:02.50]Repeated lyric\n[00:04.00]Next lyric",
             songId = "multi_timestamp",
             mode = LyricsFormatMode.LRC
         )
