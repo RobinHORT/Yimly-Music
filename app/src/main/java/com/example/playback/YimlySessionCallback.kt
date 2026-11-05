@@ -28,6 +28,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
+@OptIn(UnstableApi::class)
 internal fun isPlaybackControllerAuthorized(
     controller: MediaSession.ControllerInfo,
     isVerifiedAutoController: Boolean,
