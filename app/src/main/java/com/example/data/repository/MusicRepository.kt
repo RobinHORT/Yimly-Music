@@ -366,7 +366,7 @@ class MusicRepository(
         }
 
         val playableUrl = if (wantInstrumental) instUrl else normalUrl
-        Log.d("MusicRepository", "resolvePlayableTrack: title='${song.title}', wantInst=$wantInstrumental, playableUrl=$playableUrl")
+        if (com.example.BuildConfig.DEBUG) Log.d("MusicRepository", "resolvePlayableTrack: songId=${song.id}, wantInst=$wantInstrumental, hasPlayableUrl=${playableUrl.isNotBlank()}")
 
         ResolvedTrack(
             song = song,
