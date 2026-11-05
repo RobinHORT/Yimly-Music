@@ -758,7 +758,10 @@ fun SynchronizedLyricContent(
     val overlapMs = config.lyricTransitionOverlapMs.coerceIn(0, 2000).toLong()
     val transitionStartMs = line.timeMs - overlapMs
     val transitionAlpha = if (!isCurrent || overlapMs == 0L) 1f else {
-        ((adjustedPos - transitionStartMs).toFloat() / overlapMs.toFloat()).coerceIn(0f, 1f)
+        val transitionStart = if (config.formatMode == LyricsFormatMode.LRC) {
+            line.timeMs - config.lrcDisplayLeadInMs.coerceIn(1500, 5000).toLong()
+        } else transitionStartMs
+        ((adjustedPos - transitionStart).toFloat() / overlapMs.toFloat()).coerceIn(0f, 1f)
     }
     val elrcFadeAlpha = if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
         val fadeDurationMs = config.elrcFadeInDurationMs.coerceIn(300, 5000).toLong()
