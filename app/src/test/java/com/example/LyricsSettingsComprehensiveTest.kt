@@ -188,6 +188,33 @@ class LyricsSettingsComprehensiveTest {
         composeTestRule.onNodeWithText("Four").assertIsDisplayed()
     }
 
+
+    @Test
+    fun testLrcLineAppearsAtConfiguredEarlyDisplayBoundary() {
+        val lyricsData = LyricsData(
+            songId = "lrc_lead_in",
+            lines = listOf(LyricLine(timeMs = 3000L, text = "early lyric line")),
+            isSynced = true
+        )
+
+        composeTestRule.setContent {
+            LyricsView(
+                lyricsData = lyricsData,
+                currentPositionMs = 1500L,
+                songOffsetMs = 0L,
+                config = LyricsDisplayConfig(
+                    formatMode = com.example.data.models.LyricsFormatMode.LRC,
+                    lrcDisplayLeadInMs = 1500
+                ),
+                onSeekTo = {},
+                onOffsetChange = {}
+            )
+        }
+
+        // The line is visible 1.5 seconds before its source timestamp.
+        composeTestRule.onNodeWithText("early lyric line").assertIsDisplayed()
+    }
+
     @Test
     fun testMultipleVisibleLinesRendering() {
         val config = LyricsDisplayConfig(
