@@ -21,6 +21,7 @@ import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import com.example.data.api.NetworkModule
 import com.example.YimlyApplication
+import com.example.BuildConfig
 import com.example.MainActivity
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
@@ -120,7 +121,7 @@ class PlaybackManager(
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     when (playbackState) {
                         Player.STATE_ENDED -> {
-                            Log.d("PlaybackManager", "Song ended, checking queue...")
+                            if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Song ended, checking queue...")
                             handleSongEnded()
                         }
                         Player.STATE_READY -> {
@@ -255,7 +256,7 @@ class PlaybackManager(
                 }
             }
             transitionWakeLock?.acquire(timeoutMs)
-            Log.d("PlaybackManager", "Acquired transition WakeLock for ${timeoutMs}ms")
+            if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Acquired transition WakeLock for ${timeoutMs}ms")
         } catch (e: Exception) {
             Log.e("PlaybackManager", "Failed to acquire transition WakeLock", e)
         }
