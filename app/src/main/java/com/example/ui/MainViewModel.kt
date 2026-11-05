@@ -279,8 +279,11 @@ class MainViewModel(
                         consecutivePollFailures = 0
                         val overallStatus = job.status.trim().lowercase()
                         val jobTrack = job.tracks.firstOrNull {
-                            it.title.equals(track.title, ignoreCase = true) &&
-                                it.artist.equals(track.artist, ignoreCase = true)
+                            MusicRepository.matchesExternalTrackMetadata(
+                                title = it.title,
+                                artist = it.artist,
+                                track = track
+                            )
                         }
                         val trackStatus = jobTrack?.status?.trim()?.lowercase()
                         val progress = jobTrack?.progress ?: if (overallStatus == "completed") 100 else 0
