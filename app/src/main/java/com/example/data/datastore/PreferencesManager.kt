@@ -154,7 +154,7 @@ class PreferencesManager(private val context: Context) {
             } catch (e: Exception) {
                 com.example.data.models.LyricsFormatMode.ELRC
             },
-            visibleLines = prefs[KEY_LYRICS_VISIBLE_LINES] ?: 3,
+            visibleLines = (prefs[KEY_LYRICS_VISIBLE_LINES] ?: 3).coerceIn(1, 5),
             autoScroll = prefs[KEY_LYRICS_AUTO_SCROLL] ?: true,
             highlightCurrentLine = prefs[KEY_LYRICS_HIGHLIGHT_CURRENT] ?: true,
             animationDurationMs = prefs[KEY_LYRICS_ANIM_DURATION] ?: 250,
