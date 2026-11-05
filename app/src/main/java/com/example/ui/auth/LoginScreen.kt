@@ -208,7 +208,7 @@ fun LoginScreen(
                         keyboardActions = KeyboardActions(
                             onDone = {
                                 if (username.isNotBlank() && password.isNotBlank()) {
-                                    onLogin(username.trim(), password.trim(), rememberMe)
+                                    onLogin(username.trim(), password, rememberMe)
                                 }
                             }
                         ),
@@ -254,7 +254,7 @@ fun LoginScreen(
                     Button(
                         onClick = {
                             if (username.isNotBlank() && password.isNotBlank()) {
-                                onLogin(username.trim(), password.trim(), rememberMe)
+                                onLogin(username.trim(), password, rememberMe)
                             }
                         },
                         enabled = !isLoading && username.isNotBlank() && password.isNotBlank(),
