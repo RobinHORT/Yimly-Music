@@ -404,6 +404,28 @@ class PlaybackManager(
     }
 
     /**
+     * Resolve a Media3 timeline item to its logical app-queue occurrence.
+     * Media item indices are timeline indices, not necessarily app queue indices;
+     * matching by ID also handles Android Auto-prefixed and instrumental IDs.
+     * The occurrence count disambiguates repeated instances of the same song.
+     */
+    internal fun findQueueIndexForMediaItem(mediaId: String, timelineIndex: Int): Int {
+        val player = _player ?: return -1
+        val queue = _playbackInfo.value.queue
+        if (timelineIndex !in 0 until player.mediaItemCount) return -1
+
+        val targetSongId = extractBaseSongId(mediaId)
+        if (targetSongId.isBlank()) return -1
+
+        val occurrence = (0 until timelineIndex).count { index ->
+            extractBaseSongId(player.getMediaItemAt(index).mediaId) == targetSongId
+        }
+        return queue.indices
+            .filter { queue[it].id == targetSongId }
+            .getOrNull(occurrence) ?: -1
+    }
+
+    /**
      * Media3 applies Android Auto selections directly to the session player after
      * onAddMediaItems resolves their URIs. Mirror that resulting timeline into the
      * app queue so Yimly's controls, UI and next/previous logic use the same songs.
@@ -935,7 +957,9 @@ class PlaybackManager(
         val newQueue = info.queue + song
         shuffleHistory.clear()
         if (info.currentSong == null) {
-            val playIndex = newQueue.indexOfFirst { it.id == song.id }.coerceAtLeast(0)
+            // The newly appended occurrence is the item the user just requested,
+            // even when the same song ID already exists earlier in the queue.
+            val playIndex = newQueue.lastIndex
             playSong(song, newQueue, playIndex)
         } else {
             _playbackInfo.value = info.copy(queue = newQueue)
@@ -996,13 +1020,15 @@ class PlaybackManager(
     }
 
     fun removeFromQueue(index: Int) {
+        val info = _playbackInfo.value
+        if (index !in info.queue.indices) return
+
+        // Only a valid mutation may invalidate in-flight playback or AA sync work.
         playbackRequestId++
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
-        val info = _playbackInfo.value
         val queue = info.queue.toMutableList()
-        if (index !in queue.indices) return
 
         val wasPlaying = info.isPlaying || (_player?.isPlaying == true)
         val userPrefInstrumental = info.isInstrumental
@@ -1071,19 +1097,19 @@ class PlaybackManager(
         if (targetSongId.isBlank()) return
 
         val info = _playbackInfo.value
-        val oldIndex = info.currentQueueIndex
-        val wasPlaying = info.isPlaying || (_player?.isPlaying == true)
-        val userPrefInstrumental = info.isInstrumental
-
-        playbackRequestId++
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
-
         val matchingIndices = info.queue.mapIndexedNotNull { index, song ->
             if (song.id == targetSongId) index else null
         }
         if (matchingIndices.isEmpty()) return
+
+        // Do not cancel an unrelated playback request for a song that is not queued.
+        val oldIndex = info.currentQueueIndex
+        val wasPlaying = info.isPlaying || (_player?.isPlaying == true)
+        val userPrefInstrumental = info.isInstrumental
+        playbackRequestId++
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
 
         val currentWasRemoved = (oldIndex in matchingIndices) || (info.currentSong?.id == targetSongId)
         val removedBeforeCurrent = matchingIndices.count { it < oldIndex }
