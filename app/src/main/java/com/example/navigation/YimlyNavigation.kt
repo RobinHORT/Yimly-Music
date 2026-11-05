@@ -660,14 +660,14 @@ fun YimlyNavigation(
                                 } else null,
                                 onSharePlaylist = if (playlist.isOwner || playlist.permission == "owner") {
                                     { username, perm ->
-                                        viewModel.sharePlaylist(playlist.id, username, perm)
+                                        viewModel.sharePlaylist(playlist.id, username, perm, onComplete)
                                     }
                                 } else null,
                                 onGetCollaborators = { callback ->
                                     viewModel.getCollaborators(playlist.id, callback)
                                 },
                                 onRevokeShare = if (playlist.isOwner || playlist.permission == "owner") {
-                                    { userId -> viewModel.revokeShare(playlist.id, userId) }
+                                    { userId, onComplete -> viewModel.revokeShare(playlist.id, userId, onComplete) }
                                 } else null,
                                 onUpdateArtwork = if (playlist.canEdit) {
                                     { uri -> viewModel.updateArtwork(playlist.id, uri) }
