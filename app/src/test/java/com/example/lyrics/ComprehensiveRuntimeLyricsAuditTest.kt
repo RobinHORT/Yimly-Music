@@ -85,7 +85,8 @@ class ComprehensiveRuntimeLyricsAuditTest {
 
         val config = LyricsDisplayConfig(
             formatMode = LyricsFormatMode.ELRC,
-            highlightCurrentLine = true
+            highlightCurrentLine = true,
+            elrcFadeInDurationMs = 0
         )
 
         composeTestRule.setContent {

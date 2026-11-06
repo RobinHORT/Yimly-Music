@@ -493,7 +493,12 @@ class MusicRepository(
     }
 
     suspend fun addSongToPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
-        apiService.addSongToPlaylist(playlistId, AddPlaylistSongRequest(songId = songId))
+        try {
+            apiService.addSongToPlaylist(playlistId, AddPlaylistSongRequest(songId = songId))
+        } catch (e: retrofit2.HttpException) {
+            if (e.code() != 409) throw e
+            // 409 Conflict indicates the song is already present in the playlist on the server.
+        }
         val refreshResult = refreshPlaylistDetail(playlistId, force = true)
         if (refreshResult.isFailure) {
             Log.w(

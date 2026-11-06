@@ -142,11 +142,39 @@ class MainViewModel(
     // Downloader State
     private val downloadingTrackKeys = mutableSetOf<String>()
     private val activeDownloadJobs = mutableSetOf<Job>()
-    private val completedTrackSongIdMap = mutableMapOf<String, String>()
+    private val completedTrackSongIdMap = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val pendingPlaylistRequests = mutableMapOf<String, MutableList<String>>() // Key: track, Value: PlaylistIDs
     
     private val _completedTrackSongIds = MutableStateFlow<Map<String, String>>(emptyMap())
     val completedTrackSongIds: StateFlow<Map<String, String>> = _completedTrackSongIds.asStateFlow()
+
+    private fun putCompletedSongId(key: String, songId: String) {
+        synchronized(completedTrackSongIdMap) {
+            completedTrackSongIdMap[key] = songId
+            _completedTrackSongIds.value = _completedTrackSongIds.value + (key to songId)
+        }
+    }
+
+    private fun removeCompletedSongId(key: String) {
+        synchronized(completedTrackSongIdMap) {
+            completedTrackSongIdMap.remove(key)
+            _completedTrackSongIds.value = _completedTrackSongIds.value - key
+        }
+    }
+
+    private fun clearCompletedSongIds() {
+        synchronized(completedTrackSongIdMap) {
+            completedTrackSongIdMap.clear()
+            _completedTrackSongIds.value = emptyMap()
+        }
+    }
+
+    private fun removeCompletedSongIdByValue(songId: String) {
+        synchronized(completedTrackSongIdMap) {
+            completedTrackSongIdMap.values.removeIf { it == songId }
+            _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
+        }
+    }
 
     private val _downloadProgressMap = MutableStateFlow<Map<String, Int>>(emptyMap())
     val downloadProgressMap: StateFlow<Map<String, Int>> = _downloadProgressMap.asStateFlow()
@@ -178,15 +206,13 @@ class MainViewModel(
         val id = completedTrackSongIdMap[key]
         if (id != null && allSongs.value.any { it.id == id }) return id
         if (id != null) {
-            completedTrackSongIdMap.remove(key)
-            _completedTrackSongIds.value = _completedTrackSongIds.value - key
+            removeCompletedSongId(key)
         }
 
         // Fallback to the currently observed library snapshot.
         val existing = allSongs.value.firstOrNull { MusicRepository.isSameExternalTrack(it, track) }
         if (existing != null) {
-            completedTrackSongIdMap[key] = existing.id
-            _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existing.id)
+            putCompletedSongId(key, existing.id)
         }
         return existing?.id
     }
@@ -210,8 +236,7 @@ class MainViewModel(
             }
 
             if (existing != null) {
-                completedTrackSongIdMap[key] = existing.id
-                _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existing.id)
+                putCompletedSongId(key, existing.id)
                 _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
                 _downloadProgressMap.value = _downloadProgressMap.value + (key to 100)
                 processPendingPlaylistRequests(key, existing.id)
@@ -380,7 +405,14 @@ class MainViewModel(
         val failed = mutableListOf<String>()
         for ((index, playlistId) in pending.withIndex()) {
             try {
-                musicRepository.addSongToPlaylist(playlistId, songId)
+                val alreadyInPlaylist = try {
+                    musicRepository.getSongsForPlaylist(playlistId).first().any { it.id == songId }
+                } catch (_: Exception) {
+                    false
+                }
+                if (!alreadyInPlaylist) {
+                    musicRepository.addSongToPlaylist(playlistId, songId)
+                }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 // Only requeue the interrupted request and those not yet attempted.
                 // Earlier playlist additions completed and must not be replayed.
@@ -391,8 +423,12 @@ class MainViewModel(
                 }
                 throw cancelled
             } catch (e: Exception) {
-                failed.add(playlistId)
-                _uiMessage.value = "Failed to add song to playlist: ${e.message ?: "Unknown error"}"
+                if (e is retrofit2.HttpException && e.code() == 409) {
+                    // Song is already present in playlist on server; treat as idempotent success.
+                } else {
+                    failed.add(playlistId)
+                    _uiMessage.value = "Failed to add song to playlist: ${e.message ?: "Unknown error"}"
+                }
             }
         }
         if (failed.isNotEmpty()) {
@@ -420,8 +456,7 @@ class MainViewModel(
                         .firstOrNull { MusicRepository.isSameExternalTrack(it, track) }
                         ?.id
                 if (existingId != null) {
-                    completedTrackSongIdMap[key] = existingId
-                    _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existingId)
+                    putCompletedSongId(key, existingId)
                     musicRepository.addSongToPlaylist(playlistId, existingId)
                     synchronized(pendingPlaylistRequests) {
                         val pending = pendingPlaylistRequests[key]
@@ -484,8 +519,7 @@ class MainViewModel(
         }
 
         if (newlyIndexedId != null) {
-            completedTrackSongIdMap[key] = newlyIndexedId
-            _completedTrackSongIds.value = _completedTrackSongIds.value + (key to newlyIndexedId)
+            putCompletedSongId(key, newlyIndexedId)
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
             downloadNotificationManager.showDownloadNotification(key.hashCode(), track.title, 100)
             processPendingPlaylistRequests(key, newlyIndexedId)
@@ -595,8 +629,7 @@ class MainViewModel(
                 playbackManager.clearQueueAndStop()
                 musicRepository.clearLocalCache()
                 downloadNotificationManager.cancelAll()
-                completedTrackSongIdMap.clear()
-                _completedTrackSongIds.value = emptyMap()
+                clearCompletedSongIds()
                 _downloadProgressMap.value = emptyMap()
                 _downloadStatusMap.value = emptyMap()
             }
@@ -921,8 +954,7 @@ class MainViewModel(
             if (res.isSuccess) {
                 playbackManager.removeSongFromQueue(songId)
                 preferencesManager.clearSongLyricsOffsets(songId)
-                completedTrackSongIdMap.entries.removeAll { it.value == songId }
-                _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
+                removeCompletedSongIdByValue(songId)
                 syncLibrary()
                 _uiMessage.value = "Song deleted successfully"
             } else {

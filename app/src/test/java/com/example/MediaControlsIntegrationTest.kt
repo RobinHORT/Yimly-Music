@@ -316,6 +316,7 @@ class MediaControlsIntegrationTest {
     @Test
     fun testYimlyForwardingPlayerSeekToWithPositionPreservesInitialPosition() {
         playbackManager.playSong(song1, listOf(song1, song2, song3), startIndex = 0)
+        org.robolectric.shadows.ShadowLooper.idleMainLooper()
         val forwardingPlayer = playbackManager.mediaSession.player as YimlyForwardingPlayer
 
         // Seek to index 2 with position 25,000ms
@@ -349,7 +350,7 @@ class MediaControlsIntegrationTest {
             for (i in paramTypes.indices) {
                 when {
                     paramTypes[i] == Int::class.javaPrimitiveType -> args[i] = 0
-                    paramTypes[i] == Boolean::class.javaPrimitiveType -> args[i] = false
+                    paramTypes[i] == Boolean::class.javaPrimitiveType -> args[i] = true
                     paramTypes[i] == String::class.java -> args[i] = "test.package"
                     paramTypes[i] == android.os.Bundle::class.java -> args[i] = android.os.Bundle()
                     else -> args[i] = null

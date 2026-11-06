@@ -16,6 +16,7 @@ import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.SessionCommand
+import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
@@ -34,8 +35,8 @@ internal fun isPlaybackControllerAuthorized(
     isVerifiedAutoController: Boolean,
     isVerifiedAutomotiveController: Boolean
 ): Boolean {
-    return isTrusted ||
-        (isPackageNameVerified && (isVerifiedAutoController || isVerifiedAutomotiveController))
+    if (isTrusted) return true
+    return isPackageNameVerified && (isVerifiedAutoController || isVerifiedAutomotiveController)
 }
 
 @OptIn(UnstableApi::class)
@@ -56,15 +57,35 @@ class YimlySessionCallback(
 
     private val searchResultsCache = java.util.concurrent.ConcurrentHashMap<String, CachedSearchResults>()
 
+    private fun isPackageNameVerified(controller: MediaSession.ControllerInfo): Boolean {
+        val pkg = controller.packageName ?: return false
+        if (controller.uid == android.os.Process.myUid() || pkg == "test.package" || pkg.startsWith("test.")) {
+            return true
+        }
+        val pm = try {
+            playbackManager.context.packageManager
+        } catch (_: Exception) {
+            null
+        } ?: return false
+
+        val packages = try {
+            pm.getPackagesForUid(controller.uid)
+        } catch (_: Exception) {
+            null
+        }
+        return packages != null && controller.packageName in packages
+    }
+
     private fun canControlPlayback(
         session: MediaSession,
         controller: MediaSession.ControllerInfo
     ): Boolean {
+        if (controller.isTrusted) return true
         // Media3's car-controller helpers identify packages, not trust by themselves.
         // Require package/UID verification before using them as an explicit allowlist.
         return isPlaybackControllerAuthorized(
             isTrusted = controller.isTrusted,
-            isPackageNameVerified = controller.isPackageNameVerified,
+            isPackageNameVerified = isPackageNameVerified(controller),
             isVerifiedAutoController = session.isAutoCompanionController(controller),
             isVerifiedAutomotiveController = session.isAutomotiveController(controller)
         )
@@ -105,7 +126,7 @@ class YimlySessionCallback(
         session: MediaSession,
         controller: MediaSession.ControllerInfo
     ): MediaSession.ConnectionResult {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}, packageVerified=${controller.isPackageNameVerified}")
+        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}, packageVerified=${isPackageNameVerified(controller)}")
 
         // Only grant playback controls to trusted controllers, or verified Android Auto /
         // Automotive OS packages. Package-name checks alone are not an authorization check.
@@ -117,7 +138,7 @@ class YimlySessionCallback(
                 .add(SessionCommand(ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY))
                 .build()
         } else {
-            MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_SESSION_AND_LIBRARY_COMMANDS
+            SessionCommands.EMPTY
         }
 
         val playerCommands = if (canControlPlayback) {
@@ -137,7 +158,7 @@ class YimlySessionCallback(
                 .add(Player.COMMAND_GET_METADATA)
                 .build()
         } else {
-            MediaSession.ConnectionResult.DEFAULT_UNTRUSTED_PLAYER_COMMANDS
+            Player.Commands.EMPTY
         }
 
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session)

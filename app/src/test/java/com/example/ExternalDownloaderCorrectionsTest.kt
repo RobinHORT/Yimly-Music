@@ -25,6 +25,7 @@ import com.example.ui.MainViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -721,6 +722,79 @@ class ExternalDownloaderCorrectionsTest {
         assertEquals("playlist_concurrent_target", fakeApi.playlistAddCalls.single().first)
         assertEquals("server_concurrent_999", fakeApi.playlistAddCalls.single().second)
         assertEquals(1, fakeApi.startDownloadCallCount)
+    }
+
+    @Test
+    fun testPlaylistRequestIdempotencyAvoidsDuplicateAddition() = runBlocking {
+        val song = Song(id = "song_idem_1", title = "Idempotent Song", artist = "Artist")
+        database.musicDao().insertSong(song.toEntity())
+        database.musicDao().insertPlaylist(
+            com.example.data.models.Playlist(id = "pl_idem", name = "Test Playlist").toEntity()
+        )
+        // Pre-insert song into the playlist in Room database
+        database.musicDao().insertPlaylistSongCrossRef(
+            com.example.data.db.PlaylistSongCrossRef(playlistId = "pl_idem", songId = "song_idem_1", orderIndex = 0)
+        )
+
+        val track = ExternalTrack(title = "Idempotent Song", artist = "Artist")
+        val initialCallCount = fakeApi.playlistAddCalls.size
+
+        // Calling registerPendingPlaylistAdd when song is already present in the playlist
+        viewModel.registerPendingPlaylistAdd(track, "pl_idem")
+        pumpLooper(100L)
+
+        // Must NOT call API to add duplicate song
+        assertEquals(initialCallCount, fakeApi.playlistAddCalls.size)
+    }
+
+    @Test
+    fun testPlaylistRequest409ConflictTreatedAsIdempotentSuccess() = runBlocking {
+        val errorBody = "{\"error\": \"Song already in playlist\"}".toResponseBody("application/json".toMediaType())
+        var callCount = 0
+        val conflictApi = object : SyncIdempotenceTest.FakeSyncApiService() {
+            override suspend fun addSongToPlaylist(
+                id: String,
+                request: com.example.data.models.AddPlaylistSongRequest
+            ): Map<String, Any> {
+                callCount++
+                throw HttpException(Response.error<Any>(409, errorBody))
+            }
+        }
+        val testRepo = MusicRepository(
+            musicDao = database.musicDao(),
+            apiService = conflictApi,
+            coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        )
+
+        // Calling addSongToPlaylist when server returns 409 Conflict should NOT crash or fail
+        testRepo.addSongToPlaylist("pl_409", "song_conflict_1")
+        assertEquals(1, callCount)
+    }
+
+    @Test
+    fun testCompletedTrackSongIdMapThreadSafetyUnderConcurrentLoad() = runBlocking {
+        val tracks = (1..50).map { i ->
+            ExternalTrack(title = "Title $i", artist = "Artist $i")
+        }
+
+        val jobs = mutableListOf<kotlinx.coroutines.Job>()
+        val scope = CoroutineScope(Dispatchers.Default)
+
+        // Concurrently query and update completed songs across multiple threads
+        for (track in tracks) {
+            jobs += scope.launch {
+                val songId = viewModel.getCompletedSongId(track)
+                assertNull(songId)
+            }
+            jobs += scope.launch {
+                val key = MusicRepository.externalTrackIdentity(track)
+                viewModel.registerPendingPlaylistAdd(track, "pl_${key.hashCode()}")
+            }
+        }
+
+        jobs.forEach { it.join() }
+        // Verify state remains consistent without race conditions or ConcurrentModificationException
+        assertNotNull(viewModel.completedTrackSongIds.value)
     }
 }
 
