@@ -156,14 +156,11 @@ fun FullscreenLyricsDialog(
                 )
             )
 
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding()
-                    .padding(horizontal = 22.dp, vertical = 12.dp)
+            Box(
+                modifier = Modifier.fillMaxSize()
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 12.dp),
+                    modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().safeDrawingPadding().padding(horizontal = 22.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
@@ -226,7 +223,7 @@ fun FullscreenLyricsDialog(
                     onSeekTo = onSeekTo,
                     onOpenSettings = onOpenSettings,
                     onOffsetChange = onLyricsOffsetChange,
-                    modifier = Modifier.weight(1f).fillMaxWidth()
+                    modifier = Modifier.fillMaxSize()
                 )
             }
         }
