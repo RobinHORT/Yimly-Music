@@ -1350,6 +1350,8 @@ class PlaybackManager(
                         isInstrumental = wantInst
                     )
                 )
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.w("PlaybackManager", "Failed to resolve track ${song.id} in snapshot", e)
             }
@@ -1426,6 +1428,8 @@ class PlaybackManager(
             try {
                 val snapshot = try {
                     preferencesManager.loadPlaybackSnapshot()
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     Log.w("PlaybackManager", "Failed to load playback snapshot", e)
                     null
@@ -1433,6 +1437,8 @@ class PlaybackManager(
                 if (snapshot != null) {
                     restoreFromSnapshot(snapshot)
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e("PlaybackManager", "Error during playback snapshot restoration", e)
             } finally {
