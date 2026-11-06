@@ -300,6 +300,8 @@ class YimlySessionCallback(
                             {
                                 try {
                                     result.set(fallback.get())
+                                } catch (cancelled: java.util.concurrent.CancellationException) {
+                                    result.cancel(false)
                                 } catch (e: Throwable) {
                                     result.setException(e)
                                 }
@@ -316,7 +318,13 @@ class YimlySessionCallback(
             }
         }
         job.invokeOnCompletion { cause ->
-            if (cause != null && !result.isDone) result.setException(cause)
+            if (cause != null && !result.isDone) {
+                if (cause is kotlinx.coroutines.CancellationException) {
+                    result.cancel(false)
+                } else {
+                    result.setException(cause)
+                }
+            }
         }
         return result
     }
@@ -501,6 +509,9 @@ class YimlySessionCallback(
                 val immutableList = com.google.common.collect.ImmutableList.copyOf(pagedList)
                 if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() SUCCESS parentId=$parentId, totalFound=${mediaItems.size}, returnedCount=${immutableList.size}")
                 future.set(LibraryResult.ofItemList(immutableList, params))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                future.cancel(false)
+                throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() ERROR parentId=$parentId: ${e.message}", e)
                 future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
@@ -508,8 +519,12 @@ class YimlySessionCallback(
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() Job cancelled/failed for parentId=$parentId: ${cause.message}")
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                if (cause is kotlinx.coroutines.CancellationException) {
+                    future.cancel(false)
+                } else {
+                    android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() Job failed for parentId=$parentId: ${cause.message}")
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                }
             }
         }
         return future
@@ -554,6 +569,9 @@ class YimlySessionCallback(
                     android.util.Log.w("AA_DIAG", "YimlySessionCallback.onGetItem() NOT FOUND mediaId=$mediaId")
                     future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                future.cancel(false)
+                throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetItem() ERROR mediaId=$mediaId: ${e.message}", e)
                 future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
@@ -561,7 +579,11 @@ class YimlySessionCallback(
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                if (cause is kotlinx.coroutines.CancellationException) {
+                    future.cancel(false)
+                } else {
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                }
             }
         }
         return future
@@ -583,6 +605,9 @@ class YimlySessionCallback(
                     session.notifySearchResultChanged(browser, query, songs.size, params)
                     future.set(LibraryResult.ofVoid())
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                future.cancel(false)
+                throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onSearch() ERROR query=$query: ${e.message}", e)
                 withContext(Dispatchers.Main) {
@@ -593,7 +618,11 @@ class YimlySessionCallback(
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                if (cause is kotlinx.coroutines.CancellationException) {
+                    future.cancel(false)
+                } else {
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                }
             }
         }
         return future
@@ -649,6 +678,9 @@ class YimlySessionCallback(
                 val immutableList = com.google.common.collect.ImmutableList.copyOf(pagedList)
                 if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() SUCCESS query=$query, count=${immutableList.size}")
                 future.set(LibraryResult.ofItemList(immutableList, params))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                future.cancel(false)
+                throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetSearchResult() ERROR query=$query: ${e.message}", e)
                 future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
@@ -656,7 +688,11 @@ class YimlySessionCallback(
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                if (cause is kotlinx.coroutines.CancellationException) {
+                    future.cancel(false)
+                } else {
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                }
             }
         }
         return future

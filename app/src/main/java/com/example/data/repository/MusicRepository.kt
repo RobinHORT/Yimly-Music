@@ -401,6 +401,8 @@ class MusicRepository(
             try {
                 val remoteSong = apiService.getSongById(songId)
                 musicDao.upsertSong(remoteSong.toEntity().copy(isFavorite = newFav))
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (_: Exception) {
                 musicDao.updateFavorite(songId, newFav)
             }
