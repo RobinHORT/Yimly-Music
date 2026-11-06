@@ -407,6 +407,8 @@ class MainViewModel(
             try {
                 val alreadyInPlaylist = try {
                     musicRepository.getSongsForPlaylist(playlistId).first().any { it.id == songId }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
                 } catch (_: Exception) {
                     false
                 }

@@ -59,7 +59,7 @@ class YimlySessionCallback(
 
     private fun isPackageNameVerified(controller: MediaSession.ControllerInfo): Boolean {
         val pkg = controller.packageName ?: return false
-        if (controller.uid == android.os.Process.myUid() || pkg == "test.package" || pkg.startsWith("test.")) {
+        if (controller.uid == android.os.Process.myUid()) {
             return true
         }
         val pm = try {
@@ -73,7 +73,7 @@ class YimlySessionCallback(
         } catch (_: Exception) {
             null
         }
-        return packages != null && controller.packageName in packages
+        return packages != null && pkg in packages
     }
 
     private fun canControlPlayback(
@@ -173,6 +173,9 @@ class YimlySessionCallback(
         customCommand: SessionCommand,
         args: Bundle
     ): ListenableFuture<SessionResult> {
+        if (!canControlPlayback(session, controller)) {
+            return Futures.immediateFuture(SessionResult(androidx.media3.session.SessionError.ERROR_PERMISSION_DENIED))
+        }
         when (customCommand.customAction) {
             ACTION_TOGGLE_INSTRUMENTAL -> playbackManager.toggleInstrumental()
             ACTION_SHUFFLE_PLAYLIST -> playbackManager.shuffleCurrentQueue()
