@@ -158,28 +158,28 @@ class MainViewModel(
     private val _completedTrackSongIds = MutableStateFlow<Map<String, String>>(emptyMap())
     val completedTrackSongIds: StateFlow<Map<String, String>> = _completedTrackSongIds.asStateFlow()
 
-    private fun putCompletedSongId(key: String, songId: String) {
+    internal fun putCompletedSongId(key: String, songId: String) {
         synchronized(completedTrackSongIdMap) {
             completedTrackSongIdMap[key] = songId
             _completedTrackSongIds.value = _completedTrackSongIds.value + (key to songId)
         }
     }
 
-    private fun removeCompletedSongId(key: String) {
+    internal fun removeCompletedSongId(key: String) {
         synchronized(completedTrackSongIdMap) {
             completedTrackSongIdMap.remove(key)
             _completedTrackSongIds.value = _completedTrackSongIds.value - key
         }
     }
 
-    private fun clearCompletedSongIds() {
+    internal fun clearCompletedSongIds() {
         synchronized(completedTrackSongIdMap) {
             completedTrackSongIdMap.clear()
             _completedTrackSongIds.value = emptyMap()
         }
     }
 
-    private fun removeCompletedSongIdByValue(songId: String) {
+    internal fun removeCompletedSongIdByValue(songId: String) {
         synchronized(completedTrackSongIdMap) {
             completedTrackSongIdMap.values.removeIf { it == songId }
             _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
