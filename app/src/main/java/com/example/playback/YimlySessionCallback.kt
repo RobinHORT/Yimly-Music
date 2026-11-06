@@ -29,6 +29,15 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
+internal fun isControllerPackageVerified(
+    packageName: String?,
+    packagesForUid: Array<String>?
+): Boolean {
+    return !packageName.isNullOrBlank() &&
+        packagesForUid != null &&
+        packageName in packagesForUid
+}
+
 internal fun isPlaybackControllerAuthorized(
     isTrusted: Boolean,
     isPackageNameVerified: Boolean,
@@ -59,9 +68,6 @@ class YimlySessionCallback(
 
     private fun isPackageNameVerified(controller: MediaSession.ControllerInfo): Boolean {
         val pkg = controller.packageName ?: return false
-        if (controller.uid == android.os.Process.myUid()) {
-            return true
-        }
         val pm = try {
             playbackManager.context.packageManager
         } catch (_: Exception) {
@@ -73,7 +79,7 @@ class YimlySessionCallback(
         } catch (_: Exception) {
             null
         }
-        return packages != null && pkg in packages
+        return isControllerPackageVerified(pkg, packages)
     }
 
     private fun canControlPlayback(

@@ -2,23 +2,25 @@ package com.example
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import com.example.data.api.YimlyApiService
+import com.example.data.datastore.PreferencesManager
+import com.example.data.db.YimlyDatabase
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.MusicRepository
 import com.example.notifications.DownloadNotificationManager
 import com.example.playback.PlaybackManager
 import com.example.ui.MainViewModel
-import com.example.data.datastore.PreferencesManager
-import com.example.data.db.YimlyDatabase
-import com.example.data.api.YimlyApiService
-import kotlinx.coroutines.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
-import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36])
@@ -30,7 +32,6 @@ class DownloaderConcurrencyRegressionTest {
     fun setUp() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         val db = YimlyDatabase.getDatabase(context)
-        
         val fakeApi = object : YimlyApiService {
             override suspend fun login(request: com.example.data.models.LoginRequest) = throw NotImplementedError()
             override suspend fun getProfile() = throw NotImplementedError()
@@ -81,71 +82,64 @@ class DownloaderConcurrencyRegressionTest {
             override suspend fun getSongReplacementJob(jobId: String) = mapOf("status" to "completed")
             override suspend fun addSongToPlaylist(id: String, request: com.example.data.models.AddPlaylistSongRequest) = mapOf("success" to true)
         }
-
-        val musicRepository = MusicRepository(
-            db.musicDao(),
-            fakeApi,
-            CoroutineScope(SupervisorJob())
-        )
-        val playbackManager = PlaybackManager(context)
-        val authRepository = AuthRepository(fakeApi, PreferencesManager(context), CoroutineScope(SupervisorJob()))
-        val preferencesManager = PreferencesManager(context)
-        val downloadNotificationManager = DownloadNotificationManager(context)
-
+        val repository = MusicRepository(db.musicDao(), fakeApi, kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob()))
         viewModel = MainViewModel(
-            musicRepository = musicRepository,
-            playbackManager = playbackManager,
-            authRepository = authRepository,
-            preferencesManager = preferencesManager,
-            downloadNotificationManager = downloadNotificationManager
+            repository,
+            PlaybackManager(context),
+            AuthRepository(fakeApi, PreferencesManager(context), kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob())),
+            PreferencesManager(context),
+            DownloadNotificationManager(context)
         )
     }
 
     @Test
-    fun testConcurrentPutCompletedSongIdConsistency() = runBlocking {
-        val count = 100
-        val scope = CoroutineScope(Dispatchers.Default + Job())
-        
-        val jobs = (1..count).map { i ->
-            scope.launch {
-                // Accessing private method via reflection to test internal state consistency
-                val method = viewModel.javaClass.getDeclaredMethod("putCompletedSongId", String::class.java, String::class.java)
-                method.isAccessible = true
-                method.invoke(viewModel, "key_$i", "song_$i")
+    fun concurrentWritersAndReadersKeepPublishedMapConsistent() = runBlocking {
+        val count = 200
+        coroutineScope {
+            val writers = (0 until count).map { index ->
+                async(Dispatchers.Default) {
+                    viewModel.putCompletedSongId("track_$index", "song_$index")
+                }
             }
+            val readers = (0 until 8).map {
+                async(Dispatchers.Default) {
+                    repeat(100) {
+                        val snapshot = viewModel.completedTrackSongIds.value
+                        snapshot.forEach { (key, value) ->
+                            if (key.startsWith("track_")) {
+                                assertEquals("song_${key.removePrefix("track_")}", value)
+                            }
+                        }
+                    }
+                }
+            }
+            (writers + readers).awaitAll()
         }
-        
-        jobs.joinAll()
-        
-        assertEquals(count, viewModel.completedTrackSongIds.value.size)
-        for (i in 1..count) {
-            assertEquals("song_$i", viewModel.completedTrackSongIds.value["key_$i"])
+
+        val finalSnapshot = viewModel.completedTrackSongIds.value
+        assertEquals(count, finalSnapshot.size)
+        repeat(count) { index ->
+            assertEquals("song_$index", finalSnapshot["track_$index"])
         }
     }
 
     @Test
-    fun testConcurrentUpdateAndReadConsistency() = runBlocking {
-        val count = 50
-        val scope = CoroutineScope(Dispatchers.Default + Job())
-        val readCount = AtomicInteger(0)
-        
-        val jobs = mutableListOf<Job>()
-        
-        // Concurrently put and remove
-        for (i in 1..count) {
-            jobs += scope.launch {
-                val putMethod = viewModel.javaClass.getDeclaredMethod("putCompletedSongId", String::class.java, String::class.java)
-                putMethod.isAccessible = true
-                putMethod.invoke(viewModel, "key_$i", "song_$i")
-                
-                // Concurrent read
-                assertNotNull(viewModel.completedTrackSongIds.value)
-                readCount.incrementAndGet()
-            }
+    fun concurrentRemovalsLeaveBothPublishedAndBackingStateEmpty() = runBlocking {
+        val count = 200
+        repeat(count) { index -> viewModel.putCompletedSongId("track_$index", "song_$index") }
+
+        coroutineScope {
+            (0 until count).map { index ->
+                async(Dispatchers.Default) {
+                    viewModel.removeCompletedSongId("track_$index")
+                }
+            }.awaitAll()
         }
-        
-        jobs.joinAll()
-        
-        assertEquals(count, viewModel.completedTrackSongIds.value.size)
+
+        assertEquals(emptyMap<String, String>(), viewModel.completedTrackSongIds.value)
+        // Reinsert and clear concurrently with readers; clear must publish an empty snapshot.
+        repeat(count) { index -> viewModel.putCompletedSongId("track_$index", "song_$index") }
+        viewModel.clearCompletedSongIds()
+        assertEquals(emptyMap<String, String>(), viewModel.completedTrackSongIds.value)
     }
 }

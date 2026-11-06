@@ -40,6 +40,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 
+internal suspend fun playlistMembershipOrFalse(check: suspend () -> Boolean): Boolean {
+    return try {
+        check()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        false
+    }
+}
+
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MainViewModel(
     private val musicRepository: MusicRepository,
@@ -148,28 +158,28 @@ class MainViewModel(
     private val _completedTrackSongIds = MutableStateFlow<Map<String, String>>(emptyMap())
     val completedTrackSongIds: StateFlow<Map<String, String>> = _completedTrackSongIds.asStateFlow()
 
-    private fun putCompletedSongId(key: String, songId: String) {
+    internal fun putCompletedSongId(key: String, songId: String) {
         synchronized(completedTrackSongIdMap) {
             completedTrackSongIdMap[key] = songId
             _completedTrackSongIds.value = _completedTrackSongIds.value + (key to songId)
         }
     }
 
-    private fun removeCompletedSongId(key: String) {
+    internal fun removeCompletedSongId(key: String) {
         synchronized(completedTrackSongIdMap) {
             completedTrackSongIdMap.remove(key)
             _completedTrackSongIds.value = _completedTrackSongIds.value - key
         }
     }
 
-    private fun clearCompletedSongIds() {
+    internal fun clearCompletedSongIds() {
         synchronized(completedTrackSongIdMap) {
             completedTrackSongIdMap.clear()
             _completedTrackSongIds.value = emptyMap()
         }
     }
 
-    private fun removeCompletedSongIdByValue(songId: String) {
+    internal fun removeCompletedSongIdByValue(songId: String) {
         synchronized(completedTrackSongIdMap) {
             completedTrackSongIdMap.values.removeIf { it == songId }
             _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
@@ -405,12 +415,8 @@ class MainViewModel(
         val failed = mutableListOf<String>()
         for ((index, playlistId) in pending.withIndex()) {
             try {
-                val alreadyInPlaylist = try {
+                val alreadyInPlaylist = playlistMembershipOrFalse {
                     musicRepository.getSongsForPlaylist(playlistId).first().any { it.id == songId }
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    false
                 }
                 if (!alreadyInPlaylist) {
                     musicRepository.addSongToPlaylist(playlistId, songId)
