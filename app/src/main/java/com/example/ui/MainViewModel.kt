@@ -40,6 +40,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 
+internal suspend fun playlistMembershipOrFalse(check: suspend () -> Boolean): Boolean {
+    return try {
+        check()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (_: Exception) {
+        false
+    }
+}
+
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MainViewModel(
     private val musicRepository: MusicRepository,
@@ -405,12 +415,8 @@ class MainViewModel(
         val failed = mutableListOf<String>()
         for ((index, playlistId) in pending.withIndex()) {
             try {
-                val alreadyInPlaylist = try {
+                val alreadyInPlaylist = playlistMembershipOrFalse {
                     musicRepository.getSongsForPlaylist(playlistId).first().any { it.id == songId }
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    false
                 }
                 if (!alreadyInPlaylist) {
                     musicRepository.addSongToPlaylist(playlistId, songId)
