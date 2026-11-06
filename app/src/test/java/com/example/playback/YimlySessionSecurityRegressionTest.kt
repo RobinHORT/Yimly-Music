@@ -1,6 +1,7 @@
 package com.example.playback
 
 import com.example.playback.isPlaybackControllerAuthorized
+import com.example.playback.isControllerPackageVerified
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,5 +24,15 @@ class YimlySessionSecurityRegressionTest {
         
         // NO verified package = DENIED
         assertFalse(isPlaybackControllerAuthorized(isTrusted = false, isPackageNameVerified = false, isVerifiedAutoController = true, isVerifiedAutomotiveController = false))
+    }
+
+    @Test
+    fun controllerPackageMustBelongToReportedUid() {
+        assertTrue(isControllerPackageVerified("com.example.car", arrayOf("com.example.car", "com.example.shared")))
+        assertFalse(isControllerPackageVerified("com.attacker.spoof", arrayOf("com.example.car")))
+        assertFalse(isControllerPackageVerified("com.example.car", null))
+        assertFalse(isControllerPackageVerified("com.example.car", emptyArray()))
+        assertFalse(isControllerPackageVerified(null, arrayOf("com.example.car")))
+        assertFalse(isControllerPackageVerified("", arrayOf("com.example.car")))
     }
 }
