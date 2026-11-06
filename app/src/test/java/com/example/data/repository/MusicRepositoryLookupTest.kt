@@ -38,7 +38,8 @@ class MusicRepositoryLookupTest {
         override suspend fun insertSong(song: SongEntity) { songs[song.id] = song }
         override suspend fun upsertSongs(songs: List<SongEntity>) { this.songs.putAll(songs.associateBy { it.id }) }
         override suspend fun upsertSong(song: SongEntity) { songs[song.id] = song }
-        override suspend fun updateFavorite(songId: String, isFavorite: Boolean) = throw NotImplementedError("updateFavorite")
+        var favoriteUpdateCount = 0
+        override suspend fun updateFavorite(songId: String, isFavorite: Boolean) { favoriteUpdateCount++ }
         override suspend fun clearAllFavorites() = throw NotImplementedError("clearAllFavorites")
         override suspend fun setFavorites(favoriteIds: List<String>) = throw NotImplementedError("setFavorites")
         override suspend fun replaceFavorites(favoriteIds: List<String>) = throw NotImplementedError("replaceFavorites")
@@ -88,11 +89,13 @@ class MusicRepositoryLookupTest {
     private class FakeApiService : YimlyApiService {
         var remoteSongs = mutableMapOf<String, Song>()
         var apiCalled = false
+        var cancelSongLookup = false
         var remoteSearchSongs: List<Song> = emptyList()
         var searchCalled = false
         
         override suspend fun getSongById(id: String): Song {
             apiCalled = true
+            if (cancelSongLookup) throw kotlinx.coroutines.CancellationException("Song lookup cancelled")
             return remoteSongs[id] ?: throw Exception("Song not found")
         }
         override suspend fun getSongs(query: String?, page: Int?, limit: Int?): ResponseBody = throw NotImplementedError("getSongs")
@@ -122,7 +125,7 @@ class MusicRepositoryLookupTest {
         override suspend fun removeCollaborator(playlistId: String, userId: String): Map<String, Any> = throw NotImplementedError("removeCollaborator")
         override suspend fun revokeShare(playlistId: String, userId: String): Map<String, Any> = throw NotImplementedError("revokeShare")
         override suspend fun getFavorites(): List<Song> = throw NotImplementedError("getFavorites")
-        override suspend fun addFavorite(songId: String): Map<String, Any> = throw NotImplementedError("addFavorite")
+        override suspend fun addFavorite(songId: String): Map<String, Any> = emptyMap()
         override suspend fun removeFavorite(songId: String): Map<String, Any> = throw NotImplementedError("removeFavorite")
         override suspend fun search(query: String): SearchResult {
             searchCalled = true
@@ -199,6 +202,23 @@ class MusicRepositoryLookupTest {
         assertEquals(setOf("local_1", "remote_1"), results.map { it.id }.toSet())
         assertEquals(true, fakeApiService.searchCalled)
         assertEquals("remote_1", fakeMusicDao.songs["remote_1"]?.id)
+    }
+
+    @Test
+    fun `toggleFavorite rethrows cancellation during fallback song lookup`() = runTest {
+        val fakeMusicDao = FakeMusicDao()
+        val fakeApiService = FakeApiService().apply { cancelSongLookup = true }
+        val repository = MusicRepository(fakeMusicDao, fakeApiService, testScope)
+
+        var cancellationPropagated = false
+        try {
+            repository.toggleFavorite("missing-song")
+        } catch (_: kotlinx.coroutines.CancellationException) {
+            cancellationPropagated = true
+        }
+
+        assertEquals(true, cancellationPropagated)
+        assertEquals(0, fakeMusicDao.favoriteUpdateCount)
     }
 
     @Test
