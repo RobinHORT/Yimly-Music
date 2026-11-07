@@ -69,6 +69,7 @@ class PlaybackManager(
     var isTransitioning: Boolean = false
         private set
 
+    private var transitionRequestId: Long = 0L
     private var _player: ExoPlayer? = null
     internal var playbackRequestId: Long = 0L
     internal var playbackJob: kotlinx.coroutines.Job? = null
@@ -120,63 +121,72 @@ class PlaybackManager(
                 }
             )
             setShuffleModeEnabled(_playbackInfo.value.isShuffle)
-            addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    when (playbackState) {
-                        Player.STATE_ENDED -> {
-                            if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Song ended, checking queue...")
-                            handleSongEnded()
-                        }
-                        Player.STATE_READY -> {
-                            networkRecoveryJob?.cancel()
-                            networkRecoveryJob = null
-                        }
-                        else -> {}
-                    }
-                    updatePlaybackInfo()
-                }
-
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    handleMediaItemTransition(mediaItem, reason)
-                }
-
-                override fun onRepeatModeChanged(repeatMode: Int) {
-                    val mapped = when (repeatMode) {
-                        Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-                        Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-                        else -> RepeatMode.OFF
-                    }
-                    if (_playbackInfo.value.repeatMode != mapped) {
-                        _playbackInfo.value = _playbackInfo.value.copy(repeatMode = mapped)
-                        persistPlaybackSnapshot(force = true)
-                    }
-                }
-
-                override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-                    if (_playbackInfo.value.isShuffle != shuffleModeEnabled) {
-                        if (!shuffleModeEnabled) shuffleHistory.clear()
-                        _playbackInfo.value = _playbackInfo.value.copy(isShuffle = shuffleModeEnabled)
-                        persistPlaybackSnapshot(force = true)
-                    }
-                }
-
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying) {
-                        isTransitioning = false
-                        releaseTransitionWakeLock()
-                    }
-                    updatePlaybackInfo()
-                }
-
-                override fun onPlayerError(error: PlaybackException) {
-                    Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
-                    isTransitioning = false
-                    handlePlayerError(error)
-                }
-            })
+            addListener(playerListener)
         }
         _player = newPlayer
         return newPlayer
+    }
+
+    internal val playerListener = object : Player.Listener {
+        override fun onPlaybackStateChanged(playbackState: Int) {
+            when (playbackState) {
+                Player.STATE_ENDED -> {
+                    if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Song ended, checking queue...")
+                    handleSongEnded()
+                }
+                Player.STATE_READY -> {
+                    networkRecoveryJob?.cancel()
+                    networkRecoveryJob = null
+                }
+                else -> {}
+            }
+            updatePlaybackInfo()
+        }
+
+        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+            handleMediaItemTransition(mediaItem, reason)
+        }
+
+        override fun onRepeatModeChanged(repeatMode: Int) {
+            val mapped = when (repeatMode) {
+                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
+                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
+                else -> RepeatMode.OFF
+            }
+            if (_playbackInfo.value.repeatMode != mapped) {
+                _playbackInfo.value = _playbackInfo.value.copy(repeatMode = mapped)
+                persistPlaybackSnapshot(force = true)
+            }
+        }
+
+        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
+            if (_playbackInfo.value.isShuffle != shuffleModeEnabled) {
+                if (!shuffleModeEnabled) shuffleHistory.clear()
+                _playbackInfo.value = _playbackInfo.value.copy(isShuffle = shuffleModeEnabled)
+                persistPlaybackSnapshot(force = true)
+            }
+        }
+
+        override fun onIsPlayingChanged(isPlaying: Boolean) {
+            if (isPlaying && isTransitioning) {
+                val p = _player
+                val currentMediaId = p?.currentMediaItem?.mediaId?.let { extractBaseSongId(it) }
+                val targetSongId = _playbackInfo.value.currentSong?.id
+                if (currentMediaId == targetSongId && transitionRequestId == playbackRequestId) {
+                    isTransitioning = false
+                    releaseTransitionWakeLock()
+                }
+            }
+            updatePlaybackInfo()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
+            if (isTransitioning && transitionRequestId == playbackRequestId) {
+                isTransitioning = false
+            }
+            handlePlayerError(error)
+        }
     }
 
     private var _mediaSession: MediaLibrarySession? = null
@@ -277,7 +287,10 @@ class PlaybackManager(
     }
 
     fun handlePlayerError(error: PlaybackException) {
-        releaseTransitionWakeLock()
+        if (isTransitioning && transitionRequestId == playbackRequestId) {
+            isTransitioning = false
+            releaseTransitionWakeLock()
+        }
         val info = _playbackInfo.value
         val isTransientNetworkError =
             error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
@@ -572,8 +585,10 @@ class PlaybackManager(
             info.repeatMode == RepeatMode.ALL -> (info.currentQueueIndex + 1) % info.queue.size
             info.currentQueueIndex + 1 < info.queue.size -> info.currentQueueIndex + 1
             else -> {
-                isTransitioning = false
-                releaseTransitionWakeLock()
+                if (transitionRequestId == playbackRequestId) {
+                    isTransitioning = false
+                    releaseTransitionWakeLock()
+                }
                 return
             }
         }
@@ -652,8 +667,6 @@ class PlaybackManager(
 
         val newSong = queue[matchedIndex]
         val keepInstrumental = info.isInstrumental
-        isTransitioning = false
-        releaseTransitionWakeLock()
 
         if (info.currentQueueIndex != matchedIndex || info.currentSong?.id != newSong.id || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
             val newPos = if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) 0L else (p?.currentPosition?.coerceAtLeast(0L) ?: 0L)
@@ -682,8 +695,10 @@ class PlaybackManager(
         if (hasMultiItemTimeline && info.repeatMode == RepeatMode.OFF) {
             // When timeline contains all items and repeat is OFF, STATE_ENDED means the queue has completed naturally.
             // Do not call next() to avoid duplicate/unexpected advances.
-            isTransitioning = false
-            releaseTransitionWakeLock()
+            if (transitionRequestId == playbackRequestId) {
+                isTransitioning = false
+                releaseTransitionWakeLock()
+            }
             updatePlaybackInfo()
             return
         }
@@ -750,6 +765,7 @@ class PlaybackManager(
         val song = info.queue[info.currentQueueIndex]
         val wantInst = targetInstrumental ?: info.isInstrumental
         val requestId = ++playbackRequestId
+        transitionRequestId = requestId
         isTransitioning = true
         acquireTransitionWakeLock()
 
@@ -817,19 +833,19 @@ class PlaybackManager(
                     updatePlaybackInfo()
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                if (requestId == playbackRequestId) {
+                if (requestId == playbackRequestId && transitionRequestId == requestId) {
                     isTransitioning = false
                     releaseTransitionWakeLock()
                 }
                 throw e
             } catch (e: Exception) {
                 Log.e("PlaybackManager", "Error playing song: ${song.title}", e)
-                if (requestId == playbackRequestId) {
+                if (requestId == playbackRequestId && transitionRequestId == requestId) {
                     isTransitioning = false
                     releaseTransitionWakeLock()
                 }
             } finally {
-                if (requestId == playbackRequestId && !handedOffToPlayer) {
+                if (requestId == playbackRequestId && transitionRequestId == requestId && !handedOffToPlayer) {
                     isTransitioning = false
                     releaseTransitionWakeLock()
                 }
@@ -848,6 +864,7 @@ class PlaybackManager(
 
     fun play() {
         val requestId = ++playbackRequestId
+        transitionRequestId = requestId
         isTransitioning = true
         coroutineScope.launch {
             try {
@@ -881,7 +898,7 @@ class PlaybackManager(
                 updatePlaybackInfo()
                 persistPlaybackSnapshot(force = true)
             } finally {
-                if (requestId == playbackRequestId) {
+                if (requestId == playbackRequestId && transitionRequestId == requestId) {
                     isTransitioning = false
                 }
             }
@@ -890,6 +907,7 @@ class PlaybackManager(
 
     fun pause() {
         playbackRequestId++
+        transitionRequestId = 0L
         isTransitioning = false
         releaseTransitionWakeLock()
         _player?.pause()
