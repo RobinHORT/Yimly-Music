@@ -69,8 +69,15 @@ class YimlyPlaybackService : MediaLibraryService() {
         val hasActiveQueue = info != null && info.queue.isNotEmpty() && info.currentQueueIndex in info.queue.indices
         val player = session.player
         val hasPlayerItems = player.mediaItemCount > 0 && player.currentMediaItemIndex in 0 until player.mediaItemCount
-        val isPlaybackActive = player.playWhenReady || player.isPlaying || manager?.isTransitioning == true
-        val shouldStayInForeground = startInForegroundRequired || ((hasActiveQueue || hasPlayerItems) && isPlaybackActive)
+        val isTransitioning = manager?.isTransitioning == true
+        val isRestoring = manager?.isRestoringSnapshot == true
+        val isPlaybackActive = player.playWhenReady || player.isPlaying || isTransitioning
+        
+        // Ensure we stay in foreground if Media3 requires it, or if we have active playback/intent.
+        // We include isTransitioning and isRestoring to prevent crashes during cold-start or track resolution.
+        val shouldStayInForeground = startInForegroundRequired || 
+            (isPlaybackActive && (hasActiveQueue || hasPlayerItems || isTransitioning || isRestoring))
+            
         super.onUpdateNotification(session, shouldStayInForeground)
     }
 

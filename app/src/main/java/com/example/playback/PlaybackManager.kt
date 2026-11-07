@@ -90,6 +90,9 @@ class PlaybackManager(
     val isPlayerInitialized: Boolean
         get() = _player != null
 
+    val isRestoringSnapshot: Boolean
+        get() = !snapshotRestoreCompleted.isCompleted
+
     val player: ExoPlayer?
         get() = _player
 
@@ -733,7 +736,7 @@ class PlaybackManager(
             .build()
     }
 
-    private fun playCurrentQueueIndex(
+    internal fun playCurrentQueueIndex(
         targetInstrumental: Boolean? = null,
         autoPlay: Boolean = true,
         initialPositionMs: Long? = null
@@ -747,7 +750,7 @@ class PlaybackManager(
         val song = info.queue[info.currentQueueIndex]
         val wantInst = targetInstrumental ?: info.isInstrumental
         val requestId = ++playbackRequestId
-
+        isTransitioning = true
         acquireTransitionWakeLock()
 
         playbackJob = coroutineScope.launch(Dispatchers.IO) {
@@ -844,19 +847,49 @@ class PlaybackManager(
     }
 
     fun play() {
-        startPlaybackService()
-        val p = ensurePlayerInitialized()
-        if (p.playbackState == Player.STATE_ENDED) {
-            p.seekTo(0)
-        } else if (p.playbackState == Player.STATE_IDLE) {
-            p.prepare()
+        val requestId = ++playbackRequestId
+        isTransitioning = true
+        coroutineScope.launch {
+            try {
+                awaitPlaybackSnapshotRestoration()
+                if (requestId != playbackRequestId) return@launch
+
+                val p = ensurePlayerInitialized()
+                val info = _playbackInfo.value
+                
+                // Do not start the service or play if the queue is empty after restoration.
+                if (p.mediaItemCount == 0 && info.queue.isEmpty()) {
+                    return@launch
+                }
+
+                startPlaybackService()
+
+                // If the player timeline is empty but the logical queue is non-empty,
+                // we must populate the player before attempting to play. This can happen
+                // if restoration was skipped or if a newer queue was set before player init.
+                if (p.mediaItemCount == 0 && info.queue.isNotEmpty()) {
+                    playCurrentQueueIndex(autoPlay = true)
+                    return@launch
+                }
+
+                if (p.playbackState == Player.STATE_ENDED) {
+                    p.seekTo(0)
+                } else if (p.playbackState == Player.STATE_IDLE) {
+                    p.prepare()
+                }
+                p.play()
+                updatePlaybackInfo()
+                persistPlaybackSnapshot(force = true)
+            } finally {
+                if (requestId == playbackRequestId) {
+                    isTransitioning = false
+                }
+            }
         }
-        p.play()
-        updatePlaybackInfo()
-        persistPlaybackSnapshot(force = true)
     }
 
     fun pause() {
+        playbackRequestId++
         isTransitioning = false
         releaseTransitionWakeLock()
         _player?.pause()
