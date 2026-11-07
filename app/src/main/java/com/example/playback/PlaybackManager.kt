@@ -1180,35 +1180,37 @@ class PlaybackManager(
     }
 
     fun reorderQueue(fromIndex: Int, toIndex: Int) {
+        val info = _playbackInfo.value
+        val queue = info.queue
+        if (fromIndex !in queue.indices || toIndex !in queue.indices) {
+            return
+        }
         playbackRequestId++
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
-        val info = _playbackInfo.value
-        val queue = info.queue.toMutableList()
-        if (fromIndex in queue.indices && toIndex in queue.indices) {
-            val item = queue.removeAt(fromIndex)
-            queue.add(toIndex, item)
-            val oldIndex = info.currentQueueIndex
-            val newIndex = when {
-                oldIndex !in info.queue.indices -> oldIndex
-                fromIndex == oldIndex -> toIndex
-                fromIndex < oldIndex && toIndex >= oldIndex -> oldIndex - 1
-                fromIndex > oldIndex && toIndex <= oldIndex -> oldIndex + 1
-                else -> oldIndex
-            }
-            _playbackInfo.value = info.copy(
-                queue = queue,
-                currentQueueIndex = newIndex,
-                currentSong = queue.getOrNull(newIndex)
-            )
-            shuffleHistory.clear()
-            persistPlaybackSnapshot(force = true)
+        val mutableQueue = queue.toMutableList()
+        val item = mutableQueue.removeAt(fromIndex)
+        mutableQueue.add(toIndex, item)
+        val oldIndex = info.currentQueueIndex
+        val newIndex = when {
+            oldIndex !in queue.indices -> oldIndex
+            fromIndex == oldIndex -> toIndex
+            fromIndex < oldIndex && toIndex >= oldIndex -> oldIndex - 1
+            fromIndex > oldIndex && toIndex <= oldIndex -> oldIndex + 1
+            else -> oldIndex
+        }
+        _playbackInfo.value = info.copy(
+            queue = mutableQueue,
+            currentQueueIndex = newIndex,
+            currentSong = mutableQueue.getOrNull(newIndex)
+        )
+        shuffleHistory.clear()
+        persistPlaybackSnapshot(force = true)
 
-            val p = _player
-            if (p != null && fromIndex < p.mediaItemCount && toIndex < p.mediaItemCount && p.mediaItemCount == queue.size) {
-                p.moveMediaItem(fromIndex, toIndex)
-            }
+        val p = _player
+        if (p != null && fromIndex < p.mediaItemCount && toIndex < p.mediaItemCount && p.mediaItemCount == mutableQueue.size) {
+            p.moveMediaItem(fromIndex, toIndex)
         }
     }
 
