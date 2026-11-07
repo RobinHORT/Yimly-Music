@@ -33,7 +33,7 @@ class PlaylistCancellationRegressionTest {
 
     @Test
     fun ordinaryMembershipLookupFailureUsesSafeFallback() = runBlocking {
-        val alreadyInPlaylist = playlistMembershipOrFalse<Boolean> {
+        val alreadyInPlaylist = playlistMembershipOrFalse {
             throw IllegalStateException("temporary lookup failure")
         }
         assertFalse(alreadyInPlaylist)
