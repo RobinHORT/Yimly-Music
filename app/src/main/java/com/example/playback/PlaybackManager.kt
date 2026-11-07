@@ -754,7 +754,6 @@ class PlaybackManager(
             var handedOffToPlayer = false
             try {
                 if (requestId != playbackRequestId) {
-                    releaseTransitionWakeLock()
                     return@launch
                 }
 
@@ -767,7 +766,6 @@ class PlaybackManager(
                 }
 
                 if (requestId != playbackRequestId) {
-                    releaseTransitionWakeLock()
                     return@launch
                 }
 
