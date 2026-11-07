@@ -1,8 +1,11 @@
 package com.example.playback
 
+import androidx.annotation.OptIn
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
+import androidx.media3.common.util.UnstableApi
 
+@OptIn(UnstableApi::class)
 class YimlyForwardingPlayer(
     player: Player,
     private val playbackManager: PlaybackManager

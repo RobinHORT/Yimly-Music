@@ -15,6 +15,7 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.LibraryResult
+import androidx.media3.session.SessionError
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
@@ -514,7 +515,7 @@ class YimlySessionCallback(
                 throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() ERROR parentId=$parentId: ${e.message}", e)
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
@@ -523,7 +524,7 @@ class YimlySessionCallback(
                     future.cancel(false)
                 } else {
                     android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() Job failed for parentId=$parentId: ${cause.message}")
-                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
                 }
             }
         }
@@ -567,14 +568,14 @@ class YimlySessionCallback(
                     future.set(LibraryResult.ofItem(item, null))
                 } else {
                     android.util.Log.w("AA_DIAG", "YimlySessionCallback.onGetItem() NOT FOUND mediaId=$mediaId")
-                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+                    future.set(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
                 }
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 future.cancel(false)
                 throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetItem() ERROR mediaId=$mediaId: ${e.message}", e)
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
@@ -582,7 +583,7 @@ class YimlySessionCallback(
                 if (cause is kotlinx.coroutines.CancellationException) {
                     future.cancel(false)
                 } else {
-                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
                 }
             }
         }
@@ -621,7 +622,7 @@ class YimlySessionCallback(
                 if (cause is kotlinx.coroutines.CancellationException) {
                     future.cancel(false)
                 } else {
-                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
                 }
             }
         }
@@ -683,7 +684,7 @@ class YimlySessionCallback(
                 throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetSearchResult() ERROR query=$query: ${e.message}", e)
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
@@ -691,7 +692,7 @@ class YimlySessionCallback(
                 if (cause is kotlinx.coroutines.CancellationException) {
                     future.cancel(false)
                 } else {
-                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
                 }
             }
         }
