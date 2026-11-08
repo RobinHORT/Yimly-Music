@@ -42,9 +42,20 @@ class YimlyPlaybackService : MediaLibraryService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onStartCommand() intent=$intent")
         val app = application as? YimlyApplication
-        val session = app?.playbackManager?.mediaSession
-        if (session != null && !sessions.contains(session)) {
-            addSession(session)
+        val manager = app?.playbackManager
+        val session = manager?.mediaSession
+
+        if (session != null) {
+            if (!sessions.contains(session)) {
+                addSession(session)
+            }
+
+            // Defensive: Trigger immediate notification update if transitioning to 
+            // satisfy foreground-service watchdog deadline. Executes regardless 
+            // of whether session was newly registered or already active.
+            if (manager.isTransitioning) {
+                onUpdateNotification(session, true)
+            }
         }
         return super.onStartCommand(intent, flags, startId)
     }

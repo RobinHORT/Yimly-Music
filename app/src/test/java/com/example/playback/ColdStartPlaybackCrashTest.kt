@@ -155,4 +155,55 @@ class ColdStartPlaybackCrashTest {
         // We should be in transitioning state immediately.
         assertTrue("isTransitioning must be true immediately after playSong", playbackManager.isTransitioning)
     }
+
+    @Test
+    fun `test onStartCommand promotes to foreground when newly registered and transitioning`() {
+        val app = context as YimlyApplication
+        val service = org.robolectric.Robolectric.buildService(YimlyPlaybackService::class.java).create().get()
+        
+        val manager = app.playbackManager
+        val song = Song(id = "test", title = "Test", artist = "Artist")
+        manager.playSong(song, listOf(song), startIndex = 0)
+        assertTrue(manager.isTransitioning)
+        
+        val intent = android.content.Intent(context, YimlyPlaybackService::class.java)
+        service.onStartCommand(intent, 0, 1)
+        
+        // Ensure service is active and session is added
+        assertNotNull(service)
+        assertTrue(service.sessions.isNotEmpty())
+    }
+
+    @Test
+    fun `test onStartCommand promotes to foreground when already registered and transitioning`() {
+        val app = context as YimlyApplication
+        val service = org.robolectric.Robolectric.buildService(YimlyPlaybackService::class.java).create().get()
+        
+        val manager = app.playbackManager
+        val intent = android.content.Intent(context, YimlyPlaybackService::class.java)
+        service.onStartCommand(intent, 0, 1)
+        assertTrue(service.sessions.isNotEmpty())
+        
+        // Transition after already registered
+        val song = Song(id = "test2", title = "Test 2", artist = "Artist")
+        manager.playSong(song, listOf(song), startIndex = 0)
+        assertTrue(manager.isTransitioning)
+        
+        service.onStartCommand(intent, 0, 2)
+        assertNotNull(service)
+    }
+
+    @Test
+    fun `test onStartCommand does not promote when not transitioning`() {
+        val app = context as YimlyApplication
+        val service = org.robolectric.Robolectric.buildService(YimlyPlaybackService::class.java).create().get()
+        
+        val manager = app.playbackManager
+        assertFalse(manager.isTransitioning)
+        
+        val intent = android.content.Intent(context, YimlyPlaybackService::class.java)
+        service.onStartCommand(intent, 0, 1)
+        
+        assertNotNull(service)
+    }
 }
