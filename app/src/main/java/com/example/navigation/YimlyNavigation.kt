@@ -36,7 +36,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -136,7 +135,6 @@ fun YimlyNavigation(
     val currentRoute = navBackStackEntry?.destination?.route
 
     var isPlayerExpanded by remember { mutableStateOf(false) }
-    var libraryInitialTab by remember { mutableIntStateOf(0) }
     var songToAddToPlaylist by remember { mutableStateOf<Song?>(null) }
     var externalTrackToAddToPlaylist by remember { mutableStateOf<ExternalTrack?>(null) }
 
@@ -191,9 +189,6 @@ fun YimlyNavigation(
 
         BackHandler(enabled = drawerState.isOpen) {
             coroutineScope.launch { drawerState.close() }
-        }
-        BackHandler(enabled = isPlayerExpanded && !drawerState.isOpen) {
-            isPlayerExpanded = false
         }
 
         ModalNavigationDrawer(
@@ -477,8 +472,7 @@ fun YimlyNavigation(
                             onArtistClick = { artist -> navController.navigate(Screen.ArtistDetail.createRoute(artist.id)) },
                             onPlaylistClick = { playlist -> navController.navigate(Screen.PlaylistDetail.createRoute(playlist.id)) },
                             onFavoritesClick = {
-                                libraryInitialTab = 4
-                                navController.navigate(Screen.Music.route) { launchSingleTop = true }
+                                navController.navigate(Screen.Music.route)
                             },
                             onToggleFavorite = { songId -> viewModel.toggleFavorite(songId) },
                             onPlayNext = { song -> viewModel.playNext(song) },
@@ -491,8 +485,6 @@ fun YimlyNavigation(
                     // 2. Music Library
                     composable(Screen.Music.route) {
                         MusicLibraryScreen(
-                            initialSelectedTab = libraryInitialTab,
-                            onInitialSelectedTabConsumed = { libraryInitialTab = 0 },
                             allSongs = allSongs,
                             albums = albums,
                             artists = artists,
@@ -660,15 +652,15 @@ fun YimlyNavigation(
                                     { songId -> viewModel.removeSongFromPlaylist(playlist.id, songId) }
                                 } else null,
                                 onSharePlaylist = if (playlist.isOwner || playlist.permission == "owner") {
-                                    { username, perm, onComplete ->
-                                        viewModel.sharePlaylist(playlist.id, username, perm, onComplete)
+                                    { username, perm ->
+                                        viewModel.sharePlaylist(playlist.id, username, perm)
                                     }
                                 } else null,
                                 onGetCollaborators = { callback ->
                                     viewModel.getCollaborators(playlist.id, callback)
                                 },
                                 onRevokeShare = if (playlist.isOwner || playlist.permission == "owner") {
-                                    { userId, onComplete -> viewModel.revokeShare(playlist.id, userId, onComplete) }
+                                    { userId -> viewModel.revokeShare(playlist.id, userId) }
                                 } else null,
                                 onUpdateArtwork = if (playlist.canEdit) {
                                     { uri -> viewModel.updateArtwork(playlist.id, uri) }

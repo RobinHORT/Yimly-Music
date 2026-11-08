@@ -2,7 +2,6 @@ package com.example.data.repository
 
 import com.example.data.api.YimlyApiService
 import com.example.data.datastore.PreferencesManager
-import com.example.data.datastore.AuthTokenHolder
 import com.example.data.datastore.ServerUrlConfig
 import com.example.data.db.LyricResourceEntity
 import com.example.data.db.MusicDao
@@ -36,13 +35,10 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.map
@@ -77,8 +73,7 @@ class MusicRepository(
     private val apiService: YimlyApiService,
     private val coroutineScope: CoroutineScope,
     private val context: android.content.Context? = null,
-    private val preferencesManager: PreferencesManager? = null,
-    private val replacementApiService: YimlyApiService? = null
+    private val preferencesManager: PreferencesManager? = null
 ) {
 
     private val playlistLastSyncTimes = java.util.concurrent.ConcurrentHashMap<String, Long>()
@@ -209,36 +204,9 @@ class MusicRepository(
         musicDao.getAllSongsList().map { it.toSong() }
     }
 
-    /**
-     * Search the local catalogue and the authenticated Yimly API for Android Auto.
-     * The server is the source of truth; merging with Room keeps recently cached
-     * matches available during transient API failures and persists newly found songs
-     * so onAddMediaItems can resolve their media IDs locally.
-     */
+    /** Search the repository's injected Room database for Android Auto library search. */
     suspend fun searchSongs(query: String): List<Song> = withContext(Dispatchers.IO) {
-        val cleanQuery = query.trim()
-        if (cleanQuery.isBlank()) return@withContext emptyList()
-
-        val localSongs = musicDao.searchSongs(cleanQuery).map { it.toSong() }
-        val remoteSongs = try {
-            apiService.search(cleanQuery).songs
-                .filter { it.id.isNotBlank() && it.title.isNotBlank() }
-                .distinctBy { it.id.trim() }
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
-            Log.w("MusicRepository", "Android Auto remote search failed; using local matches", e)
-            emptyList()
-        }
-
-        if (remoteSongs.isNotEmpty()) {
-            musicDao.upsertSongs(remoteSongs.map { it.toEntity() })
-        }
-
-        SearchUtils.sortSongsByRelevance(
-            (remoteSongs + localSongs).distinctBy { it.id.trim() },
-            cleanQuery
-        )
+        musicDao.searchSongs(query).map { it.toSong() }
     }
 
     val recentlyAddedSongs: Flow<List<Song>> = musicDao.getRecentlyAddedSongs().map { list -> list.map { it.toSong() }.filter { !it.isInstrumentalTrack } }
@@ -366,7 +334,7 @@ class MusicRepository(
         }
 
         val playableUrl = if (wantInstrumental) instUrl else normalUrl
-        if (com.example.BuildConfig.DEBUG) Log.d("MusicRepository", "resolvePlayableTrack: songId=${song.id}, wantInst=$wantInstrumental, hasPlayableUrl=${playableUrl.isNotBlank()}")
+        Log.d("MusicRepository", "resolvePlayableTrack: title='${song.title}', wantInst=$wantInstrumental, playableUrl=$playableUrl")
 
         ResolvedTrack(
             song = song,
@@ -401,8 +369,6 @@ class MusicRepository(
             try {
                 val remoteSong = apiService.getSongById(songId)
                 musicDao.upsertSong(remoteSong.toEntity().copy(isFavorite = newFav))
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
             } catch (_: Exception) {
                 musicDao.updateFavorite(songId, newFav)
             }
@@ -495,12 +461,7 @@ class MusicRepository(
     }
 
     suspend fun addSongToPlaylist(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
-        try {
-            apiService.addSongToPlaylist(playlistId, AddPlaylistSongRequest(songId = songId))
-        } catch (e: retrofit2.HttpException) {
-            if (e.code() != 409) throw e
-            // 409 Conflict indicates the song is already present in the playlist on the server.
-        }
+        apiService.addSongToPlaylist(playlistId, AddPlaylistSongRequest(songId = songId))
         val refreshResult = refreshPlaylistDetail(playlistId, force = true)
         if (refreshResult.isFailure) {
             Log.w(
@@ -512,22 +473,11 @@ class MusicRepository(
     }
 
     suspend fun addSongToPlaylistOptimistic(playlistId: String, songId: String) = withContext(Dispatchers.IO) {
-        // Do not replace an existing cross-reference with the optimistic sentinel
-        // order index: if the server rejects a duplicate add, rollback must not
-        // remove a song that was already in the playlist.
-        val alreadyInPlaylist = musicDao.getSongsForPlaylist(playlistId).first()
-            .any { it.id == songId }
-        val insertedOptimistically = !alreadyInPlaylist
-        if (insertedOptimistically) {
-            musicDao.insertPlaylistSongCrossRef(PlaylistSongCrossRef(playlistId, songId, orderIndex = 9999))
-        }
+        musicDao.insertPlaylistSongCrossRef(PlaylistSongCrossRef(playlistId, songId, orderIndex = 9999))
         try {
             addSongToPlaylist(playlistId, songId)
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            if (insertedOptimistically) musicDao.removeSongFromPlaylist(playlistId, songId)
-            throw cancelled
         } catch (e: Exception) {
-            if (insertedOptimistically) musicDao.removeSongFromPlaylist(playlistId, songId)
+            musicDao.removeSongFromPlaylist(playlistId, songId)
             throw e
         }
     }
@@ -551,9 +501,8 @@ class MusicRepository(
             apiService.revokeShare(playlistId, userId)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
-        } catch (e: retrofit2.HttpException) {
-            if (e.code() != 404 && e.code() != 405) throw e
-            Log.w("MusicRepository", "Share-revoke endpoint unavailable; using collaborator removal", e)
+        } catch (e: Exception) {
+            Log.w("MusicRepository", "Primary playlist share revoke failed; trying collaborator removal", e)
             apiService.removeCollaborator(playlistId, userId)
         }
     }
@@ -839,7 +788,6 @@ class MusicRepository(
         try {
             apiService.deleteLrc(songId)
             musicDao.deleteAllLyricResourcesForSong(songId.trim())
-            musicDao.clearSongLyricsMetadata(songId.trim())
             Result.success(Unit)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             throw cancelled
@@ -861,110 +809,6 @@ class MusicRepository(
         } catch (e: Exception) {
             Result.failure(e)
         }
-    }
-
-    suspend fun replaceSongRecordingSource(songId: String, youtubeUrl: String): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val cleanId = songId.trim()
-            require(cleanId.toLongOrNull() != null) { "This song has an invalid server ID and cannot be replaced." }
-            require(youtubeUrl.trim().isNotBlank()) { "A YouTube URL is required." }
-            awaitSongReplacement(cleanId) {
-                (replacementApiService ?: apiService).replaceSongRecordingSource(
-                    cleanId,
-                    mapOf("youtubeUrl" to youtubeUrl.trim())
-                )
-            }
-            Result.success(Unit)
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    suspend fun replaceSongInstrumental(songId: String): Result<Unit> = withContext(Dispatchers.IO) {
-        try {
-            val cleanId = songId.trim()
-            require(cleanId.toLongOrNull() != null) { "This song has an invalid server ID and cannot be reprocessed." }
-            awaitSongReplacement(cleanId) {
-                (replacementApiService ?: apiService).replaceSongInstrumental(cleanId)
-            }
-            Result.success(Unit)
-        } catch (cancelled: kotlinx.coroutines.CancellationException) {
-            throw cancelled
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * The server runs replacement synchronously, while its status endpoints expose the
-     * in-flight job. Polling lets the client recover if the reverse proxy times out the
-     * long POST after the server has already started processing it.
-     */
-    private suspend fun awaitSongReplacement(
-        songId: String,
-        startRequest: suspend () -> Map<String, Any>
-    ) = supervisorScope {
-        val startedAt = System.currentTimeMillis()
-        val startCall = async { runCatching { startRequest() } }
-        var jobId: String? = null
-        var startFailure: Throwable? = null
-
-        while (System.currentTimeMillis() - startedAt < 35 * 60 * 1000L) {
-            if (startCall.isCompleted && startFailure == null) {
-                val startResult = startCall.await()
-                if (startResult.isSuccess) {
-                    val response = startResult.getOrThrow()
-                    if (response["success"] == false) {
-                        throw IOException(response["message"]?.toString() ?: "Audio replacement failed.")
-                    }
-                    return@supervisorScope
-                }
-                startFailure = startResult.exceptionOrNull()
-            }
-
-            val status = runCatching { apiService.getSongReplacementStatus(songId, startedAt) }.getOrNull()
-            val activeJob = status?.get("job") as? Map<*, *>
-            val activeJobId = activeJob?.get("jobId")?.toString()?.takeIf { it.isNotBlank() }
-            if (activeJobId != null) jobId = activeJobId
-
-            val currentJobId = jobId
-            if (currentJobId != null) {
-                val job = runCatching { apiService.getSongReplacementJob(currentJobId) }.getOrNull()
-                if (job != null) {
-                    when (job["status"]?.toString()?.lowercase()) {
-                        "completed" -> {
-                            val result = job["result"] as? Map<*, *>
-                            if (result?.get("success") == false) {
-                                throw IOException(result["message"]?.toString() ?: "Audio replacement failed.")
-                            }
-                            startCall.cancel()
-                            return@supervisorScope
-                        }
-                        "failed" -> {
-                            throw IOException(
-                                job["error"]?.toString()
-                                    ?: job["message"]?.toString()
-                                    ?: "Audio replacement failed on the server."
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (startFailure != null && jobId == null) {
-                val code = (startFailure as? HttpException)?.code()
-                val mayBeProxyTimeout = code == 502 || code == 504 || code == 524
-                if (!mayBeProxyTimeout || System.currentTimeMillis() - startedAt > 15000L) {
-                    throw startFailure!!
-                }
-            }
-
-            delay(1000)
-        }
-
-        throw IOException("Audio replacement did not finish within 35 minutes.")
     }
 
     suspend fun getLyricsOffset(songId: String): Long? = withContext(Dispatchers.IO) {
@@ -1036,8 +880,7 @@ class MusicRepository(
         return Pair(uniqueSongs, true)
     }
     suspend fun syncWithBackend(): Result<Unit> = withContext(Dispatchers.IO) {
-        val token = AuthTokenHolder.token?.takeIf { it.isNotBlank() }
-            ?: preferencesManager?.authTokenFlow?.firstOrNull()
+        val token = preferencesManager?.authTokenFlow?.firstOrNull()
         if (preferencesManager != null && token.isNullOrBlank()) {
             Log.i("MusicRepository", "Skipping backend sync because user is not authenticated.")
             return@withContext Result.success(Unit)
@@ -1177,7 +1020,7 @@ class MusicRepository(
                     } else {
                         try {
                             val plSongs = apiService.getPlaylistSongs(pl.id.trim())
-                            musicDao.safeSyncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() }, serverReportedCount = plSongs.size)
+                            musicDao.safeSyncPlaylistSongs(pl.id.trim(), plSongs.map { it.toEntity() })
                             markPlaylistSynced(pl.id.trim())
                         } catch (cancelled: kotlinx.coroutines.CancellationException) {
                             throw cancelled
@@ -1232,16 +1075,8 @@ class MusicRepository(
     companion object {
         const val PLAYLIST_FRESHNESS_WINDOW_MS = 5 * 60 * 1000L // 5 minutes
 
-        private fun normalizeTrackIdentityPart(value: String): String = SearchUtils.normalize(value)
-
-        fun matchesExternalTrackMetadata(
-            title: String,
-            artist: String,
-            track: com.example.data.models.ExternalTrack
-        ): Boolean {
-            return normalizeTrackIdentityPart(title) == normalizeTrackIdentityPart(track.title) &&
-                normalizeTrackIdentityPart(artist) == normalizeTrackIdentityPart(track.artist)
-        }
+        private fun normalizeTrackIdentityPart(value: String): String =
+            value.trim().lowercase().replace(Regex("\\s+"), " ")
 
         fun externalTrackIdentity(track: com.example.data.models.ExternalTrack): String {
             val base = "${normalizeTrackIdentityPart(track.title)}|${normalizeTrackIdentityPart(track.artist)}"
@@ -1255,21 +1090,6 @@ class MusicRepository(
                     append(track.durationSeconds.coerceAtLeast(0L))
                 }
             }
-        }
-
-        /**
-         * Prefer a newly indexed match, but accept an existing matching library record
-         * after a confirmed download. Some download/index pipelines update an existing
-         * record instead of inserting a new song ID.
-         */
-        fun findMatchingExternalTrack(
-            songs: List<Song>,
-            track: com.example.data.models.ExternalTrack,
-            preExistingIds: Set<String>
-        ): Song? {
-            return songs.firstOrNull { song ->
-                song.id !in preExistingIds && isSameExternalTrack(song, track)
-            } ?: songs.firstOrNull { song -> isSameExternalTrack(song, track) }
         }
 
         fun isSameExternalTrack(

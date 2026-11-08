@@ -9,15 +9,6 @@ plugins {
   alias(libs.plugins.google.services)
 }
 
-val releaseKeystorePath = System.getenv("KEYSTORE_PATH")?.takeIf { it.isNotBlank() }
-val releaseStorePassword = System.getenv("STORE_PASSWORD")?.takeIf { it.isNotBlank() }
-val releaseKeyAlias = System.getenv("KEY_ALIAS")?.takeIf { it.isNotBlank() }
-val releaseKeyPassword = System.getenv("KEY_PASSWORD")?.takeIf { it.isNotBlank() }
-val releaseSigningConfigured = releaseKeystorePath != null &&
-    releaseStorePassword != null &&
-    releaseKeyAlias != null &&
-    releaseKeyPassword != null
-
 android {
   namespace = "com.example"
   compileSdk { version = release(36) { minorApiLevel = 1 } }
@@ -33,18 +24,26 @@ android {
   }
 
   signingConfigs {
-    if (releaseSigningConfigured) {
-      create("release") {
-        storeFile = file(releaseKeystorePath!!)
-        storePassword = releaseStorePassword
-        keyAlias = releaseKeyAlias
-        keyPassword = releaseKeyPassword
+    create("release") {
+      val keystorePath = System.getenv("KEYSTORE_PATH")
+      if (!keystorePath.isNullOrEmpty()) {
+        storeFile = file(keystorePath)
+        storePassword = System.getenv("STORE_PASSWORD")
+        keyAlias = System.getenv("KEY_ALIAS")
+        keyPassword = System.getenv("KEY_PASSWORD")
+      } else {
+        storeFile = file("${rootDir}/debug.keystore")
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
       }
-    } else {
-      logger.warn("Release signing is not configured. Release artifacts will remain unsigned; configure KEYSTORE_PATH, STORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD to sign them.")
     }
-    // The Android Gradle Plugin supplies the standard local debug keystore.
-    // Do not require an ignored, manually provisioned debug.keystore in the repo.
+    create("debugConfig") {
+      storeFile = file("${rootDir}/debug.keystore")
+      storePassword = "android"
+      keyAlias = "androiddebugkey"
+      keyPassword = "android"
+    }
   }
 
   buildTypes {
@@ -52,9 +51,9 @@ android {
       isCrunchPngs = false
       isMinifyEnabled = false
       proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-      if (releaseSigningConfigured) signingConfig = signingConfigs.getByName("release")
+      signingConfig = signingConfigs.getByName("release")
     }
-    // Keep the Android Gradle Plugin's default debug signing configuration.
+    debug { signingConfig = signingConfigs.getByName("debugConfig") }
   }
   compileOptions {
     sourceCompatibility = JavaVersion.VERSION_11

@@ -40,16 +40,6 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 
-internal suspend fun playlistMembershipOrFalse(check: suspend () -> Boolean): Boolean {
-    return try {
-        check()
-    } catch (cancelled: kotlinx.coroutines.CancellationException) {
-        throw cancelled
-    } catch (_: Exception) {
-        false
-    }
-}
-
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MainViewModel(
     private val musicRepository: MusicRepository,
@@ -152,39 +142,11 @@ class MainViewModel(
     // Downloader State
     private val downloadingTrackKeys = mutableSetOf<String>()
     private val activeDownloadJobs = mutableSetOf<Job>()
-    private val completedTrackSongIdMap = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val completedTrackSongIdMap = mutableMapOf<String, String>()
     private val pendingPlaylistRequests = mutableMapOf<String, MutableList<String>>() // Key: track, Value: PlaylistIDs
     
     private val _completedTrackSongIds = MutableStateFlow<Map<String, String>>(emptyMap())
     val completedTrackSongIds: StateFlow<Map<String, String>> = _completedTrackSongIds.asStateFlow()
-
-    internal fun putCompletedSongId(key: String, songId: String) {
-        synchronized(completedTrackSongIdMap) {
-            completedTrackSongIdMap[key] = songId
-            _completedTrackSongIds.value = _completedTrackSongIds.value + (key to songId)
-        }
-    }
-
-    internal fun removeCompletedSongId(key: String) {
-        synchronized(completedTrackSongIdMap) {
-            completedTrackSongIdMap.remove(key)
-            _completedTrackSongIds.value = _completedTrackSongIds.value - key
-        }
-    }
-
-    internal fun clearCompletedSongIds() {
-        synchronized(completedTrackSongIdMap) {
-            completedTrackSongIdMap.clear()
-            _completedTrackSongIds.value = emptyMap()
-        }
-    }
-
-    internal fun removeCompletedSongIdByValue(songId: String) {
-        synchronized(completedTrackSongIdMap) {
-            completedTrackSongIdMap.values.removeIf { it == songId }
-            _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
-        }
-    }
 
     private val _downloadProgressMap = MutableStateFlow<Map<String, Int>>(emptyMap())
     val downloadProgressMap: StateFlow<Map<String, Int>> = _downloadProgressMap.asStateFlow()
@@ -216,13 +178,15 @@ class MainViewModel(
         val id = completedTrackSongIdMap[key]
         if (id != null && allSongs.value.any { it.id == id }) return id
         if (id != null) {
-            removeCompletedSongId(key)
+            completedTrackSongIdMap.remove(key)
+            _completedTrackSongIds.value = _completedTrackSongIds.value - key
         }
 
         // Fallback to the currently observed library snapshot.
         val existing = allSongs.value.firstOrNull { MusicRepository.isSameExternalTrack(it, track) }
         if (existing != null) {
-            putCompletedSongId(key, existing.id)
+            completedTrackSongIdMap[key] = existing.id
+            _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existing.id)
         }
         return existing?.id
     }
@@ -246,7 +210,8 @@ class MainViewModel(
             }
 
             if (existing != null) {
-                putCompletedSongId(key, existing.id)
+                completedTrackSongIdMap[key] = existing.id
+                _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existing.id)
                 _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
                 _downloadProgressMap.value = _downloadProgressMap.value + (key to 100)
                 processPendingPlaylistRequests(key, existing.id)
@@ -314,11 +279,8 @@ class MainViewModel(
                         consecutivePollFailures = 0
                         val overallStatus = job.status.trim().lowercase()
                         val jobTrack = job.tracks.firstOrNull {
-                            MusicRepository.matchesExternalTrackMetadata(
-                                title = it.title,
-                                artist = it.artist,
-                                track = track
-                            )
+                            it.title.equals(track.title, ignoreCase = true) &&
+                                it.artist.equals(track.artist, ignoreCase = true)
                         }
                         val trackStatus = jobTrack?.status?.trim()?.lowercase()
                         val progress = jobTrack?.progress ?: if (overallStatus == "completed") 100 else 0
@@ -413,30 +375,18 @@ class MainViewModel(
             pendingPlaylistRequests.remove(key) ?: emptyList()
         }
         val failed = mutableListOf<String>()
-        for ((index, playlistId) in pending.withIndex()) {
+        for (playlistId in pending) {
             try {
-                val alreadyInPlaylist = playlistMembershipOrFalse {
-                    musicRepository.getSongsForPlaylist(playlistId).first().any { it.id == songId }
-                }
-                if (!alreadyInPlaylist) {
-                    musicRepository.addSongToPlaylist(playlistId, songId)
-                }
+                musicRepository.addSongToPlaylist(playlistId, songId)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                // Only requeue the interrupted request and those not yet attempted.
-                // Earlier playlist additions completed and must not be replayed.
-                val notYetCompleted = pending.drop(index)
                 synchronized(pendingPlaylistRequests) {
                     val existing = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
-                    notYetCompleted.filterNot { it in existing }.forEach(existing::add)
+                    pending.filterNot { it in existing }.forEach(existing::add)
                 }
                 throw cancelled
             } catch (e: Exception) {
-                if (e is retrofit2.HttpException && e.code() == 409) {
-                    // Song is already present in playlist on server; treat as idempotent success.
-                } else {
-                    failed.add(playlistId)
-                    _uiMessage.value = "Failed to add song to playlist: ${e.message ?: "Unknown error"}"
-                }
+                failed.add(playlistId)
+                _uiMessage.value = "Failed to add song to playlist: ${e.message ?: "Unknown error"}"
             }
         }
         if (failed.isNotEmpty()) {
@@ -452,29 +402,28 @@ class MainViewModel(
     fun registerPendingPlaylistAdd(track: com.example.data.models.ExternalTrack, playlistId: String) {
         val key = MusicRepository.externalTrackIdentity(track)
         viewModelScope.launch {
-            // Register first so a failed add remains retryable even when the song
-            // already exists locally and no download/pending-processing path runs.
-            synchronized(pendingPlaylistRequests) {
-                val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
-                if (playlistId !in list) list.add(playlistId)
-            }
             try {
                 val existingId = getCompletedSongId(track)
                     ?: musicRepository.getAllSongsSnapshot()
                         .firstOrNull { MusicRepository.isSameExternalTrack(it, track) }
                         ?.id
                 if (existingId != null) {
-                    putCompletedSongId(key, existingId)
-                    musicRepository.addSongToPlaylist(playlistId, existingId)
+                    completedTrackSongIdMap[key] = existingId
+                    _completedTrackSongIds.value = _completedTrackSongIds.value + (key to existingId)
                     synchronized(pendingPlaylistRequests) {
                         val pending = pendingPlaylistRequests[key]
                         pending?.remove(playlistId)
                         if (pending.isNullOrEmpty()) pendingPlaylistRequests.remove(key)
                     }
+                    musicRepository.addSongToPlaylist(playlistId, existingId)
                     _uiMessage.value = "Added to playlist"
                     return@launch
                 }
 
+                synchronized(pendingPlaylistRequests) {
+                    val list = pendingPlaylistRequests.getOrPut(key) { mutableListOf() }
+                    if (playlistId !in list) list.add(playlistId)
+                }
                 downloadExternalTrack(track)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
@@ -514,20 +463,19 @@ class MainViewModel(
                 lastSyncError = e
                 emptyList()
             }
-            val indexedSong = MusicRepository.findMatchingExternalTrack(
-                songs = currentSongs,
-                track = track,
-                preExistingIds = preExistingIds
-            )
+            val newSong = currentSongs.firstOrNull { song ->
+                song.id !in preExistingIds && MusicRepository.isSameExternalTrack(song, track)
+            }
 
-            if (indexedSong != null) {
-                newlyIndexedId = indexedSong.id
+            if (newSong != null) {
+                newlyIndexedId = newSong.id
                 break
             }
         }
 
         if (newlyIndexedId != null) {
-            putCompletedSongId(key, newlyIndexedId)
+            completedTrackSongIdMap[key] = newlyIndexedId
+            _completedTrackSongIds.value = _completedTrackSongIds.value + (key to newlyIndexedId)
             _downloadStatusMap.value = _downloadStatusMap.value + (key to "Completed")
             downloadNotificationManager.showDownloadNotification(key.hashCode(), track.title, 100)
             processPendingPlaylistRequests(key, newlyIndexedId)
@@ -637,7 +585,8 @@ class MainViewModel(
                 playbackManager.clearQueueAndStop()
                 musicRepository.clearLocalCache()
                 downloadNotificationManager.cancelAll()
-                clearCompletedSongIds()
+                completedTrackSongIdMap.clear()
+                _completedTrackSongIds.value = emptyMap()
                 _downloadProgressMap.value = emptyMap()
                 _downloadStatusMap.value = emptyMap()
             }
@@ -695,7 +644,7 @@ class MainViewModel(
     }
 
     fun toggleInstrumental() {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("INSTRUMENTAL_DEBUG", "MainViewModel.toggleInstrumental() called")
+        android.util.Log.d("INSTRUMENTAL_DEBUG", "MainViewModel.toggleInstrumental() called")
         playbackManager.toggleInstrumental()
     }
 
@@ -814,7 +763,7 @@ class MainViewModel(
             try {
                 val created = musicRepository.createPlaylist(name, description, isPublic)
                 registerPendingPlaylistAdd(track, created.id)
-                _uiMessage.value = "Playlist '$name' created; song will be added after download completes"
+                _uiMessage.value = "Added to '$name'"
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (e: Exception) {
@@ -853,10 +802,7 @@ class MainViewModel(
             try {
                 val collaborators = musicRepository.getCollaborators(playlistId)
                 onResult(collaborators)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
             } catch (e: Exception) {
-                _uiMessage.value = e.message ?: "Failed to load playlist collaborators"
                 onResult(emptyList())
             }
         }
@@ -962,7 +908,8 @@ class MainViewModel(
             if (res.isSuccess) {
                 playbackManager.removeSongFromQueue(songId)
                 preferencesManager.clearSongLyricsOffsets(songId)
-                removeCompletedSongIdByValue(songId)
+                completedTrackSongIdMap.entries.removeAll { it.value == songId }
+                _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
                 syncLibrary()
                 _uiMessage.value = "Song deleted successfully"
             } else {
@@ -977,54 +924,6 @@ class MainViewModel(
                 _uiMessage.value = msg
             }
             onResult?.invoke(res)
-        }
-    }
-
-    fun replaceSongRecordingSource(
-        songId: String,
-        youtubeUrl: String,
-        onResult: ((Result<Unit>) -> Unit)? = null
-    ) {
-        runSongAudioReplacement(songId, onResult, "Recording and instrumental replaced successfully") {
-            musicRepository.replaceSongRecordingSource(songId, youtubeUrl)
-        }
-    }
-
-    fun replaceSongInstrumental(
-        songId: String,
-        onResult: ((Result<Unit>) -> Unit)? = null
-    ) {
-        runSongAudioReplacement(songId, onResult, "Instrumental regenerated successfully") {
-            musicRepository.replaceSongInstrumental(songId)
-        }
-    }
-
-    private fun runSongAudioReplacement(
-        songId: String,
-        onResult: ((Result<Unit>) -> Unit)?,
-        successMessage: String,
-        operation: suspend () -> Result<Unit>
-    ) {
-        viewModelScope.launch {
-            val result: Result<Unit> = if (!isAdmin.value) {
-                Result.failure(IllegalAccessException("Administrator privileges are required."))
-            } else {
-                operation()
-            }
-            if (result.isSuccess) {
-                syncLibrary()
-                _uiMessage.value = successMessage
-            } else {
-                val error = result.exceptionOrNull()
-                _uiMessage.value = when {
-                    error is retrofit2.HttpException && error.code() == 403 ->
-                        "Access denied: Administrator privileges required."
-                    error is retrofit2.HttpException && error.code() == 404 ->
-                        "Song not found on server."
-                    else -> "Audio replacement failed: ${error?.message ?: "Unknown error"}"
-                }
-            }
-            onResult?.invoke(result)
         }
     }
 

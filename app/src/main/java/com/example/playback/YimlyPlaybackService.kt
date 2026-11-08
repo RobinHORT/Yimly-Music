@@ -6,7 +6,6 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import androidx.core.app.ServiceCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaLibraryService
@@ -24,7 +23,7 @@ class YimlyPlaybackService : MediaLibraryService() {
 
     override fun onCreate() {
         super.onCreate()
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onCreate() called")
+        android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onCreate() called")
         createNotificationChannel()
 
         val provider = androidx.media3.session.DefaultMediaNotificationProvider.Builder(this)
@@ -41,45 +40,17 @@ class YimlyPlaybackService : MediaLibraryService() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onStartCommand() intent=$intent")
-
-        // Every explicit startPlaybackService() call represents a playback/resumption
-        // request. Promote immediately instead of waiting for Media3 to finish resolving
-        // a remote item and issue its first notification callback. Android Auto can take
-        // several seconds to resolve a selected track on a cold start.
-        val preparingNotification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_headset)
-            .setContentTitle(getString(R.string.app_name))
-            .setContentText("Preparing playback")
-            .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            .build()
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            preparingNotification,
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
-            } else {
-                0
-            }
-        )
-
+        android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onStartCommand() intent=$intent")
         val app = application as? YimlyApplication
-        val manager = app?.playbackManager
-        val session = manager?.mediaSession
+        val session = app?.playbackManager?.mediaSession
         if (session != null && !sessions.contains(session)) {
             addSession(session)
         }
-
-        // Media3 owns subsequent notification updates and foreground/background
-        // transitions. Do not invoke its onUpdateNotification callback directly.
         return super.onStartCommand(intent, flags, startId)
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onGetSession() package=${controllerInfo.packageName}, uid=${controllerInfo.uid}")
+        android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onGetSession() package=${controllerInfo.packageName}, uid=${controllerInfo.uid}")
         val app = application as? YimlyApplication
         val session = app?.playbackManager?.mediaSession
         if (session != null && !sessions.contains(session)) {
@@ -98,15 +69,8 @@ class YimlyPlaybackService : MediaLibraryService() {
         val hasActiveQueue = info != null && info.queue.isNotEmpty() && info.currentQueueIndex in info.queue.indices
         val player = session.player
         val hasPlayerItems = player.mediaItemCount > 0 && player.currentMediaItemIndex in 0 until player.mediaItemCount
-        val isTransitioning = manager?.isTransitioning == true
-        val isRestoring = manager?.isRestoringSnapshot == true
-        val isPlaybackActive = player.playWhenReady || player.isPlaying || isTransitioning
-        
-        // Ensure we stay in foreground if Media3 requires it, or if we have active playback/intent.
-        // We include isTransitioning and isRestoring to prevent crashes during cold-start or track resolution.
-        val shouldStayInForeground = startInForegroundRequired || 
-            (isPlaybackActive && (hasActiveQueue || hasPlayerItems || isTransitioning || isRestoring))
-            
+        val isPlaybackActive = player.playWhenReady || player.isPlaying || manager?.isTransitioning == true
+        val shouldStayInForeground = startInForegroundRequired || ((hasActiveQueue || hasPlayerItems) && isPlaybackActive)
         super.onUpdateNotification(session, shouldStayInForeground)
     }
 
@@ -124,21 +88,17 @@ class YimlyPlaybackService : MediaLibraryService() {
         val transitioning = manager?.isTransitioning == true
 
         if (hasQueuedTrack && (playbackRequested || transitioning)) {
-            if (com.example.BuildConfig.DEBUG) {
-                android.util.Log.d(
-                    "YimlyPlaybackService",
-                    "Task removed; keeping playback service alive (playWhenReady=$playbackRequested, transitioning=$transitioning, state=${player?.playbackState})"
-                )
-            }
+            android.util.Log.d(
+                "YimlyPlaybackService",
+                "Task removed; keeping playback service alive (playWhenReady=$playbackRequested, transitioning=$transitioning, state=${player?.playbackState})"
+            )
             return
         }
 
-        if (com.example.BuildConfig.DEBUG) {
-            android.util.Log.d(
-                "YimlyPlaybackService",
-                "Task removed with no active playback request; stopping service"
-            )
-        }
+        android.util.Log.d(
+            "YimlyPlaybackService",
+            "Task removed with no active playback request; stopping service"
+        )
         stopSelf()
     }
 

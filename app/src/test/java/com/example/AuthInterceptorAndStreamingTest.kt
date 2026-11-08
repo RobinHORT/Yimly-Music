@@ -21,7 +21,6 @@ import org.junit.After
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
-import kotlinx.coroutines.flow.firstOrNull
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -234,73 +233,6 @@ class AuthInterceptorAndStreamingTest {
         assertEquals(30000, mediaClient.readTimeoutMillis)
         assertEquals(30000, mediaClient.writeTimeoutMillis)
         assertEquals(15000, mediaClient.connectTimeoutMillis)
-    }
-
-    @Test
-    fun testRememberMeDisabledKeepsTokenInMemoryButDoesNotPersistIt() = kotlinx.coroutines.runBlocking {
-        preferencesManager.saveAuthSession(
-            token = "session_only_token",
-            userId = "usr_session",
-            username = "sessionuser",
-            email = "session@example.com",
-            rememberMe = false
-        )
-
-        assertEquals("session_only_token", AuthTokenHolder.token)
-        assertNull("Non-persistent token must not be stored in DataStore",
-            preferencesManager.authTokenFlow.firstOrNull())
-        assertFalse(preferencesManager.rememberMeFlow.firstOrNull() ?: true)
-    }
-
-    @Test
-    fun testRememberMeDisabledTokenIsAttachedToBackendRequests() = kotlinx.coroutines.runBlocking {
-        preferencesManager.saveAuthSession(
-            token = "session_only_backend_token",
-            userId = "usr_session",
-            username = "sessionuser",
-            email = null,
-            rememberMe = false
-        )
-
-        val interceptor = AuthInterceptor(preferencesManager, tokenProvider = null, scope = null)
-        var capturedRequest: Request? = null
-        val client = OkHttpClient.Builder()
-            .addInterceptor(interceptor)
-            .addInterceptor { chain ->
-                capturedRequest = chain.request()
-                Response.Builder()
-                    .request(chain.request())
-                    .protocol(Protocol.HTTP_1_1)
-                    .code(200)
-                    .message("OK")
-                    .body("{}".toResponseBody())
-                    .build()
-            }
-            .build()
-
-        client.newCall(Request.Builder()
-            .url("https://yimly.robinhort.link/api/profile")
-            .build()).execute().close()
-
-        assertEquals("Bearer session_only_backend_token", capturedRequest?.header("Authorization"))
-        assertNull(preferencesManager.authTokenFlow.firstOrNull())
-    }
-
-    @Test
-    fun testClearAuthSessionClearsInMemoryAndPersistedToken() = kotlinx.coroutines.runBlocking {
-        preferencesManager.saveAuthSession(
-            token = "logout_token",
-            userId = "usr_logout",
-            username = "logoutuser",
-            email = null,
-            rememberMe = true
-        )
-
-        preferencesManager.clearAuthSession()
-
-        assertNull(AuthTokenHolder.token)
-        assertNull(preferencesManager.authTokenFlow.firstOrNull())
-        assertNull(preferencesManager.usernameFlow.firstOrNull())
     }
 
     @Test

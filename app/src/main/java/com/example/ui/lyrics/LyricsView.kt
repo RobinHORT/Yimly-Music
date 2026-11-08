@@ -1,8 +1,14 @@
 package com.example.ui.lyrics
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -56,7 +62,6 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -74,7 +79,6 @@ import com.example.data.models.LyricLine
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.LyricsFormatMode
-import com.example.data.models.calculateLrcHighlightProgress
 import com.example.data.models.formatLyricText
 import com.example.lyrics.LyricsParser
 import com.example.ui.theme.SurfaceBorderDark
@@ -98,6 +102,7 @@ fun LyricsView(
     isPlaying: Boolean = true,
     showFocusControls: Boolean = true,
     floatingFocusMode: Boolean = false,
+    rotatingSections: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var viewMode by remember { mutableStateOf(0) } // 0 = Focus Mode, 1 = Full Synced List
@@ -109,17 +114,8 @@ fun LyricsView(
         if (config.lrcOffsetMs != 0L) config.lrcOffsetMs else config.manualOffsetMs
     }
     val effectiveOffset = songOffsetMs + activeManualOffset
-    // LRC lines are presented early so the singer has at least the configured lead-in.
-    // eLRC remains anchored to the actual word timestamps.
-    val lyricLeadInMs = when (config.formatMode) {
-        LyricsFormatMode.LRC -> config.lrcDisplayLeadInMs.coerceIn(1500, 5000)
-        LyricsFormatMode.ELRC -> if (lines.any { it.hasWordTimestamps && it.words.isNotEmpty() }) {
-            config.elrcFadeInDurationMs.coerceIn(300, 5000)
-        } else 0
-    }.toLong()
-    val slotPositionMs = currentPositionMs + lyricLeadInMs
-    val slotState = remember(lines, slotPositionMs, effectiveOffset) {
-        LyricsParser.findActiveLyricSlots(lines, slotPositionMs, effectiveOffset)
+    val slotState = remember(lines, currentPositionMs, effectiveOffset) {
+        LyricsParser.findActiveLyricSlots(lines, currentPositionMs, effectiveOffset)
     }
 
     val composeFontFamily = LTKaraoke
@@ -307,41 +303,221 @@ fun LyricsView(
                 contentAlignment = Alignment.Center
             ) {
                 currentLine?.let { line ->
-                    SynchronizedLyricContent(
-                        line = line,
-                        isCurrent = true,
-                        currentPositionMs = currentPositionMs,
-                        effectiveOffsetMs = effectiveOffset,
-                        config = config,
-                        currentLineColor = currentLineColor,
-                        composeFontFamily = composeFontFamily,
-                        textAlign = TextAlign.Center,
-                        isPlaying = isPlaying,
-                        modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
-                    )
+                    if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
+                        SynchronizedLyricContent(
+                            line = line,
+                            isCurrent = true,
+                            currentPositionMs = currentPositionMs,
+                            effectiveOffsetMs = effectiveOffset,
+                            config = config,
+                            currentLineColor = currentLineColor,
+                            composeFontFamily = composeFontFamily,
+                            textAlign = TextAlign.Center,
+                            isPlaying = isPlaying,
+                            modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
+                        )
+                    } else {
+                        Text(
+                            text = formatLyricText(line.text, config.textCase),
+                            fontSize = config.currentLineFontSizeSp.sp,
+                            fontFamily = composeFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = currentLineColor.copy(alpha = 0.96f),
+                            textAlign = TextAlign.Center,
+                            lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
+                            modifier = Modifier.fillMaxWidth().testTag("floating_focus_lyric")
+                        )
+                    }
+                }
+            }
+        } else if (rotatingSections) {
+            // Cinematic credit-style fullscreen lyrics with 5 visible lines:
+            // Previous-previous (-2, 35%), previous (-1, 75%), active (0, 100%),
+            // next (+1, 75%), next-next (+2, 35%). Active line is at exact screen center.
+            val activeLineIndex = slotState.currentIndex
+            AnimatedContent(
+                targetState = activeLineIndex,
+                modifier = Modifier.fillMaxSize().testTag("fullscreen_credit_lyrics"),
+                transitionSpec = {
+                    (slideInVertically(
+                        initialOffsetY = { height -> height },
+                        animationSpec = tween(durationMillis = 520)
+                    ) + fadeIn(animationSpec = tween(durationMillis = 360))) togetherWith
+                        (slideOutVertically(
+                            targetOffsetY = { height -> -height },
+                            animationSpec = tween(durationMillis = 520)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 360)))
+                },
+                label = "fullscreen_credit_line_transition"
+            ) { lineIndex ->
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
+                    ) {
+                        // 1. Previous-previous line (-2, 35% opacity)
+                        val lineMinus2 = lines.getOrNull(lineIndex - 2)
+                        if (lineMinus2 != null) {
+                            Text(
+                                text = formatLyricText(lineMinus2.text, config.textCase),
+                                fontSize = config.otherLineFontSizeSp.sp,
+                                fontFamily = composeFontFamily,
+                                fontWeight = FontWeight.Normal,
+                                color = currentLineColor.copy(alpha = 0.35f),
+                                textAlign = TextAlign.Center,
+                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSeekTo((lineMinus2.timeMs - effectiveOffset).coerceAtLeast(0L)) }
+                                    .testTag("fullscreen_lyric_minus_2")
+                            )
+                        } else {
+                            Text(
+                                text = "",
+                                fontSize = config.otherLineFontSizeSp.sp,
+                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // 2. Previous line (-1, 75% opacity)
+                        val lineMinus1 = lines.getOrNull(lineIndex - 1)
+                        if (lineMinus1 != null) {
+                            Text(
+                                text = formatLyricText(lineMinus1.text, config.textCase),
+                                fontSize = config.otherLineFontSizeSp.sp,
+                                fontFamily = composeFontFamily,
+                                fontWeight = FontWeight.Normal,
+                                color = currentLineColor.copy(alpha = 0.75f),
+                                textAlign = TextAlign.Center,
+                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSeekTo((lineMinus1.timeMs - effectiveOffset).coerceAtLeast(0L)) }
+                                    .testTag("fullscreen_lyric_minus_1")
+                            )
+                        } else {
+                            Text(
+                                text = "",
+                                fontSize = config.otherLineFontSizeSp.sp,
+                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // 3. Current active line (0, 100% opacity)
+                        val activeLine = lines.getOrNull(lineIndex)
+                        if (activeLine != null) {
+                            if (config.formatMode == LyricsFormatMode.ELRC && activeLine.hasWordTimestamps && activeLine.words.isNotEmpty()) {
+                                SynchronizedLyricContent(
+                                    line = activeLine,
+                                    isCurrent = true,
+                                    currentPositionMs = currentPositionMs,
+                                    effectiveOffsetMs = effectiveOffset,
+                                    config = config,
+                                    currentLineColor = currentLineColor,
+                                    composeFontFamily = composeFontFamily,
+                                    textAlign = TextAlign.Center,
+                                    isPlaying = isPlaying,
+                                    modifier = Modifier.fillMaxWidth().testTag("fullscreen_credit_active_line")
+                                )
+                            } else {
+                                Text(
+                                    text = formatLyricText(activeLine.text, config.textCase),
+                                    modifier = Modifier.fillMaxWidth().testTag("fullscreen_credit_active_line"),
+                                    color = currentLineColor,
+                                    fontSize = config.currentLineFontSizeSp.sp,
+                                    fontFamily = composeFontFamily,
+                                    fontWeight = FontWeight.Bold,
+                                    textAlign = TextAlign.Center,
+                                    lineHeight = (config.currentLineFontSizeSp * 1.2f).sp
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "",
+                                fontSize = config.currentLineFontSizeSp.sp,
+                                lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // 4. Next line (+1, 75% opacity)
+                        val linePlus1 = lines.getOrNull(lineIndex + 1)
+                        if (linePlus1 != null) {
+                            Text(
+                                text = formatLyricText(linePlus1.text, config.textCase),
+                                fontSize = config.otherLineFontSizeSp.sp,
+                                fontFamily = composeFontFamily,
+                                fontWeight = FontWeight.Normal,
+                                color = currentLineColor.copy(alpha = 0.75f),
+                                textAlign = TextAlign.Center,
+                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSeekTo((linePlus1.timeMs - effectiveOffset).coerceAtLeast(0L)) }
+                                    .testTag("fullscreen_lyric_plus_1")
+                            )
+                        } else {
+                            Text(
+                                text = "",
+                                fontSize = config.otherLineFontSizeSp.sp,
+                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // 5. Next-next line (+2, 35% opacity)
+                        val linePlus2 = lines.getOrNull(lineIndex + 2)
+                        if (linePlus2 != null) {
+                            Text(
+                                text = formatLyricText(linePlus2.text, config.textCase),
+                                fontSize = config.otherLineFontSizeSp.sp,
+                                fontFamily = composeFontFamily,
+                                fontWeight = FontWeight.Normal,
+                                color = currentLineColor.copy(alpha = 0.35f),
+                                textAlign = TextAlign.Center,
+                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { onSeekTo((linePlus2.timeMs - effectiveOffset).coerceAtLeast(0L)) }
+                                    .testTag("fullscreen_lyric_plus_2")
+                            )
+                        } else {
+                            Text(
+                                text = "",
+                                fontSize = config.otherLineFontSizeSp.sp,
+                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
                 }
             }
         } else if (viewMode == 0) {
-            // Focus Mode: show 1–5 lyric slots, with the active line kept at a stable centre.
-            val sectionCount = config.visibleLines.coerceIn(1, 5)
-            val previousCount = (sectionCount - 1) / 2
-            val nextCount = sectionCount - 1 - previousCount
+            // Focus Mode: Supports configurable visible lines (1, 3, 5, 7)
+            val radius = ((config.visibleLines - 1) / 2).coerceAtLeast(0)
             val currentIndex = slotState.currentIndex
 
-            val previousLines = if (currentIndex >= 0 && previousCount > 0) {
-                (previousCount downTo 1).mapNotNull { distance ->
-                    lines.getOrNull(currentIndex - distance)
+            val previousLines = if (currentIndex >= 0 && radius > 0) {
+                (1..radius).mapNotNull { offset ->
+                    val idx = currentIndex - (radius - offset + 1)
+                    if (idx >= 0) lines.getOrNull(idx) else null
                 }
             } else emptyList()
 
             val currentLine = if (currentIndex >= 0) lines.getOrNull(currentIndex) else null
 
-            val nextLines = if (currentIndex >= 0 && nextCount > 0) {
-                (1..nextCount).mapNotNull { distance ->
-                    lines.getOrNull(currentIndex + distance)
+            val nextLines = if (currentIndex >= 0 && radius > 0) {
+                (1..radius).mapNotNull { offset ->
+                    lines.getOrNull(currentIndex + offset)
                 }
             } else if (currentIndex == -1) {
-                lines.take(sectionCount)
+                lines.take(config.visibleLines)
             } else emptyList()
 
             Box(
@@ -493,15 +669,7 @@ fun LyricsView(
                 itemsIndexed(lines) { index, line ->
                     val isCurrent = index == slotState.currentIndex
                     val targetColor = if (isCurrent) {
-                        if (config.formatMode == LyricsFormatMode.LRC && config.highlightCurrentLine) {
-                            val highlightProgress = calculateLrcHighlightProgress(
-                                currentPositionMs = currentPositionMs,
-                                effectiveOffsetMs = effectiveOffset,
-                                lineTimeMs = line.timeMs,
-                                transitionOverlapMs = config.lyricTransitionOverlapMs
-                            )
-                            lerp(TextPrimaryDark, currentLineColor, highlightProgress)
-                        } else if (config.highlightCurrentLine) currentLineColor else TextPrimaryDark
+                        if (config.highlightCurrentLine) currentLineColor else TextPrimaryDark
                     } else TextPrimaryDark
 
                     val animColor by animateColorAsState(
@@ -582,33 +750,15 @@ fun SynchronizedLyricContent(
     isPlaying: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val adjustedPos = currentPositionMs + effectiveOffsetMs
-    val lrcHighlightProgress = if (isCurrent && config.formatMode == LyricsFormatMode.LRC) {
-        calculateLrcHighlightProgress(
-            currentPositionMs = currentPositionMs,
-            effectiveOffsetMs = effectiveOffsetMs,
-            lineTimeMs = line.timeMs,
-            transitionOverlapMs = config.lyricTransitionOverlapMs
-        )
-    } else 1f
-    val lrcTextColor = if (config.formatMode == LyricsFormatMode.LRC && config.highlightCurrentLine) {
-        lerp(TextPrimaryDark, currentLineColor, lrcHighlightProgress)
-    } else currentLineColor
-    val elrcFadeAlpha = if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
-        val fadeDurationMs = config.elrcFadeInDurationMs.coerceIn(300, 5000).toLong()
-        val firstWordStartMs = line.words.minOf { it.startTimeMs }
-        ((adjustedPos - (firstWordStartMs - fadeDurationMs)).toFloat() / fadeDurationMs.toFloat()).coerceIn(0f, 1f)
-    } else 1f
-    val lyricAlpha = elrcFadeAlpha.coerceIn(0f, 1f)
-
     if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
+        val adjustedPos = currentPositionMs + effectiveOffsetMs
+
         val spaceDp = (config.currentLineFontSizeSp * 0.25f).dp
         val rowSpacingDp = (config.lineSpacingDp * 0.35f).coerceAtLeast(4f).dp
 
         FlowRow(
             modifier = modifier
                 .fillMaxWidth()
-                .alpha(lyricAlpha)
                 .testTag("synchronized_elrc_row"),
             horizontalArrangement = Arrangement.spacedBy(spaceDp, Alignment.CenterHorizontally),
             verticalArrangement = Arrangement.spacedBy(rowSpacingDp, Alignment.CenterVertically)
@@ -636,10 +786,10 @@ fun SynchronizedLyricContent(
             fontSize = config.currentLineFontSizeSp.sp,
             fontFamily = composeFontFamily,
             fontWeight = FontWeight.Bold,
-            color = lrcTextColor,
+            color = currentLineColor,
             textAlign = textAlign,
             lineHeight = (config.currentLineFontSizeSp * 1.3f).sp,
-            modifier = modifier.alpha(lyricAlpha)
+            modifier = modifier
         )
     }
 }

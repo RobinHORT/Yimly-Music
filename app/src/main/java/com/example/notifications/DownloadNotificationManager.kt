@@ -32,7 +32,7 @@ class DownloadNotificationManager(private val context: Context) {
 
     fun showDownloadNotification(notificationId: Int, title: String, progress: Int?, isFailed: Boolean = false) {
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
             putExtra("EXTRA_NAVIGATE_TO_SEARCH", true)
         }
         val pendingIntent = PendingIntent.getActivity(

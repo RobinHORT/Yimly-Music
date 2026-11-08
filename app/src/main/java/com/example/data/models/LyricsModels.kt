@@ -82,35 +82,12 @@ fun formatLyricText(text: String, textCase: LyricTextCase): String = when (textC
     LyricTextCase.TITLE_CASE -> toTitleCase(text)
 }
 
-
-/**
- * Progresses an LRC line from its neutral display colour to its active highlight
- * during the configured overlap immediately before the line timestamp.
- */
-fun calculateLrcHighlightProgress(
-    currentPositionMs: Long,
-    effectiveOffsetMs: Long,
-    lineTimeMs: Long,
-    transitionOverlapMs: Int
-): Float {
-    val adjustedPosition = currentPositionMs + effectiveOffsetMs
-    val overlapMs = transitionOverlapMs.coerceIn(0, 2000).toLong()
-    if (overlapMs == 0L) return if (adjustedPosition >= lineTimeMs) 1f else 0f
-    val transitionStartMs = lineTimeMs - overlapMs
-    return ((adjustedPosition - transitionStartMs).toFloat() / overlapMs.toFloat())
-        .coerceIn(0f, 1f)
-}
-
 const val ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING = "progressive_sweeping"
 
 data class LyricsDisplayConfig(
     // Lyrics Format Mode (eLRC: Word-level sync vs LRC: Line-level sync)
     val formatMode: LyricsFormatMode = LyricsFormatMode.ELRC,
     val elrcHighlightMode: String = ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING,
-    // Full-line eLRC fade-in duration and LRC early-display / transition timing.
-    val elrcFadeInDurationMs: Int = 1500,
-    val lyricTransitionOverlapMs: Int = 300,
-    val lrcDisplayLeadInMs: Int = 1500,
 
     // Lyrics Display
     val visibleLines: Int = 3,

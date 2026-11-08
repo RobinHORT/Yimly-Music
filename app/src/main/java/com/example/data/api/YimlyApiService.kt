@@ -142,25 +142,6 @@ interface YimlyApiService {
     @DELETE("api/songs/{id}")
     suspend fun deleteSong(@Path("id") id: String): Map<String, Any>
 
-    // Admin-only audio replacement. The server reuses its existing download and separation pipelines.
-    @POST("api/songs/{id}/replace-source")
-    suspend fun replaceSongRecordingSource(
-        @Path("id") id: String,
-        @Body request: Map<String, String>
-    ): Map<String, Any>
-
-    @POST("api/songs/{id}/replace-instrumental")
-    suspend fun replaceSongInstrumental(@Path("id") id: String): Map<String, Any>
-
-    @GET("api/songs/{id}/replace-status")
-    suspend fun getSongReplacementStatus(
-        @Path("id") id: String,
-        @Query("since") sinceEpochMs: Long
-    ): Map<String, Any>
-
-    @GET("api/songs/replace-jobs/{jobId}")
-    suspend fun getSongReplacementJob(@Path("jobId") jobId: String): Map<String, Any>
-
     @GET("api/songs/{id}/lyrics/offset")
     suspend fun getLyricsOffset(@Path("id") id: String): com.example.data.models.LyricsOffsetResponse
 

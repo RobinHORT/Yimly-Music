@@ -73,8 +73,6 @@ class SongThreeDotMenuTest {
         // Verify Admin-only items do NOT exist for normal user
         composeTestRule.onNodeWithText("LRC Editor").assertDoesNotExist()
         composeTestRule.onNodeWithText("Delete").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("menu_replace_recording_${testSong.id}").assertDoesNotExist()
-        composeTestRule.onNodeWithTag("menu_replace_instrumental_${testSong.id}").assertDoesNotExist()
     }
 
     @Test
@@ -114,26 +112,6 @@ class SongThreeDotMenuTest {
         composeTestRule.onNodeWithTag("menu_btn_${testSong.id}").performClick()
         composeTestRule.onNodeWithTag("menu_delete_${testSong.id}").performClick()
         assertTrue("Delete song callback should be triggered for admin", deleteSongClicked)
-    }
-
-    @Test
-    fun verifyAudioReplacementOptionsAreAdminOnlyAndSongsTabOnly() {
-        composeTestRule.setContent {
-            SongItemRow(song = testSong, isPlaying = false, isCurrentSong = false, onSongClick = {}, onToggleFavorite = {}, isAdmin = true, showAudioReplacementActions = true)
-        }
-        composeTestRule.onNodeWithTag("menu_btn_${testSong.id}").performClick()
-        composeTestRule.onNodeWithText("Replace Recording").assertIsDisplayed()
-        composeTestRule.onNodeWithText("Replace Instrumental").assertIsDisplayed()
-    }
-
-    @Test
-    fun verifyAudioReplacementOptionsStayHiddenOutsideSongsTabEvenForAdmin() {
-        composeTestRule.setContent {
-            SongItemRow(song = testSong, isPlaying = false, isCurrentSong = false, onSongClick = {}, onToggleFavorite = {}, isAdmin = true)
-        }
-        composeTestRule.onNodeWithTag("menu_btn_${testSong.id}").performClick()
-        composeTestRule.onNodeWithText("Replace Recording").assertDoesNotExist()
-        composeTestRule.onNodeWithText("Replace Instrumental").assertDoesNotExist()
     }
 
     @Test

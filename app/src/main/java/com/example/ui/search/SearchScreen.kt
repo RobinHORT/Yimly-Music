@@ -71,7 +71,6 @@ import com.example.data.models.ExternalTrack
 import com.example.data.models.Playlist
 import com.example.data.models.SearchResult
 import com.example.data.models.Song
-import com.example.data.repository.MusicRepository
 import com.example.ui.components.ArtistAvatarItem
 import com.example.ui.components.MediaCard
 import com.example.ui.components.SectionHeader
@@ -327,21 +326,11 @@ fun SearchScreen(
             val showAlbums = selectedFilter == 0 || selectedFilter == 3
             val showPlaylists = selectedFilter == 0 || selectedFilter == 4
 
-            // Empty-state visibility must follow the active filter. Otherwise an
-            // unrelated category can make a filtered search look blank instead of
-            // showing the correct "No results" message.
-            val hasResults = when (selectedFilter) {
-                0 -> searchResult.songs.isNotEmpty() ||
+            val hasResults = searchResult.songs.isNotEmpty() ||
                     searchResult.artists.isNotEmpty() ||
                     searchResult.albums.isNotEmpty() ||
                     searchResult.playlists.isNotEmpty() ||
                     searchResult.externalSongs.isNotEmpty()
-                1 -> searchResult.songs.isNotEmpty() || searchResult.externalSongs.isNotEmpty()
-                2 -> searchResult.artists.isNotEmpty()
-                3 -> searchResult.albums.isNotEmpty()
-                4 -> searchResult.playlists.isNotEmpty()
-                else -> false
-            }
 
             if (!hasResults) {
                 item {
@@ -512,7 +501,7 @@ fun SearchScreen(
                         SectionHeader(title = "Available for Download (${searchResult.externalSongs.size})")
                     }
                     items(searchResult.externalSongs) { externalTrack ->
-                        val trackKey = MusicRepository.externalTrackIdentity(externalTrack)
+                        val trackKey = "${externalTrack.title}|${externalTrack.artist}".lowercase()
                         ExternalSongItemRow(
                             track = externalTrack,
                             status = downloadStatusMap[trackKey],

@@ -102,7 +102,6 @@ class InstrumentalToggleClickDebugTest {
         // 2. Toggle Instrumental ON -> MUST resolve to type=instrumental even though hasInstrumental was false
         playbackManager.toggleInstrumental()
         waitForCondition { it.isInstrumental }
-        ShadowLooper.idleMainLooper()
 
         val instrumentalUri = player?.currentMediaItem?.requestMetadata?.mediaUri
             ?: player?.currentMediaItem?.localConfiguration?.uri
@@ -148,7 +147,6 @@ class InstrumentalToggleClickDebugTest {
         playbackManager.handlePlayerError(dummyException)
 
         waitForCondition { !it.isInstrumental }
-        ShadowLooper.idleMainLooper()
 
         assertFalse("After error, isInstrumental should fall back to false", playbackManager.playbackInfo.value.isInstrumental)
         assertFalse("After error, hasInstrumental should be false", playbackManager.playbackInfo.value.hasInstrumental)

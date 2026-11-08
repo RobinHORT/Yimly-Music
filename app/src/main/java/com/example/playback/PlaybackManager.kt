@@ -21,7 +21,6 @@ import androidx.media3.session.CommandButton
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import com.example.data.api.NetworkModule
 import com.example.YimlyApplication
-import com.example.BuildConfig
 import com.example.MainActivity
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
@@ -69,14 +68,12 @@ class PlaybackManager(
     var isTransitioning: Boolean = false
         private set
 
-    private var transitionRequestId: Long = 0L
     private var _player: ExoPlayer? = null
-    internal var playbackRequestId: Long = 0L
-    internal var playbackJob: kotlinx.coroutines.Job? = null
+    private var playbackRequestId: Long = 0L
     private var networkRecoveryJob: kotlinx.coroutines.Job? = null
     private var networkRecoveryAttempts: Int = 0
     private var networkRecoverySongId: String? = null
-    internal var androidAutoQueueSyncJob: kotlinx.coroutines.Job? = null
+    private var androidAutoQueueSyncJob: kotlinx.coroutines.Job? = null
     private var androidAutoQueueSyncVersion: Long = 0L
     private val shuffleHistory = mutableListOf<Int>()
     private var lastSnapshotPersistAtMs = 0L
@@ -90,9 +87,6 @@ class PlaybackManager(
 
     val isPlayerInitialized: Boolean
         get() = _player != null
-
-    val isRestoringSnapshot: Boolean
-        get() = !snapshotRestoreCompleted.isCompleted
 
     val player: ExoPlayer?
         get() = _player
@@ -113,80 +107,43 @@ class PlaybackManager(
                     .build(),
                 true
             )
-            setRepeatMode(
-                when (_playbackInfo.value.repeatMode) {
-                    RepeatMode.OFF -> Player.REPEAT_MODE_OFF
-                    RepeatMode.ALL -> Player.REPEAT_MODE_ALL
-                    RepeatMode.ONE -> Player.REPEAT_MODE_ONE
+            addListener(object : Player.Listener {
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    when (playbackState) {
+                        Player.STATE_ENDED -> {
+                            Log.d("PlaybackManager", "Song ended, advancing queue...")
+                            handleSongEnded()
+                        }
+                        Player.STATE_READY -> {
+                            networkRecoveryJob?.cancel()
+                            networkRecoveryJob = null
+                        }
+                        else -> {}
+                    }
+                    updatePlaybackInfo()
                 }
-            )
-            setShuffleModeEnabled(_playbackInfo.value.isShuffle)
-            addListener(playerListener)
+
+                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                    syncAndroidAutoQueueFromPlayer(mediaItem)
+                }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    if (isPlaying) {
+                        isTransitioning = false
+                        releaseTransitionWakeLock()
+                    }
+                    updatePlaybackInfo()
+                }
+
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
+                    isTransitioning = false
+                    handlePlayerError(error)
+                }
+            })
         }
         _player = newPlayer
         return newPlayer
-    }
-
-    internal val playerListener = object : Player.Listener {
-        override fun onPlaybackStateChanged(playbackState: Int) {
-            when (playbackState) {
-                Player.STATE_ENDED -> {
-                    if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Song ended, checking queue...")
-                    handleSongEnded()
-                }
-                Player.STATE_READY -> {
-                    networkRecoveryJob?.cancel()
-                    networkRecoveryJob = null
-                }
-                else -> {}
-            }
-            updatePlaybackInfo()
-        }
-
-        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-            handleMediaItemTransition(mediaItem, reason)
-        }
-
-        override fun onRepeatModeChanged(repeatMode: Int) {
-            val mapped = when (repeatMode) {
-                Player.REPEAT_MODE_ALL -> RepeatMode.ALL
-                Player.REPEAT_MODE_ONE -> RepeatMode.ONE
-                else -> RepeatMode.OFF
-            }
-            if (_playbackInfo.value.repeatMode != mapped) {
-                _playbackInfo.value = _playbackInfo.value.copy(repeatMode = mapped)
-                persistPlaybackSnapshot(force = true)
-            }
-        }
-
-        override fun onShuffleModeEnabledChanged(shuffleModeEnabled: Boolean) {
-            if (_playbackInfo.value.isShuffle != shuffleModeEnabled) {
-                if (!shuffleModeEnabled) shuffleHistory.clear()
-                _playbackInfo.value = _playbackInfo.value.copy(isShuffle = shuffleModeEnabled)
-                persistPlaybackSnapshot(force = true)
-            }
-        }
-
-        override fun onIsPlayingChanged(isPlaying: Boolean) {
-            if (isPlaying && isTransitioning) {
-                val p = _player
-                val currentMediaId = p?.currentMediaItem?.mediaId?.let { extractBaseSongId(it) }
-                val targetSongId = _playbackInfo.value.currentSong?.id
-                if (currentMediaId == targetSongId && transitionRequestId == playbackRequestId) {
-                    isTransitioning = false
-                    releaseTransitionWakeLock()
-                }
-            }
-            updatePlaybackInfo()
-        }
-
-        override fun onPlayerError(error: PlaybackException) {
-            Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
-            if (isTransitioning && transitionRequestId == playbackRequestId) {
-                isTransitioning = false
-            }
-            handlePlayerError(error)
-        }
     }
 
     private var _mediaSession: MediaLibrarySession? = null
@@ -269,7 +226,7 @@ class PlaybackManager(
                 }
             }
             transitionWakeLock?.acquire(timeoutMs)
-            if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Acquired transition WakeLock for ${timeoutMs}ms")
+            Log.d("PlaybackManager", "Acquired transition WakeLock for ${timeoutMs}ms")
         } catch (e: Exception) {
             Log.e("PlaybackManager", "Failed to acquire transition WakeLock", e)
         }
@@ -279,7 +236,7 @@ class PlaybackManager(
         try {
             if (transitionWakeLock?.isHeld == true) {
                 transitionWakeLock?.release()
-                if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Released transition WakeLock")
+                Log.d("PlaybackManager", "Released transition WakeLock")
             }
         } catch (e: Exception) {
             Log.e("PlaybackManager", "Failed to release transition WakeLock", e)
@@ -287,10 +244,7 @@ class PlaybackManager(
     }
 
     fun handlePlayerError(error: PlaybackException) {
-        if (isTransitioning && transitionRequestId == playbackRequestId) {
-            isTransitioning = false
-            releaseTransitionWakeLock()
-        }
+        releaseTransitionWakeLock()
         val info = _playbackInfo.value
         val isTransientNetworkError =
             error.errorCode == PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ||
@@ -317,7 +271,7 @@ class PlaybackManager(
                 networkRecoveryJob?.cancel()
                 Log.w(
                     "PlaybackManager",
-                    "Playback error code=${error.errorCode}; retry ${attempt}/${MAX_NETWORK_RECOVERY_ATTEMPTS} in ${delayMs}ms"
+                    "Playback error (code=${error.errorCode}, message=${error.message}); retry ${attempt}/${MAX_NETWORK_RECOVERY_ATTEMPTS} in ${delayMs}ms"
                 )
                 networkRecoveryJob = coroutineScope.launch {
                     delay(delayMs)
@@ -326,25 +280,23 @@ class PlaybackManager(
                         latest.currentSong?.id != songIdAtFailure ||
                         latest.currentQueueIndex !in latest.queue.indices
                     ) {
-                        if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Skipping stale recovery for song $songIdAtFailure")
+                        Log.d("PlaybackManager", "Skipping stale recovery for song $songIdAtFailure")
                         return@launch
                     }
                     networkRecoveryJob = null
-                    withContext(Dispatchers.Main.immediate) {
-                        isTransitioning = true
-                        acquireTransitionWakeLock()
-                        if (isDecoderOrResourceError) {
-                            try {
-                                _player?.release()
-                            } catch (e: Exception) {
-                                // ignore
-                            }
-                            _player = null
-                            ensurePlayerInitialized()
+                    isTransitioning = true
+                    acquireTransitionWakeLock()
+                    if (isDecoderOrResourceError) {
+                        try {
+                            _player?.release()
+                        } catch (e: Exception) {
+                            // ignore
                         }
-                        val currentPos = _playbackPositionMs.value.coerceAtLeast(0L)
-                        playCurrentQueueIndex(targetInstrumental = latest.isInstrumental, initialPositionMs = currentPos)
+                        _player = null
+                        ensurePlayerInitialized()
                     }
+                    val currentPos = _playbackPositionMs.value.coerceAtLeast(0L)
+                    playCurrentQueueIndex(targetInstrumental = latest.isInstrumental, initialPositionMs = currentPos)
                 }
                 return
             }
@@ -407,39 +359,10 @@ class PlaybackManager(
             currentSong = finalQueue[validIndex],
             currentPositionMs = 0L,
             hasInstrumental = finalQueue[validIndex].hasInstrumentalEffective,
-            isInstrumental = _playbackInfo.value.isInstrumental
+            isInstrumental = false
         )
         persistPlaybackSnapshot(force = true)
         playCurrentQueueIndex()
-    }
-
-    internal fun extractBaseSongId(mediaId: String): String {
-        val trimmed = mediaId.trim()
-        val fromAuto = androidAutoSongId(trimmed)
-        val raw = fromAuto ?: if (trimmed.contains("|")) trimmed.substringAfterLast("|") else trimmed
-        return raw.removeSuffix("_inst")
-    }
-
-    /**
-     * Resolve a Media3 timeline item to its logical app-queue occurrence.
-     * Media item indices are timeline indices, not necessarily app queue indices;
-     * matching by ID also handles Android Auto-prefixed and instrumental IDs.
-     * The occurrence count disambiguates repeated instances of the same song.
-     */
-    internal fun findQueueIndexForMediaItem(mediaId: String, timelineIndex: Int): Int {
-        val player = _player ?: return -1
-        val queue = _playbackInfo.value.queue
-        if (timelineIndex !in 0 until player.mediaItemCount) return -1
-
-        val targetSongId = extractBaseSongId(mediaId)
-        if (targetSongId.isBlank()) return -1
-
-        val occurrence = (0 until timelineIndex).count { index ->
-            extractBaseSongId(player.getMediaItemAt(index).mediaId) == targetSongId
-        }
-        return queue.indices
-            .filter { queue[it].id == targetSongId }
-            .getOrNull(occurrence) ?: -1
     }
 
     /**
@@ -447,7 +370,7 @@ class PlaybackManager(
      * onAddMediaItems resolves their URIs. Mirror that resulting timeline into the
      * app queue so Yimly's controls, UI and next/previous logic use the same songs.
      */
-    internal fun syncAndroidAutoQueueFromPlayer(currentMediaItem: MediaItem?) {
+    private fun syncAndroidAutoQueueFromPlayer(currentMediaItem: MediaItem?) {
         val player = _player ?: return
         val currentMediaId = currentMediaItem?.mediaId ?: return
         if (!isAndroidAutoMediaId(currentMediaId)) return
@@ -458,59 +381,38 @@ class PlaybackManager(
         val songIds = timelineItems.map { androidAutoSongId(it.mediaId) }
         if (songIds.none { it != null }) return
 
-        val userPrefInstrumental = _playbackInfo.value.isInstrumental
         val syncVersion = ++androidAutoQueueSyncVersion
         val syncRequestId = playbackRequestId
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = coroutineScope.launch(Dispatchers.IO) {
             try {
                 val resolvedSongs = songIds.map { id -> id?.let { musicRepository.getSongById(it) } }
-                val mediaIndex = withContext(Dispatchers.Main) { _player?.currentMediaItemIndex } ?: return@launch
-                val activeSong = resolvedSongs.getOrNull(mediaIndex)
-                val effectiveWantInst = activeSong != null && (activeSong.isInstrumentalTrack || (userPrefInstrumental && activeSong.hasInstrumentalEffective))
-                val expectedActiveMediaItem = if (activeSong != null) {
-                    buildMediaItem(activeSong, effectiveWantInst)
-                } else null
-
                 withContext(Dispatchers.Main) {
                     if (syncVersion != androidAutoQueueSyncVersion || syncRequestId != playbackRequestId) return@withContext
-                    val p = _player ?: return@withContext
-                    val activeId = p.currentMediaItem?.mediaId ?: return@withContext
+                    val activeId = _player?.currentMediaItem?.mediaId ?: return@withContext
                     val activeSongId = androidAutoSongId(activeId) ?: return@withContext
-                    val currentMediaIndex = p.currentMediaItemIndex
-                    val currentActiveSong = resolvedSongs.getOrNull(currentMediaIndex) ?: return@withContext
-                    if (currentActiveSong.id != activeSongId) return@withContext
-                    val activeQueueIndex = resolvedSongs.take(currentMediaIndex).count { it != null }
+                    val mediaIndex = _player?.currentMediaItemIndex ?: return@withContext
+                    val activeSong = resolvedSongs.getOrNull(mediaIndex) ?: return@withContext
+                    if (activeSong.id != activeSongId) return@withContext
+                    val activeQueueIndex = resolvedSongs.take(mediaIndex).count { it != null }
                     val songs = resolvedSongs.filterNotNull()
                     if (songs.isEmpty()) return@withContext
-
-                    // Verify that the actual playing Media3 item has the correct audio variant URI
-                    if (expectedActiveMediaItem != null && currentMediaIndex in 0 until p.mediaItemCount) {
-                        val currentItem = p.getMediaItemAt(currentMediaIndex)
-                        val currentUri = currentItem.localConfiguration?.uri ?: currentItem.requestMetadata.mediaUri
-                        val expectedUri = expectedActiveMediaItem.localConfiguration?.uri ?: expectedActiveMediaItem.requestMetadata.mediaUri
-                        if (currentUri != expectedUri) {
-                            p.replaceMediaItem(currentMediaIndex, expectedActiveMediaItem)
-                        }
-                    }
 
                     shuffleHistory.clear()
                     _playbackInfo.value = _playbackInfo.value.copy(
                         queue = songs,
                         currentQueueIndex = activeQueueIndex,
-                        currentSong = currentActiveSong,
-                        currentPositionMs = p.currentPosition.coerceAtLeast(0L),
-                        hasInstrumental = currentActiveSong.hasInstrumentalEffective,
-                        isInstrumental = userPrefInstrumental
+                        currentSong = activeSong,
+                        currentPositionMs = _player?.currentPosition?.coerceAtLeast(0L) ?: 0L,
+                        hasInstrumental = activeSong.hasInstrumentalEffective,
+                        isInstrumental = false
                     )
                     updatePlaybackInfo()
                     persistPlaybackSnapshot(force = true)
-                    if (BuildConfig.DEBUG) {
-                        Log.d(
-                            "PlaybackManager",
-                            "Synced Android Auto queue: ${songs.size} songs, activeIndex=${activeQueueIndex}, active=${currentActiveSong.id}, isInstrumental=${userPrefInstrumental}"
-                        )
-                    }
+                    Log.d(
+                        "PlaybackManager",
+                        "Synced Android Auto queue: ${songs.size} songs, activeIndex=${activeQueueIndex}, active=${activeSong.id}"
+                    )
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
                 throw e
@@ -520,7 +422,7 @@ class PlaybackManager(
         }
     }
 
-    internal fun isAndroidAutoMediaId(mediaId: String): Boolean =
+    private fun isAndroidAutoMediaId(mediaId: String): Boolean =
         mediaId.startsWith("playlist_song|") ||
             mediaId.startsWith("favorite_song|") ||
             mediaId.startsWith("recent_song|") ||
@@ -545,7 +447,7 @@ class PlaybackManager(
         }
     }
 
-    fun playQueueItem(index: Int, initialPositionMs: Long? = null) {
+    fun playQueueItem(index: Int) {
         val info = _playbackInfo.value
         if (index in info.queue.indices) {
             androidAutoQueueSyncVersion++
@@ -553,17 +455,16 @@ class PlaybackManager(
             androidAutoQueueSyncJob = null
             ensurePlayerInitialized()
             startPlaybackService()
-            val currentInst = info.isInstrumental
             _playbackInfo.value = info.copy(
                 currentQueueIndex = index,
                 currentSong = info.queue[index],
-                currentPositionMs = initialPositionMs ?: 0L,
+                currentPositionMs = 0L,
                 hasInstrumental = info.queue[index].hasInstrumentalEffective,
-                isInstrumental = currentInst
+                isInstrumental = false
             )
             shuffleHistory.clear()
             persistPlaybackSnapshot(force = true)
-            playCurrentQueueIndex(targetInstrumental = currentInst, initialPositionMs = initialPositionMs)
+            playCurrentQueueIndex()
         }
     }
 
@@ -585,10 +486,8 @@ class PlaybackManager(
             info.repeatMode == RepeatMode.ALL -> (info.currentQueueIndex + 1) % info.queue.size
             info.currentQueueIndex + 1 < info.queue.size -> info.currentQueueIndex + 1
             else -> {
-                if (transitionRequestId == playbackRequestId) {
-                    isTransitioning = false
-                    releaseTransitionWakeLock()
-                }
+                isTransitioning = false
+                releaseTransitionWakeLock()
                 return
             }
         }
@@ -643,68 +542,9 @@ class PlaybackManager(
         playCurrentQueueIndex()
     }
 
-    internal fun handleMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-        if (mediaItem == null) return
-        val currentMediaId = mediaItem.mediaId
-
-        if (isAndroidAutoMediaId(currentMediaId)) {
-            syncAndroidAutoQueueFromPlayer(mediaItem)
-        }
-
-        val songId = extractBaseSongId(currentMediaId).takeIf { it.isNotBlank() } ?: return
-
-        val info = _playbackInfo.value
-        val queue = info.queue
-        if (queue.isEmpty()) return
-
-        val p = _player
-        val currentMediaIndex = p?.currentMediaItemIndex ?: -1
-        val matchedIndex = if (currentMediaIndex in queue.indices && queue[currentMediaIndex].id == songId) {
-            currentMediaIndex
-        } else {
-            queue.indexOfFirst { it.id == songId }.takeIf { it >= 0 }
-        } ?: return
-
-        val newSong = queue[matchedIndex]
-        val keepInstrumental = info.isInstrumental
-
-        if (info.currentQueueIndex != matchedIndex || info.currentSong?.id != newSong.id || reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) {
-            val newPos = if (reason == Player.MEDIA_ITEM_TRANSITION_REASON_REPEAT) 0L else (p?.currentPosition?.coerceAtLeast(0L) ?: 0L)
-            _playbackInfo.value = info.copy(
-                currentQueueIndex = matchedIndex,
-                currentSong = newSong,
-                currentPositionMs = newPos,
-                hasInstrumental = newSong.hasInstrumentalEffective,
-                isInstrumental = keepInstrumental
-            )
-            _playbackPositionMs.value = newPos
-            _lyricsPositionMs.value = newPos
-            updatePlaybackInfo()
-            persistPlaybackSnapshot()
-            coroutineScope.launch(Dispatchers.IO) {
-                musicRepository.recordPlayHistory(newSong.id)
-            }
-            if (BuildConfig.DEBUG) Log.d("PlaybackManager", "Transitioned to ${newSong.title} (index $matchedIndex, reason $reason)")
-        }
-    }
-
     private fun handleSongEnded() {
-        val p = _player
-        val info = _playbackInfo.value
-        val hasMultiItemTimeline = p != null && p.mediaItemCount > 1 && p.mediaItemCount == info.queue.size
-        if (hasMultiItemTimeline && info.repeatMode == RepeatMode.OFF) {
-            // When timeline contains all items and repeat is OFF, STATE_ENDED means the queue has completed naturally.
-            // Do not call next() to avoid duplicate/unexpected advances.
-            if (transitionRequestId == playbackRequestId) {
-                isTransitioning = false
-                releaseTransitionWakeLock()
-            }
-            updatePlaybackInfo()
-            return
-        }
-
         if (isTransitioning) {
-            if (BuildConfig.DEBUG) Log.d("PlaybackManager", "handleSongEnded ignored: already transitioning")
+            Log.d("PlaybackManager", "handleSongEnded ignored: already transitioning")
             return
         }
         isTransitioning = true
@@ -715,8 +555,8 @@ class PlaybackManager(
     private fun isQueueMatchingPlayerTimeline(player: Player, queue: List<Song>): Boolean {
         if (player.mediaItemCount != queue.size) return false
         for (i in queue.indices) {
-            val itemSongId = extractBaseSongId(player.getMediaItemAt(i).mediaId)
-            if (itemSongId != queue[i].id) {
+            val itemMediaId = player.getMediaItemAt(i).mediaId.removeSuffix("_inst")
+            if (itemMediaId != queue[i].id) {
                 return false
             }
         }
@@ -724,14 +564,13 @@ class PlaybackManager(
     }
 
     internal suspend fun buildMediaItem(song: Song, wantInstrumental: Boolean): MediaItem {
-        val effectiveWantInst = song.isInstrumentalTrack || (wantInstrumental && song.hasInstrumentalEffective)
-        val resolvedTrack = musicRepository.resolvePlayableTrack(song, effectiveWantInst)
+        val resolvedTrack = musicRepository.resolvePlayableTrack(song, wantInstrumental)
         val audioUrl = resolvedTrack.playableUrl
         val parsedAudioUri = Uri.parse(audioUrl)
         val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
 
         return MediaItem.Builder()
-            .setMediaId(if (effectiveWantInst) "${song.id}_inst" else song.id)
+            .setMediaId(if (wantInstrumental) "${song.id}_inst" else song.id)
             .setUri(parsedAudioUri)
             .setRequestMetadata(
                 MediaItem.RequestMetadata.Builder()
@@ -751,7 +590,7 @@ class PlaybackManager(
             .build()
     }
 
-    internal fun playCurrentQueueIndex(
+    private fun playCurrentQueueIndex(
         targetInstrumental: Boolean? = null,
         autoPlay: Boolean = true,
         initialPositionMs: Long? = null
@@ -765,14 +604,14 @@ class PlaybackManager(
         val song = info.queue[info.currentQueueIndex]
         val wantInst = targetInstrumental ?: info.isInstrumental
         val requestId = ++playbackRequestId
-        transitionRequestId = requestId
-        isTransitioning = true
+
         acquireTransitionWakeLock()
 
-        playbackJob = coroutineScope.launch(Dispatchers.IO) {
+        coroutineScope.launch(Dispatchers.IO) {
             var handedOffToPlayer = false
             try {
                 if (requestId != playbackRequestId) {
+                    releaseTransitionWakeLock()
                     return@launch
                 }
 
@@ -785,6 +624,7 @@ class PlaybackManager(
                 }
 
                 if (requestId != playbackRequestId) {
+                    releaseTransitionWakeLock()
                     return@launch
                 }
 
@@ -833,19 +673,19 @@ class PlaybackManager(
                     updatePlaybackInfo()
                 }
             } catch (e: kotlinx.coroutines.CancellationException) {
-                if (requestId == playbackRequestId && transitionRequestId == requestId) {
+                if (requestId == playbackRequestId) {
                     isTransitioning = false
                     releaseTransitionWakeLock()
                 }
                 throw e
             } catch (e: Exception) {
                 Log.e("PlaybackManager", "Error playing song: ${song.title}", e)
-                if (requestId == playbackRequestId && transitionRequestId == requestId) {
+                if (requestId == playbackRequestId) {
                     isTransitioning = false
                     releaseTransitionWakeLock()
                 }
             } finally {
-                if (requestId == playbackRequestId && transitionRequestId == requestId && !handedOffToPlayer) {
+                if (requestId == playbackRequestId && !handedOffToPlayer) {
                     isTransitioning = false
                     releaseTransitionWakeLock()
                 }
@@ -863,57 +703,17 @@ class PlaybackManager(
     }
 
     fun play() {
-        val requestId = ++playbackRequestId
-        transitionRequestId = requestId
-        isTransitioning = true
-        coroutineScope.launch {
-            try {
-                awaitPlaybackSnapshotRestoration()
-                if (requestId != playbackRequestId) return@launch
-
-                // PlaybackManager may be constructed with a background coroutine scope.
-                // Keep every ExoPlayer access (including timeline/state reads) on its
-                // application thread, even when this coroutine resumes on Dispatchers.Default.
-                withContext(Dispatchers.Main.immediate) {
-                    if (requestId != playbackRequestId) return@withContext
-
-                    val p = ensurePlayerInitialized()
-                    val info = _playbackInfo.value
-
-                    // Do not start the service or play if the queue is empty after restoration.
-                    if (p.mediaItemCount == 0 && info.queue.isEmpty()) {
-                        return@withContext
-                    }
-
-                    startPlaybackService()
-
-                    // If the player timeline is empty but the logical queue is non-empty,
-                    // populate the player before attempting to play.
-                    if (p.mediaItemCount == 0 && info.queue.isNotEmpty()) {
-                        playCurrentQueueIndex(autoPlay = true)
-                        return@withContext
-                    }
-
-                    if (p.playbackState == Player.STATE_ENDED) {
-                        p.seekTo(0)
-                    } else if (p.playbackState == Player.STATE_IDLE) {
-                        p.prepare()
-                    }
-                    p.play()
-                    updatePlaybackInfo()
-                    persistPlaybackSnapshot(force = true)
-                }
-            } finally {
-                if (requestId == playbackRequestId && transitionRequestId == requestId) {
-                    isTransitioning = false
-                }
-            }
+        startPlaybackService()
+        val p = ensurePlayerInitialized()
+        if (p.playbackState == Player.STATE_ENDED) {
+            p.seekTo(0)
         }
+        p.play()
+        updatePlaybackInfo()
+        persistPlaybackSnapshot(force = true)
     }
 
     fun pause() {
-        playbackRequestId++
-        transitionRequestId = 0L
         isTransitioning = false
         releaseTransitionWakeLock()
         _player?.pause()
@@ -930,11 +730,6 @@ class PlaybackManager(
     }
 
     fun setRepeatMode(mode: RepeatMode) {
-        _player?.repeatMode = when (mode) {
-            RepeatMode.OFF -> Player.REPEAT_MODE_OFF
-            RepeatMode.ALL -> Player.REPEAT_MODE_ALL
-            RepeatMode.ONE -> Player.REPEAT_MODE_ONE
-        }
         _playbackInfo.value = _playbackInfo.value.copy(repeatMode = mode)
         persistPlaybackSnapshot(force = true)
     }
@@ -947,7 +742,6 @@ class PlaybackManager(
 
     fun setShuffle(enabled: Boolean) {
         if (!enabled) shuffleHistory.clear()
-        _player?.shuffleModeEnabled = enabled
         _playbackInfo.value = _playbackInfo.value.copy(isShuffle = enabled)
         persistPlaybackSnapshot(force = true)
     }
@@ -1007,43 +801,20 @@ class PlaybackManager(
     }
 
     fun addToQueue(song: Song) {
-        playbackRequestId++
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         val newQueue = info.queue + song
         shuffleHistory.clear()
+        _playbackInfo.value = info.copy(queue = newQueue)
+        persistPlaybackSnapshot(force = true)
         if (info.currentSong == null) {
-            // The newly appended occurrence is the item the user just requested,
-            // even when the same song ID already exists earlier in the queue.
-            val playIndex = newQueue.lastIndex
-            playSong(song, newQueue, playIndex)
-        } else {
-            _playbackInfo.value = info.copy(queue = newQueue)
-            persistPlaybackSnapshot(force = true)
-            val syncVer = androidAutoQueueSyncVersion
-            val syncReqId = playbackRequestId
-            coroutineScope.launch(Dispatchers.IO) {
-                try {
-                    val wantInst = song.isInstrumentalTrack || (info.isInstrumental && song.hasInstrumentalEffective)
-                    val mediaItem = buildMediaItem(song, wantInst)
-                    withContext(Dispatchers.Main) {
-                        if (syncVer != androidAutoQueueSyncVersion || syncReqId != playbackRequestId) return@withContext
-                        val p = _player ?: return@withContext
-                        if (p.mediaItemCount == newQueue.size - 1) {
-                            p.addMediaItem(mediaItem)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w("PlaybackManager", "Failed to add media item to player timeline", e)
-                }
-            }
+            playSong(song, newQueue, 0)
         }
     }
 
     fun playNext(song: Song) {
-        playbackRequestId++
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
@@ -1052,44 +823,21 @@ class PlaybackManager(
         val insertIndex = if (info.currentQueueIndex in queue.indices) info.currentQueueIndex + 1 else queue.size
         queue.add(insertIndex, song)
         shuffleHistory.clear()
+        _playbackInfo.value = info.copy(queue = queue)
+        persistPlaybackSnapshot(force = true)
         if (info.currentSong == null) {
             playSong(song, queue, insertIndex)
-        } else {
-            _playbackInfo.value = info.copy(queue = queue)
-            persistPlaybackSnapshot(force = true)
-            val syncVer = androidAutoQueueSyncVersion
-            val syncReqId = playbackRequestId
-            coroutineScope.launch(Dispatchers.IO) {
-                try {
-                    val wantInst = song.isInstrumentalTrack || (info.isInstrumental && song.hasInstrumentalEffective)
-                    val mediaItem = buildMediaItem(song, wantInst)
-                    withContext(Dispatchers.Main) {
-                        if (syncVer != androidAutoQueueSyncVersion || syncReqId != playbackRequestId) return@withContext
-                        val p = _player ?: return@withContext
-                        if (p.mediaItemCount == queue.size - 1 && insertIndex <= p.mediaItemCount) {
-                            p.addMediaItem(insertIndex, mediaItem)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Log.w("PlaybackManager", "Failed to insert media item into player timeline", e)
-                }
-            }
         }
     }
 
     fun removeFromQueue(index: Int) {
-        val info = _playbackInfo.value
-        if (index !in info.queue.indices) return
-
-        // Only a valid mutation may invalidate in-flight playback or AA sync work.
-        playbackRequestId++
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
+        val info = _playbackInfo.value
         val queue = info.queue.toMutableList()
+        if (index !in queue.indices) return
 
-        val wasPlaying = info.isPlaying || (_player?.isPlaying == true)
-        val userPrefInstrumental = info.isInstrumental
         val removedCurrent = index == info.currentQueueIndex
         queue.removeAt(index)
 
@@ -1107,7 +855,7 @@ class PlaybackManager(
                 isBuffering = false,
                 currentPositionMs = 0L,
                 durationMs = 0L,
-                isInstrumental = userPrefInstrumental,
+                isInstrumental = false,
                 hasInstrumental = false
             )
             clearPersistedPlaybackSnapshot()
@@ -1127,51 +875,28 @@ class PlaybackManager(
             currentSong = newSong,
             currentPositionMs = if (removedCurrent) 0L else info.currentPositionMs,
             hasInstrumental = newSong?.hasInstrumentalEffective ?: false,
-            isInstrumental = userPrefInstrumental
+            isInstrumental = if (removedCurrent) false else info.isInstrumental
         )
 
         shuffleHistory.clear()
         persistPlaybackSnapshot(force = true)
-
-        val p = _player
-        if (p != null && index < p.mediaItemCount && p.mediaItemCount == queue.size + 1) {
-            p.removeMediaItem(index)
-        }
-
+        // Removing the active item must also move ExoPlayer to the replacement item.
         if (removedCurrent && newSong != null) {
-            _playbackPositionMs.value = 0L
-            _lyricsPositionMs.value = 0L
-            playCurrentQueueIndex(
-                targetInstrumental = userPrefInstrumental,
-                autoPlay = wasPlaying,
-                initialPositionMs = 0L
-            )
+            playCurrentQueueIndex(targetInstrumental = false)
         }
     }
 
     /** Remove every occurrence of a deleted library song from the active queue. */
     fun removeSongFromQueue(songId: String) {
-        val targetSongId = extractBaseSongId(songId)
-        if (targetSongId.isBlank()) return
-
         val info = _playbackInfo.value
-        val matchingIndices = info.queue.mapIndexedNotNull { index, song ->
-            if (song.id == targetSongId) index else null
-        }
-        if (matchingIndices.isEmpty()) return
-
-        // Do not cancel an unrelated playback request for a song that is not queued.
         val oldIndex = info.currentQueueIndex
-        val wasPlaying = info.isPlaying || (_player?.isPlaying == true)
-        val userPrefInstrumental = info.isInstrumental
-        playbackRequestId++
+        val currentWasRemoved = info.currentSong?.id == songId
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
-
-        val currentWasRemoved = (oldIndex in matchingIndices) || (info.currentSong?.id == targetSongId)
-        val removedBeforeCurrent = matchingIndices.count { it < oldIndex }
-        val newQueue = info.queue.filterIndexed { index, _ -> index !in matchingIndices }
+        val removedBeforeCurrent = if (oldIndex >= 0) info.queue.take(oldIndex).count { it.id == songId } else 0
+        val newQueue = info.queue.filterNot { it.id == songId }
+        if (newQueue.size == info.queue.size) return
 
         if (newQueue.isEmpty()) {
             _player?.stop()
@@ -1183,7 +908,7 @@ class PlaybackManager(
             _playbackInfo.value = info.copy(
                 queue = emptyList(), currentQueueIndex = -1, currentSong = null,
                 isPlaying = false, isBuffering = false, currentPositionMs = 0L,
-                durationMs = 0L, isInstrumental = userPrefInstrumental, hasInstrumental = false
+                durationMs = 0L, isInstrumental = false, hasInstrumental = false
             )
             clearPersistedPlaybackSnapshot()
             return
@@ -1201,73 +926,43 @@ class PlaybackManager(
             currentSong = newSong,
             currentPositionMs = if (currentWasRemoved) 0L else info.currentPositionMs,
             hasInstrumental = newSong?.hasInstrumentalEffective ?: false,
-            isInstrumental = userPrefInstrumental
+            isInstrumental = if (currentWasRemoved) false else info.isInstrumental
         )
 
         shuffleHistory.clear()
         persistPlaybackSnapshot(force = true)
-
-        val p = _player
-        if (p != null) {
-            if (p.mediaItemCount == info.queue.size) {
-                matchingIndices.sortedDescending().forEach { idx ->
-                    if (idx < p.mediaItemCount) {
-                        p.removeMediaItem(idx)
-                    }
-                }
-            } else {
-                val playerMatchingIndices = (0 until p.mediaItemCount).filter { idx ->
-                    extractBaseSongId(p.getMediaItemAt(idx).mediaId) == targetSongId
-                }.sortedDescending()
-                playerMatchingIndices.forEach { idx ->
-                    p.removeMediaItem(idx)
-                }
-            }
-        }
-
         if (currentWasRemoved && newSong != null) {
+            _player?.pause()
             _playbackPositionMs.value = 0L
             _lyricsPositionMs.value = 0L
-            playCurrentQueueIndex(
-                targetInstrumental = userPrefInstrumental,
-                autoPlay = wasPlaying,
-                initialPositionMs = 0L
-            )
+            playCurrentQueueIndex(targetInstrumental = false)
         }
     }
 
     fun reorderQueue(fromIndex: Int, toIndex: Int) {
-        val info = _playbackInfo.value
-        val queue = info.queue
-        if (fromIndex !in queue.indices || toIndex !in queue.indices) {
-            return
-        }
-        playbackRequestId++
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
-        val mutableQueue = queue.toMutableList()
-        val item = mutableQueue.removeAt(fromIndex)
-        mutableQueue.add(toIndex, item)
-        val oldIndex = info.currentQueueIndex
-        val newIndex = when {
-            oldIndex !in queue.indices -> oldIndex
-            fromIndex == oldIndex -> toIndex
-            fromIndex < oldIndex && toIndex >= oldIndex -> oldIndex - 1
-            fromIndex > oldIndex && toIndex <= oldIndex -> oldIndex + 1
-            else -> oldIndex
-        }
-        _playbackInfo.value = info.copy(
-            queue = mutableQueue,
-            currentQueueIndex = newIndex,
-            currentSong = mutableQueue.getOrNull(newIndex)
-        )
-        shuffleHistory.clear()
-        persistPlaybackSnapshot(force = true)
-
-        val p = _player
-        if (p != null && fromIndex < p.mediaItemCount && toIndex < p.mediaItemCount && p.mediaItemCount == mutableQueue.size) {
-            p.moveMediaItem(fromIndex, toIndex)
+        val info = _playbackInfo.value
+        val queue = info.queue.toMutableList()
+        if (fromIndex in queue.indices && toIndex in queue.indices) {
+            val item = queue.removeAt(fromIndex)
+            queue.add(toIndex, item)
+            val oldIndex = info.currentQueueIndex
+            val newIndex = when {
+                oldIndex !in info.queue.indices -> oldIndex
+                fromIndex == oldIndex -> toIndex
+                fromIndex < oldIndex && toIndex >= oldIndex -> oldIndex - 1
+                fromIndex > oldIndex && toIndex <= oldIndex -> oldIndex + 1
+                else -> oldIndex
+            }
+            _playbackInfo.value = info.copy(
+                queue = queue,
+                currentQueueIndex = newIndex,
+                currentSong = queue.getOrNull(newIndex)
+            )
+            shuffleHistory.clear()
+            persistPlaybackSnapshot(force = true)
         }
     }
 
@@ -1290,36 +985,23 @@ class PlaybackManager(
     }
 
     fun clearUpcomingQueue() {
-        playbackRequestId++
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         val currentSong = info.currentSong
         if (currentSong != null) {
-            val activeIndex = info.currentQueueIndex
             _playbackInfo.value = info.copy(
                 queue = listOf(currentSong),
                 currentQueueIndex = 0
             )
             shuffleHistory.clear()
             persistPlaybackSnapshot(force = true)
-
-            val p = _player
-            if (p != null && activeIndex in 0 until p.mediaItemCount) {
-                if (activeIndex + 1 < p.mediaItemCount) {
-                    p.removeMediaItems(activeIndex + 1, p.mediaItemCount)
-                }
-                if (activeIndex > 0) {
-                    p.removeMediaItems(0, activeIndex)
-                }
-            }
         } else {
             _playbackInfo.value = info.copy(
                 queue = emptyList(),
                 currentQueueIndex = -1
             )
-            _player?.clearMediaItems()
             clearPersistedPlaybackSnapshot()
         }
     }
@@ -1407,8 +1089,6 @@ class PlaybackManager(
                         isInstrumental = wantInst
                     )
                 )
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
             } catch (e: Exception) {
                 Log.w("PlaybackManager", "Failed to resolve track ${song.id} in snapshot", e)
             }
@@ -1466,7 +1146,7 @@ class PlaybackManager(
                 isShuffle = snapshot.isShuffle,
                 repeatMode = snapshot.repeatMode,
                 hasInstrumental = activeEntry.song.hasInstrumentalEffective,
-                isInstrumental = snapshot.isInstrumental
+                isInstrumental = activeEntry.isInstrumental
             )
             _playbackPositionMs.value = restoredPositionMs
             _lyricsPositionMs.value = restoredPositionMs
@@ -1485,8 +1165,6 @@ class PlaybackManager(
             try {
                 val snapshot = try {
                     preferencesManager.loadPlaybackSnapshot()
-                } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                    throw cancelled
                 } catch (e: Exception) {
                     Log.w("PlaybackManager", "Failed to load playback snapshot", e)
                     null
@@ -1494,8 +1172,6 @@ class PlaybackManager(
                 if (snapshot != null) {
                     restoreFromSnapshot(snapshot)
                 }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
             } catch (e: Exception) {
                 Log.e("PlaybackManager", "Error during playback snapshot restoration", e)
             } finally {

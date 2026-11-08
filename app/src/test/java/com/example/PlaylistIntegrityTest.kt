@@ -169,28 +169,6 @@ class PlaylistIntegrityTest {
         assertTrue(songs.none { it.id == songId })
     }
 
-
-    @Test
-    fun testDuplicateAddFailurePreservesExistingPlaylistEntry() = runBlocking {
-        val playlistId = "pl_existing"
-        val song = Song(id = "already-added", title = "Existing Song", artist = "Artist")
-        musicDao.insertSongs(listOf(song.toEntity()))
-        musicDao.insertPlaylistSongCrossRef(
-            com.example.data.db.PlaylistSongCrossRef(playlistId, song.id, orderIndex = 2)
-        )
-        fakeApi.shouldFailAdd = true
-
-        try {
-            repository.addSongToPlaylistOptimistic(playlistId, song.id)
-        } catch (_: Exception) {
-            // Expected duplicate/rejected server add.
-        }
-
-        val songs = musicDao.getSongsForPlaylistList(playlistId)
-        assertEquals("A failed duplicate add must not remove the pre-existing row", 1, songs.size)
-        assertEquals(song.id, songs.first().id)
-    }
-
     @Test
     fun testDuplicateAdditionHandling() = runBlocking {
         val playlistId = "pl1"

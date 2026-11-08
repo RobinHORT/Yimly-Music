@@ -86,9 +86,6 @@ fun LyricsSettingsDialog(
     var autoScroll by remember { mutableStateOf(initialConfig.autoScroll) }
     var highlightCurrentLine by remember { mutableStateOf(initialConfig.highlightCurrentLine) }
     var animDuration by remember { mutableIntStateOf(initialConfig.animationDurationMs) }
-    var elrcFadeInMs by remember { mutableIntStateOf(initialConfig.elrcFadeInDurationMs.coerceIn(300, 5000)) }
-    var transitionOverlapMs by remember { mutableIntStateOf(initialConfig.lyricTransitionOverlapMs.coerceIn(0, 2000)) }
-    var lrcLeadInMs by remember { mutableIntStateOf(initialConfig.lrcDisplayLeadInMs.coerceIn(1500, 5000)) }
     var lineSpacing by remember { mutableFloatStateOf(initialConfig.lineSpacingDp) }
     var alignment by remember { mutableStateOf(initialConfig.alignment) }
 
@@ -181,14 +178,14 @@ fun LyricsSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Lyric Sections", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("$visibleLines sections", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
+                        Text("Visible Lines", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
+                        Text("$visibleLines lines", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
                     }
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        (1..5).forEach { lines ->
+                        listOf(1, 3, 5, 7).forEach { lines ->
                             FilterChip(
                                 selected = visibleLines == lines,
                                 onClick = { visibleLines = lines },
@@ -258,44 +255,6 @@ fun LyricsSettingsDialog(
                             activeTrackColor = YimlyPink,
                             inactiveTrackColor = SurfaceBorderDark
                         )
-                    )
-                }
-
-                // Lyrics timing controls: these are independent of the line animation duration.
-                Column {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("eLRC Full-line Fade In", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("${elrcFadeInMs} ms", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
-                    }
-                    Slider(
-                        value = elrcFadeInMs.toFloat(),
-                        onValueChange = { elrcFadeInMs = it.toInt() },
-                        valueRange = 300f..5000f,
-                        colors = SliderDefaults.colors(thumbColor = YimlyPink, activeTrackColor = YimlyPink, inactiveTrackColor = SurfaceBorderDark)
-                    )
-                }
-                Column {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Transition Overlap", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("${transitionOverlapMs} ms", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
-                    }
-                    Slider(
-                        value = transitionOverlapMs.toFloat(),
-                        onValueChange = { transitionOverlapMs = it.toInt() },
-                        valueRange = 0f..2000f,
-                        colors = SliderDefaults.colors(thumbColor = YimlyPink, activeTrackColor = YimlyPink, inactiveTrackColor = SurfaceBorderDark)
-                    )
-                }
-                Column {
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("LRC Early Display", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("${lrcLeadInMs} ms", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
-                    }
-                    Slider(
-                        value = lrcLeadInMs.toFloat(),
-                        onValueChange = { lrcLeadInMs = it.toInt().coerceAtLeast(1500) },
-                        valueRange = 1500f..5000f,
-                        colors = SliderDefaults.colors(thumbColor = YimlyPink, activeTrackColor = YimlyPink, inactiveTrackColor = SurfaceBorderDark)
                     )
                 }
 
@@ -602,9 +561,6 @@ fun LyricsSettingsDialog(
                                 autoScroll = autoScroll,
                                 highlightCurrentLine = highlightCurrentLine,
                                 animationDurationMs = animDuration,
-                                elrcFadeInDurationMs = elrcFadeInMs.coerceIn(300, 5000),
-                                lyricTransitionOverlapMs = transitionOverlapMs.coerceIn(0, 2000),
-                                lrcDisplayLeadInMs = lrcLeadInMs.coerceIn(1500, 5000),
                                 lineSpacingDp = lineSpacing,
                                 alignment = alignment,
                                 fontFamily = com.example.data.models.LyricFontFamily.DEFAULT,

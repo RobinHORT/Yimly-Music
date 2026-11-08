@@ -296,7 +296,6 @@ fun SongItemRow(
     onRemoveFromPlaylist: (() -> Unit)? = null,
     onAddToPlaylistClick: (() -> Unit)? = null,
     isAdmin: Boolean = false,
-    showAudioReplacementActions: Boolean = false,
     onEditLrc: (() -> Unit)? = null,
     onUploadLrc: (() -> Unit)? = null,
     onDeleteLrc: (() -> Unit)? = null,
@@ -331,11 +330,6 @@ fun SongItemRow(
     var editLrcText by remember { mutableStateOf("") }
     var showDeleteLrcDialog by remember { mutableStateOf(false) }
     var showDeleteSongDialog by remember { mutableStateOf(false) }
-    var showReplaceRecordingDialog by remember { mutableStateOf(false) }
-    var showReplaceInstrumentalDialog by remember { mutableStateOf(false) }
-    var replacementSourceUrl by remember { mutableStateOf("") }
-    var replacementRunning by remember { mutableStateOf(false) }
-    var replacementError by remember { mutableStateOf<String?>(null) }
 
     val lrcPickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -583,33 +577,6 @@ fun SongItemRow(
                     if (isUserAdmin) {
                         HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = SurfaceBorderDark)
 
-                        if (showAudioReplacementActions) {
-                            DropdownMenuItem(
-                                text = { Text("Replace Recording", color = TextPrimaryDark, fontWeight = FontWeight.Medium) },
-                                leadingIcon = {
-                                    Icon(imageVector = Icons.Default.Upload, contentDescription = null, tint = YimlyPink, modifier = Modifier.size(20.dp))
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    replacementError = null
-                                    showReplaceRecordingDialog = true
-                                },
-                                modifier = Modifier.testTag("menu_replace_recording_${song.id}")
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Replace Instrumental", color = TextPrimaryDark, fontWeight = FontWeight.Medium) },
-                                leadingIcon = {
-                                    Icon(imageVector = Icons.Default.MusicNote, contentDescription = null, tint = YimlyPink, modifier = Modifier.size(20.dp))
-                                },
-                                onClick = {
-                                    menuExpanded = false
-                                    replacementError = null
-                                    showReplaceInstrumentalDialog = true
-                                },
-                                modifier = Modifier.testTag("menu_replace_instrumental_${song.id}")
-                            )
-                        }
-
                         // 5. LRC Editor
                         DropdownMenuItem(
                             text = { Text("LRC Editor", color = TextPrimaryDark, fontWeight = FontWeight.Medium) },
@@ -766,105 +733,6 @@ fun SongItemRow(
             },
             dismissButton = {
                 TextButton(onClick = { showDeleteSongDialog = false }) {
-                    Text("Cancel", color = TextSecondaryDark)
-                }
-            },
-            containerColor = SurfaceElevatedDark
-        )
-    }
-
-    if (showReplaceRecordingDialog) {
-        AlertDialog(
-            onDismissRequest = { if (!replacementRunning) showReplaceRecordingDialog = false },
-            title = { Text("Replace Recording", color = YimlyPink, fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Paste the YouTube link for the correct recording. Yimly will download it and regenerate the instrumental using the existing audio pipeline. The song ID, metadata, artwork, lyrics and playlist links stay attached to this song.", color = TextSecondaryDark, style = MaterialTheme.typography.bodySmall)
-                    OutlinedTextField(
-                        value = replacementSourceUrl,
-                        onValueChange = { replacementSourceUrl = it; replacementError = null },
-                        enabled = !replacementRunning,
-                        label = { Text("YouTube URL") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth().testTag("replace_recording_url_${song.id}"),
-                        textStyle = TextStyle(color = TextPrimaryDark)
-                    )
-                    if (replacementRunning) Text("Downloading and rebuilding audio… This may take several minutes. Keep the app open.", color = YimlyPink, style = MaterialTheme.typography.bodySmall)
-                    replacementError?.let { Text(it, color = Color(0xFFFF5252), style = MaterialTheme.typography.bodySmall) }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val cleanUrl = replacementSourceUrl.trim()
-                        val host = Uri.parse(cleanUrl).host?.lowercase()
-                        if (host == null || host !in setOf("youtube.com", "www.youtube.com", "m.youtube.com", "music.youtube.com", "youtu.be", "www.youtu.be")) {
-                            replacementError = "Enter a valid YouTube video link."
-                        } else {
-                            val viewModel = getViewModel()
-                            if (viewModel == null) {
-                                replacementError = "Unable to access the music controller. Please try again."
-                            } else {
-                                replacementRunning = true
-                                replacementError = null
-                                viewModel.replaceSongRecordingSource(song.id, cleanUrl) { result ->
-                                    replacementRunning = false
-                                    if (result.isSuccess) {
-                                        showReplaceRecordingDialog = false
-                                        replacementSourceUrl = ""
-                                    } else replacementError = result.exceptionOrNull()?.message ?: "Recording replacement failed."
-                                }
-                            }
-                        }
-                    },
-                    enabled = !replacementRunning && replacementSourceUrl.isNotBlank(),
-                    colors = ButtonDefaults.buttonColors(containerColor = YimlyPink),
-                    modifier = Modifier.testTag("confirm_replace_recording_${song.id}")
-                ) { Text(if (replacementRunning) "Replacing…" else "Replace", color = Color.White) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showReplaceRecordingDialog = false; replacementError = null }, enabled = !replacementRunning) {
-                    Text("Cancel", color = TextSecondaryDark)
-                }
-            },
-            containerColor = SurfaceElevatedDark
-        )
-    }
-
-    if (showReplaceInstrumentalDialog) {
-        AlertDialog(
-            onDismissRequest = { if (!replacementRunning) showReplaceInstrumentalDialog = false },
-            title = { Text("Replace Instrumental?", color = YimlyPink, fontWeight = FontWeight.Bold) },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Regenerate the instrumental from this song’s existing original recording. The original vocal audio and song details will not be changed.", color = TextSecondaryDark, style = MaterialTheme.typography.bodySmall)
-                    if (replacementRunning) Text("Regenerating instrumental… This may take several minutes. Keep the app open.", color = YimlyPink, style = MaterialTheme.typography.bodySmall)
-                    replacementError?.let { Text(it, color = Color(0xFFFF5252), style = MaterialTheme.typography.bodySmall) }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        val viewModel = getViewModel()
-                        if (viewModel == null) {
-                            replacementError = "Unable to access the music controller. Please try again."
-                        } else {
-                            replacementRunning = true
-                            replacementError = null
-                            viewModel.replaceSongInstrumental(song.id) { result ->
-                                replacementRunning = false
-                                if (result.isSuccess) showReplaceInstrumentalDialog = false
-                                else replacementError = result.exceptionOrNull()?.message ?: "Instrumental regeneration failed."
-                            }
-                        }
-                    },
-                    enabled = !replacementRunning,
-                    colors = ButtonDefaults.buttonColors(containerColor = YimlyPink),
-                    modifier = Modifier.testTag("confirm_replace_instrumental_${song.id}")
-                ) { Text(if (replacementRunning) "Regenerating…" else "Regenerate", color = Color.White) }
-            },
-            dismissButton = {
-                TextButton(onClick = { showReplaceInstrumentalDialog = false; replacementError = null }, enabled = !replacementRunning) {
                     Text("Cancel", color = TextSecondaryDark)
                 }
             },

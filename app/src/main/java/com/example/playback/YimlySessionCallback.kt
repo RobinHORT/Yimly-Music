@@ -15,39 +15,17 @@ import androidx.media3.session.MediaLibraryService
 import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.LibraryResult
-import androidx.media3.session.SessionError
 import androidx.media3.session.SessionCommand
-import androidx.media3.session.SessionCommands
 import androidx.media3.session.SessionResult
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
 import com.google.common.util.concurrent.SettableFuture
-import com.example.data.models.Song
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.firstOrNull
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
-
-internal fun isControllerPackageVerified(
-    packageName: String?,
-    packagesForUid: Array<String>?
-): Boolean {
-    return !packageName.isNullOrBlank() &&
-        packagesForUid != null &&
-        packageName in packagesForUid
-}
-
-internal fun isPlaybackControllerAuthorized(
-    isTrusted: Boolean,
-    isPackageNameVerified: Boolean,
-    isVerifiedAutoController: Boolean,
-    isVerifiedAutomotiveController: Boolean
-): Boolean {
-    if (isTrusted) return true
-    return isPackageNameVerified && (isVerifiedAutoController || isVerifiedAutomotiveController)
-}
 
 @OptIn(UnstableApi::class)
 class YimlySessionCallback(
@@ -57,116 +35,34 @@ class YimlySessionCallback(
     companion object {
         const val ACTION_TOGGLE_INSTRUMENTAL = "com.example.ACTION_TOGGLE_INSTRUMENTAL"
         const val ACTION_SHUFFLE_PLAYLIST = "com.example.ACTION_SHUFFLE_PLAYLIST"
-        private const val SEARCH_CACHE_TTL_MS = 30_000L
     }
-
-    private data class CachedSearchResults(
-        val songs: List<Song>,
-        val cachedAtMs: Long
-    )
-
-    private val searchResultsCache = java.util.concurrent.ConcurrentHashMap<String, CachedSearchResults>()
-
-    private fun isPackageNameVerified(controller: MediaSession.ControllerInfo): Boolean {
-        val pkg = controller.packageName ?: return false
-        val pm = try {
-            playbackManager.context.packageManager
-        } catch (_: Exception) {
-            null
-        } ?: return false
-
-        val packages = try {
-            pm.getPackagesForUid(controller.uid)
-        } catch (_: Exception) {
-            null
-        }
-        return isControllerPackageVerified(pkg, packages)
-    }
-
-    private fun canControlPlayback(
-        session: MediaSession,
-        controller: MediaSession.ControllerInfo
-    ): Boolean {
-        if (controller.isTrusted) return true
-        // Media3's car-controller helpers identify packages, not trust by themselves.
-        // Require package/UID verification before using them as an explicit allowlist.
-        return isPlaybackControllerAuthorized(
-            isTrusted = controller.isTrusted,
-            isPackageNameVerified = isPackageNameVerified(controller),
-            isVerifiedAutoController = session.isAutoCompanionController(controller),
-            isVerifiedAutomotiveController = session.isAutomotiveController(controller)
-        )
-    }
-
-    private fun searchCacheKey(browser: MediaSession.ControllerInfo, query: String): String =
-        "${browser.uid}:${browser.packageName}:${query.trim().lowercase()}"
-
-    private fun cacheSearchResults(
-        browser: MediaSession.ControllerInfo,
-        query: String,
-        songs: List<Song>
-    ) {
-        if (searchResultsCache.size >= 50) {
-            val now = System.currentTimeMillis()
-            searchResultsCache.entries.removeIf { now - it.value.cachedAtMs > SEARCH_CACHE_TTL_MS }
-            if (searchResultsCache.size >= 50) searchResultsCache.clear()
-        }
-        searchResultsCache[searchCacheKey(browser, query)] =
-            CachedSearchResults(songs, System.currentTimeMillis())
-    }
-
-    private fun getCachedSearchResults(
-        browser: MediaSession.ControllerInfo,
-        query: String
-    ): List<Song>? {
-        val key = searchCacheKey(browser, query)
-        val cached = searchResultsCache[key] ?: return null
-        if (System.currentTimeMillis() - cached.cachedAtMs > SEARCH_CACHE_TTL_MS) {
-            searchResultsCache.remove(key, cached)
-            return null
-        }
-        return cached.songs
-    }
-
 
     override fun onConnect(
         session: MediaSession,
         controller: MediaSession.ControllerInfo
     ): MediaSession.ConnectionResult {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}, packageVerified=${isPackageNameVerified(controller)}")
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}")
 
-        // Only grant playback controls to trusted controllers, or verified Android Auto /
-        // Automotive OS packages. Package-name checks alone are not an authorization check.
-        val canControlPlayback = canControlPlayback(session, controller)
+        val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+            .add(SessionCommand(ACTION_TOGGLE_INSTRUMENTAL, Bundle.EMPTY))
+            .add(SessionCommand(ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY))
+            .build()
 
-        val sessionCommands = if (canControlPlayback) {
-            MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
-                .add(SessionCommand(ACTION_TOGGLE_INSTRUMENTAL, Bundle.EMPTY))
-                .add(SessionCommand(ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY))
-                .build()
-        } else {
-            SessionCommands.EMPTY
-        }
-
-        val playerCommands = if (canControlPlayback) {
-            session.player.availableCommands.buildUpon()
-                .add(Player.COMMAND_PLAY_PAUSE)
-                .add(Player.COMMAND_PREPARE)
-                .add(Player.COMMAND_STOP)
-                .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_NEXT)
-                .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS)
-                .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
-                .add(Player.COMMAND_SET_REPEAT_MODE)
-                .add(Player.COMMAND_SET_SHUFFLE_MODE)
-                .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
-                .add(Player.COMMAND_GET_TIMELINE)
-                .add(Player.COMMAND_GET_METADATA)
-                .build()
-        } else {
-            Player.Commands.EMPTY
-        }
+        val playerCommands = session.player.availableCommands.buildUpon()
+            .add(Player.COMMAND_PLAY_PAUSE)
+            .add(Player.COMMAND_PREPARE)
+            .add(Player.COMMAND_STOP)
+            .add(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)
+            .add(Player.COMMAND_SEEK_TO_NEXT)
+            .add(Player.COMMAND_SEEK_TO_NEXT_MEDIA_ITEM)
+            .add(Player.COMMAND_SEEK_TO_PREVIOUS)
+            .add(Player.COMMAND_SEEK_TO_PREVIOUS_MEDIA_ITEM)
+            .add(Player.COMMAND_SET_REPEAT_MODE)
+            .add(Player.COMMAND_SET_SHUFFLE_MODE)
+            .add(Player.COMMAND_GET_CURRENT_MEDIA_ITEM)
+            .add(Player.COMMAND_GET_TIMELINE)
+            .add(Player.COMMAND_GET_METADATA)
+            .build()
 
         return MediaSession.ConnectionResult.AcceptedResultBuilder(session)
             .setAvailableSessionCommands(sessionCommands)
@@ -180,9 +76,6 @@ class YimlySessionCallback(
         customCommand: SessionCommand,
         args: Bundle
     ): ListenableFuture<SessionResult> {
-        if (!canControlPlayback(session, controller)) {
-            return Futures.immediateFuture(SessionResult(androidx.media3.session.SessionError.ERROR_PERMISSION_DENIED))
-        }
         when (customCommand.customAction) {
             ACTION_TOGGLE_INSTRUMENTAL -> playbackManager.toggleInstrumental()
             ACTION_SHUFFLE_PLAYLIST -> playbackManager.shuffleCurrentQueue()
@@ -196,11 +89,6 @@ class YimlySessionCallback(
         controller: MediaSession.ControllerInfo,
         intent: Intent
     ): Boolean {
-        if (!canControlPlayback(session, controller)) {
-            android.util.Log.w("YimlySessionCallback", "Ignoring media buttons from untrusted controller: ${controller.packageName}")
-            return true
-        }
-
         val keyEvent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             intent.getParcelableExtra(Intent.EXTRA_KEY_EVENT, KeyEvent::class.java)
         } else {
@@ -301,8 +189,6 @@ class YimlySessionCallback(
                             {
                                 try {
                                     result.set(fallback.get())
-                                } catch (cancelled: java.util.concurrent.CancellationException) {
-                                    result.cancel(false)
                                 } catch (e: Throwable) {
                                     result.setException(e)
                                 }
@@ -319,13 +205,7 @@ class YimlySessionCallback(
             }
         }
         job.invokeOnCompletion { cause ->
-            if (cause != null && !result.isDone) {
-                if (cause is kotlinx.coroutines.CancellationException) {
-                    result.cancel(false)
-                } else {
-                    result.setException(cause)
-                }
-            }
+            if (cause != null && !result.isDone) result.setException(cause)
         }
         return result
     }
@@ -335,7 +215,7 @@ class YimlySessionCallback(
         browser: MediaSession.ControllerInfo,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<MediaItem>> {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() START package=${browser.packageName}, uid=${browser.uid}, params=$params")
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() START package=${browser.packageName}, uid=${browser.uid}, params=$params")
         val rootMetadata = MediaMetadata.Builder()
             .setTitle("Yimly Music")
             .setFolderType(MediaMetadata.FOLDER_TYPE_MIXED)
@@ -347,7 +227,7 @@ class YimlySessionCallback(
             .setMediaMetadata(rootMetadata)
             .build()
         val result = LibraryResult.ofItem(rootItem, params)
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() SUCCESS rootId=${rootItem.mediaId}")
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetLibraryRoot() SUCCESS rootId=${rootItem.mediaId}")
         return Futures.immediateFuture(result)
     }
 
@@ -359,7 +239,7 @@ class YimlySessionCallback(
         pageSize: Int,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() START package=${browser.packageName}, parentId=$parentId, page=$page, pageSize=$pageSize")
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() START package=${browser.packageName}, parentId=$parentId, page=$page, pageSize=$pageSize")
         val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
@@ -508,24 +388,17 @@ class YimlySessionCallback(
                 }
 
                 val immutableList = com.google.common.collect.ImmutableList.copyOf(pagedList)
-                if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() SUCCESS parentId=$parentId, totalFound=${mediaItems.size}, returnedCount=${immutableList.size}")
+                android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetChildren() SUCCESS parentId=$parentId, totalFound=${mediaItems.size}, returnedCount=${immutableList.size}")
                 future.set(LibraryResult.ofItemList(immutableList, params))
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                future.cancel(false)
-                throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() ERROR parentId=$parentId: ${e.message}", e)
-                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                if (cause is kotlinx.coroutines.CancellationException) {
-                    future.cancel(false)
-                } else {
-                    android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() Job failed for parentId=$parentId: ${cause.message}")
-                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
-                }
+                android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() Job cancelled/failed for parentId=$parentId: ${cause.message}")
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
         return future
@@ -536,7 +409,7 @@ class YimlySessionCallback(
         browser: MediaSession.ControllerInfo,
         mediaId: String
     ): ListenableFuture<LibraryResult<MediaItem>> {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() START package=${browser.packageName}, mediaId=$mediaId")
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() START package=${browser.packageName}, mediaId=$mediaId")
         val future = SettableFuture.create<LibraryResult<MediaItem>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
@@ -564,27 +437,20 @@ class YimlySessionCallback(
                         .setMediaId(mediaId)
                         .setMediaMetadata(metadata)
                         .build()
-                    if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() SUCCESS mediaId=$mediaId, title=${song.title}")
+                    android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetItem() SUCCESS mediaId=$mediaId, title=${song.title}")
                     future.set(LibraryResult.ofItem(item, null))
                 } else {
                     android.util.Log.w("AA_DIAG", "YimlySessionCallback.onGetItem() NOT FOUND mediaId=$mediaId")
-                    future.set(LibraryResult.ofError(SessionError.ERROR_BAD_VALUE))
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
                 }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                future.cancel(false)
-                throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetItem() ERROR mediaId=$mediaId: ${e.message}", e)
-                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                if (cause is kotlinx.coroutines.CancellationException) {
-                    future.cancel(false)
-                } else {
-                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
-                }
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
         return future
@@ -596,19 +462,15 @@ class YimlySessionCallback(
         query: String,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<Void>> {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onSearch() package=${browser.packageName}, query=$query")
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onSearch() package=${browser.packageName}, query=$query")
         val future = SettableFuture.create<LibraryResult<Void>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
-                val songs = playbackManager.musicRepository.searchSongs(query)
-                cacheSearchResults(browser, query, songs)
+                val resultCount = playbackManager.musicRepository.searchSongs(query).size
                 withContext(Dispatchers.Main) {
-                    session.notifySearchResultChanged(browser, query, songs.size, params)
+                    session.notifySearchResultChanged(browser, query, resultCount, params)
                     future.set(LibraryResult.ofVoid())
                 }
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                future.cancel(false)
-                throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onSearch() ERROR query=$query: ${e.message}", e)
                 withContext(Dispatchers.Main) {
@@ -619,11 +481,7 @@ class YimlySessionCallback(
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                if (cause is kotlinx.coroutines.CancellationException) {
-                    future.cancel(false)
-                } else {
-                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
-                }
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
         return future
@@ -637,17 +495,11 @@ class YimlySessionCallback(
         pageSize: Int,
         params: LibraryParams?
     ): ListenableFuture<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>> {
-        if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() START package=${browser.packageName}, query=$query, page=$page, pageSize=$pageSize")
+        android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() START package=${browser.packageName}, query=$query, page=$page, pageSize=$pageSize")
         val future = SettableFuture.create<LibraryResult<com.google.common.collect.ImmutableList<MediaItem>>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
-                // onSearch already resolved this query before notifying the browser.
-                // Reuse that exact result set for all requested pages rather than
-                // issuing a second (potentially remote) API request.
-                val songs = getCachedSearchResults(browser, query)
-                    ?: playbackManager.musicRepository.searchSongs(query).also {
-                        cacheSearchResults(browser, query, it)
-                    }
+                val songs = playbackManager.musicRepository.searchSongs(query)
                 val mediaItems = songs.map { song ->
                     val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
                     val metadata = MediaMetadata.Builder()
@@ -677,23 +529,16 @@ class YimlySessionCallback(
                     mediaItems
                 }
                 val immutableList = com.google.common.collect.ImmutableList.copyOf(pagedList)
-                if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() SUCCESS query=$query, count=${immutableList.size}")
+                android.util.Log.d("AA_DIAG", "YimlySessionCallback.onGetSearchResult() SUCCESS query=$query, count=${immutableList.size}")
                 future.set(LibraryResult.ofItemList(immutableList, params))
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                future.cancel(false)
-                throw cancelled
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetSearchResult() ERROR query=$query: ${e.message}", e)
-                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                if (cause is kotlinx.coroutines.CancellationException) {
-                    future.cancel(false)
-                } else {
-                    future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
-                }
+                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
             }
         }
         return future
@@ -726,8 +571,7 @@ class YimlySessionCallback(
                     }
 
                     if (song != null) {
-                        val wantInst = song.isInstrumentalTrack || (playbackManager.playbackInfo.value.isInstrumental && song.hasInstrumentalEffective)
-                        val resolvedTrack = playbackManager.musicRepository.resolvePlayableTrack(song, wantInst)
+                        val resolvedTrack = playbackManager.musicRepository.resolvePlayableTrack(song, false)
                         val audioUrl = resolvedTrack.playableUrl
                         val artworkUri = playbackManager.getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
                         val parsedAudioUri = Uri.parse(audioUrl)

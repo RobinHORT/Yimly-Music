@@ -26,9 +26,6 @@ interface MusicDao {
     @Query("SELECT * FROM songs WHERE id = :id LIMIT 1")
     suspend fun getSongById(id: String): SongEntity?
 
-    @Query("UPDATE songs SET lyricsText = NULL, hasLrc = 0, hasElrc = 0, lrcPath = NULL, elrcPath = NULL WHERE id = :songId")
-    suspend fun clearSongLyricsMetadata(songId: String)
-
     @Query("UPDATE songs SET lyricOffset = :offsetMs WHERE id = :songId")
     suspend fun updateSongLyricOffset(songId: String, offsetMs: Long)
 

@@ -120,31 +120,6 @@ class SearchEngineComprehensiveTest {
         assertTrue("Album match score ($scoreAlbum) must be > genre score ($scoreGenre)", scoreAlbum > scoreGenre)
     }
 
-
-    @Test
-    fun testCombinedTitleAndArtistQueryRanksAboveArtistOnlyMatch() {
-        val titleAndArtistMatch = Song(
-            id = "mixed",
-            title = "Ariana's Song",
-            artist = "Grande",
-            album = "Album",
-            durationSeconds = 200L
-        )
-        val artistOnlyMatch = Song(
-            id = "artist-only",
-            title = "Different Song",
-            artist = "Ariana Grande",
-            album = "Album",
-            durationSeconds = 200L
-        )
-
-        assertTrue(SearchUtils.matchesSong(titleAndArtistMatch, "Ariana Grande"))
-        assertTrue(
-            SearchUtils.getSongRelevanceScore(titleAndArtistMatch, "Ariana Grande") >
-                SearchUtils.getSongRelevanceScore(artistOnlyMatch, "Ariana Grande")
-        )
-    }
-
     @Test
     fun testProductionOrderingPrioritizesAllTitleTokensOverMetadataMatches() {
         val titleMatch = Song(
@@ -224,60 +199,6 @@ class SearchEngineComprehensiveTest {
             status = "completed"
         )
         assertEquals("job-override-5678", jobWithJobId.jobId)
-    }
-
-
-
-    @Test
-    fun testExternalTrackIdentityUsesAccentAndPunctuationNormalization() {
-        val librarySong = Song(
-            id = "halo-library",
-            title = "Halo",
-            artist = "Beyonce",
-            album = "I Am Sasha Fierce",
-            durationSeconds = 261L
-        )
-        val resolvedTrack = com.example.data.models.ExternalTrack(
-            title = "Halo",
-            artist = "Beyoncé",
-            album = "I Am Sasha Fierce",
-            durationSeconds = 261L
-        )
-
-        assertTrue(MusicRepository.isSameExternalTrack(librarySong, resolvedTrack))
-        assertTrue(MusicRepository.matchesExternalTrackMetadata("Halo", "Beyoncé", resolvedTrack))
-    }
-
-    @Test
-    fun testDownloadedTrackIndexingAcceptsReusedLibraryRecord() {
-        val track = com.example.data.models.ExternalTrack(
-            title = "Midnight City",
-            artist = "M83",
-            album = "Hurry Up, We're Dreaming",
-            durationSeconds = 244L
-        )
-        val existing = Song(
-            id = "existing-song-id",
-            title = "Midnight City",
-            artist = "M83",
-            album = "Hurry Up, We're Dreaming",
-            durationSeconds = 244L
-        )
-        val newlyIndexed = existing.copy(id = "new-song-id")
-
-        val preferredNew = MusicRepository.findMatchingExternalTrack(
-            songs = listOf(existing, newlyIndexed),
-            track = track,
-            preExistingIds = setOf(existing.id)
-        )
-        assertEquals("new-song-id", preferredNew?.id)
-
-        val reusedExisting = MusicRepository.findMatchingExternalTrack(
-            songs = listOf(existing),
-            track = track,
-            preExistingIds = setOf(existing.id)
-        )
-        assertEquals("existing-song-id", reusedExisting?.id)
     }
 
     @Test

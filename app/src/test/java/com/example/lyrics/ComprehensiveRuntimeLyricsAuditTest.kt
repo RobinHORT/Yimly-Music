@@ -30,7 +30,7 @@ class ComprehensiveRuntimeLyricsAuditTest {
     val composeTestRule = createComposeRule()
 
     private val sampleElrc = """
-        [00:01.00]<00:00.50>Hello <00:01.50>world <00:02.00>welcome
+        [00:01.00]<00:01.00>Hello <00:01.50>world <00:02.00>welcome
         [00:03.00]<00:03.00>to <00:03.30>the <00:03.60>music <00:04.00>player
         [00:05.00]<00:05.00>enjoy <00:05.50>the <00:06.00>rhythm
     """.trimIndent()
@@ -85,8 +85,7 @@ class ComprehensiveRuntimeLyricsAuditTest {
 
         val config = LyricsDisplayConfig(
             formatMode = LyricsFormatMode.ELRC,
-            highlightCurrentLine = true,
-            elrcFadeInDurationMs = 0
+            highlightCurrentLine = true
         )
 
         composeTestRule.setContent {
@@ -144,22 +143,6 @@ class ComprehensiveRuntimeLyricsAuditTest {
         val updatedElrc = configElrc.copy(elrcOffsetMs = elrcOffset)
         assertEquals(800L, updatedElrc.effectiveFormatManualOffsetMs)
         assertEquals(-500L, updatedElrc.lrcOffsetMs)
-    }
-
-    @Test
-    fun testElrcWordTimestampsApplyFileOffsetOnlyOnce() {
-        val raw = """
-            [offset:1000]
-            [00:01.00]<00:01.00>Hello <00:01.50>world
-        """.trimIndent()
-
-        val parsed = LyricsParser.parse(raw, "offset_test", mode = LyricsFormatMode.ELRC)
-        val line = parsed.lines.single()
-
-        // Both line and word timestamps should include the file offset exactly once.
-        assertEquals(2000L, line.timeMs)
-        assertEquals(2000L, line.words.first().startTimeMs)
-        assertEquals(2500L, line.words.last().startTimeMs)
     }
 
     @Test

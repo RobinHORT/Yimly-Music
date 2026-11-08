@@ -25,7 +25,6 @@ import com.example.ui.MainViewModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.ResponseBody.Companion.toResponseBody
@@ -78,17 +77,12 @@ class ExternalDownloaderCorrectionsTest {
         var pollFailuresRemaining = 0
         var downloadJobPollCount = 0
         val playlistAddCalls = mutableListOf<Pair<String, String>>()
-        var playlistAddFailuresRemaining = 0
 
         override suspend fun addSongToPlaylist(
             id: String,
             request: com.example.data.models.AddPlaylistSongRequest
         ): Map<String, Any> {
             playlistAddCalls.add(id to request.songId)
-            if (playlistAddFailuresRemaining > 0) {
-                playlistAddFailuresRemaining--
-                throw java.io.IOException("Temporary playlist add failure")
-            }
             return mapOf("success" to true)
         }
 
@@ -142,11 +136,6 @@ class ExternalDownloaderCorrectionsTest {
             retryDownloadCallCount++
             return mapOf("success" to true)
         }
-
-        override suspend fun replaceSongRecordingSource(id: String, request: Map<String, String>): Map<String, Any> = mapOf("success" to true)
-        override suspend fun replaceSongInstrumental(id: String): Map<String, Any> = mapOf("success" to true)
-        override suspend fun getSongReplacementStatus(id: String, sinceEpochMs: Long): Map<String, Any> = mapOf("success" to true)
-        override suspend fun getSongReplacementJob(jobId: String): Map<String, Any> = mapOf("status" to "completed")
     }
 
     private fun pumpLooper(ms: Long = 100L) {
@@ -503,71 +492,6 @@ class ExternalDownloaderCorrectionsTest {
     }
 
     @Test
-    fun testFailedPlaylistAddRemainsRetryableAfterDownloadCompletes() = runBlocking {
-        val track = ExternalTrack(title = "Playlist Retry", artist = "Artist R")
-        fakeApi.jobResponse = DownloaderJobResponse(id = "job_playlist_retry", status = "completed")
-        fakeApi.songs = listOf(Song(id = "playlist_retry_song", title = track.title, artist = track.artist))
-        fakeApi.playlistAddFailuresRemaining = 1
-
-        viewModel.registerPendingPlaylistAdd(track, "playlist_retry_target")
-        var attempts = 0
-        while (fakeApi.playlistAddCalls.size < 1 && attempts < 150) {
-            pumpLooper(50L)
-            kotlinx.coroutines.delay(10L)
-            attempts++
-        }
-        assertEquals(listOf("playlist_retry_target" to "playlist_retry_song"), fakeApi.playlistAddCalls)
-
-        // The failed playlist request must remain available after the completed download.
-        viewModel.registerPendingPlaylistAdd(track, "playlist_retry_target")
-        attempts = 0
-        while (fakeApi.playlistAddCalls.size < 2 && attempts < 50) {
-            pumpLooper(50L)
-            kotlinx.coroutines.delay(10L)
-            attempts++
-        }
-
-        assertEquals(2, fakeApi.playlistAddCalls.size)
-        assertEquals("playlist_retry_song", fakeApi.playlistAddCalls.last().second)
-        assertEquals(1, fakeApi.startDownloadCallCount)
-    }
-
-    @Test
-    fun testFailedPlaylistAddForExistingSongRemainsRetryable() = runBlocking {
-        val track = ExternalTrack(title = "Already Here", artist = "Artist Existing")
-        database.musicDao().insertSong(
-            Song(
-                id = "existing_playlist_song",
-                title = track.title,
-                artist = track.artist
-            ).toEntity()
-        )
-        fakeApi.playlistAddFailuresRemaining = 1
-
-        viewModel.registerPendingPlaylistAdd(track, "existing_playlist_target")
-        var attempts = 0
-        while (fakeApi.playlistAddCalls.size < 1 && attempts < 50) {
-            pumpLooper(50L)
-            kotlinx.coroutines.delay(10L)
-            attempts++
-        }
-        assertEquals(listOf("existing_playlist_target" to "existing_playlist_song"), fakeApi.playlistAddCalls)
-
-        // Retry the same request: it should reuse the existing song and not download it.
-        viewModel.registerPendingPlaylistAdd(track, "existing_playlist_target")
-        attempts = 0
-        while (fakeApi.playlistAddCalls.size < 2 && attempts < 50) {
-            pumpLooper(50L)
-            kotlinx.coroutines.delay(10L)
-            attempts++
-        }
-
-        assertEquals(2, fakeApi.playlistAddCalls.size)
-        assertEquals("existing_playlist_song", fakeApi.playlistAddCalls.last().second)
-        assertEquals(0, fakeApi.startDownloadCallCount)
-    }
-
-    @Test
     fun testMissingDownloaderSettingsDoesNotFallbackToHardcodedLibrary() = runBlocking {
         val track = ExternalTrack(title = "No Lib Track", artist = "Artist N")
         fakeApi.settingsLibraryId = null // Server returns null/empty library ID
@@ -722,79 +646,6 @@ class ExternalDownloaderCorrectionsTest {
         assertEquals("playlist_concurrent_target", fakeApi.playlistAddCalls.single().first)
         assertEquals("server_concurrent_999", fakeApi.playlistAddCalls.single().second)
         assertEquals(1, fakeApi.startDownloadCallCount)
-    }
-
-    @Test
-    fun testPlaylistRequestIdempotencyAvoidsDuplicateAddition() = runBlocking {
-        val song = Song(id = "song_idem_1", title = "Idempotent Song", artist = "Artist")
-        database.musicDao().insertSong(song.toEntity())
-        database.musicDao().insertPlaylist(
-            com.example.data.models.Playlist(id = "pl_idem", name = "Test Playlist").toEntity()
-        )
-        // Pre-insert song into the playlist in Room database
-        database.musicDao().insertPlaylistSongCrossRef(
-            com.example.data.db.PlaylistSongCrossRef(playlistId = "pl_idem", songId = "song_idem_1", orderIndex = 0)
-        )
-
-        val track = ExternalTrack(title = "Idempotent Song", artist = "Artist")
-        val initialCallCount = fakeApi.playlistAddCalls.size
-
-        // Calling registerPendingPlaylistAdd when song is already present in the playlist
-        viewModel.registerPendingPlaylistAdd(track, "pl_idem")
-        pumpLooper(100L)
-
-        // Must NOT call API to add duplicate song
-        assertEquals(initialCallCount, fakeApi.playlistAddCalls.size)
-    }
-
-    @Test
-    fun testPlaylistRequest409ConflictTreatedAsIdempotentSuccess() = runBlocking {
-        val errorBody = "{\"error\": \"Song already in playlist\"}".toResponseBody("application/json".toMediaType())
-        var callCount = 0
-        val conflictApi = object : SyncIdempotenceTest.FakeSyncApiService() {
-            override suspend fun addSongToPlaylist(
-                id: String,
-                request: com.example.data.models.AddPlaylistSongRequest
-            ): Map<String, Any> {
-                callCount++
-                throw HttpException(Response.error<Any>(409, errorBody))
-            }
-        }
-        val testRepo = MusicRepository(
-            musicDao = database.musicDao(),
-            apiService = conflictApi,
-            coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        )
-
-        // Calling addSongToPlaylist when server returns 409 Conflict should NOT crash or fail
-        testRepo.addSongToPlaylist("pl_409", "song_conflict_1")
-        assertEquals(1, callCount)
-    }
-
-    @Test
-    fun testCompletedTrackSongIdMapThreadSafetyUnderConcurrentLoad() = runBlocking {
-        val tracks = (1..50).map { i ->
-            ExternalTrack(title = "Title $i", artist = "Artist $i")
-        }
-
-        val jobs = mutableListOf<kotlinx.coroutines.Job>()
-        val scope = CoroutineScope(Dispatchers.Default)
-
-        // Concurrently query and update completed songs across multiple threads
-        for (track in tracks) {
-            jobs += scope.launch {
-                val songId = viewModel.getCompletedSongId(track)
-                assertNull(songId)
-            }
-            jobs += scope.launch {
-                val key = MusicRepository.externalTrackIdentity(track)
-                viewModel.registerPendingPlaylistAdd(track, "pl_${key.hashCode()}")
-            }
-        }
-
-        jobs.forEach { it.join() }
-        // Verify state remains consistent without race conditions or ConcurrentModificationException
-        assertNotNull(viewModel.completedTrackSongIds.value)
     }
 }
 
