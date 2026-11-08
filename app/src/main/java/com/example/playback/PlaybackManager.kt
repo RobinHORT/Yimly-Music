@@ -871,32 +871,38 @@ class PlaybackManager(
                 awaitPlaybackSnapshotRestoration()
                 if (requestId != playbackRequestId) return@launch
 
-                val p = ensurePlayerInitialized()
-                val info = _playbackInfo.value
-                
-                // Do not start the service or play if the queue is empty after restoration.
-                if (p.mediaItemCount == 0 && info.queue.isEmpty()) {
-                    return@launch
-                }
+                // PlaybackManager may be constructed with a background coroutine scope.
+                // Keep every ExoPlayer access (including timeline/state reads) on its
+                // application thread, even when this coroutine resumes on Dispatchers.Default.
+                withContext(Dispatchers.Main.immediate) {
+                    if (requestId != playbackRequestId) return@withContext
 
-                startPlaybackService()
+                    val p = ensurePlayerInitialized()
+                    val info = _playbackInfo.value
 
-                // If the player timeline is empty but the logical queue is non-empty,
-                // we must populate the player before attempting to play. This can happen
-                // if restoration was skipped or if a newer queue was set before player init.
-                if (p.mediaItemCount == 0 && info.queue.isNotEmpty()) {
-                    playCurrentQueueIndex(autoPlay = true)
-                    return@launch
-                }
+                    // Do not start the service or play if the queue is empty after restoration.
+                    if (p.mediaItemCount == 0 && info.queue.isEmpty()) {
+                        return@withContext
+                    }
 
-                if (p.playbackState == Player.STATE_ENDED) {
-                    p.seekTo(0)
-                } else if (p.playbackState == Player.STATE_IDLE) {
-                    p.prepare()
+                    startPlaybackService()
+
+                    // If the player timeline is empty but the logical queue is non-empty,
+                    // populate the player before attempting to play.
+                    if (p.mediaItemCount == 0 && info.queue.isNotEmpty()) {
+                        playCurrentQueueIndex(autoPlay = true)
+                        return@withContext
+                    }
+
+                    if (p.playbackState == Player.STATE_ENDED) {
+                        p.seekTo(0)
+                    } else if (p.playbackState == Player.STATE_IDLE) {
+                        p.prepare()
+                    }
+                    p.play()
+                    updatePlaybackInfo()
+                    persistPlaybackSnapshot(force = true)
                 }
-                p.play()
-                updatePlaybackInfo()
-                persistPlaybackSnapshot(force = true)
             } finally {
                 if (requestId == playbackRequestId && transitionRequestId == requestId) {
                     isTransitioning = false
