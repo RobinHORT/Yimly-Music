@@ -68,7 +68,9 @@ class PlaybackManager(
     var isTransitioning: Boolean = false
         private set
 
+    @Volatile
     private var _player: ExoPlayer? = null
+    private val playerInitLock = Any()
     private var playbackRequestId: Long = 0L
     private var networkRecoveryJob: kotlinx.coroutines.Job? = null
     private var networkRecoveryAttempts: Int = 0
@@ -93,57 +95,73 @@ class PlaybackManager(
 
     fun ensurePlayerInitialized(): ExoPlayer {
         _player?.let { return it }
-        val networkModule = NetworkModule(preferencesManager, scope = coroutineScope)
-        val dataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(networkModule.mediaOkHttpClient)
-        val newPlayer = ExoPlayer.Builder(context)
-            .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
-            .build().apply {
-            setWakeMode(C.WAKE_MODE_NETWORK)
-            setHandleAudioBecomingNoisy(true)
-            setAudioAttributes(
-                AudioAttributes.Builder()
-                    .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
-                    .setUsage(C.USAGE_MEDIA)
-                    .build(),
-                true
-            )
-            addListener(object : Player.Listener {
-                override fun onPlaybackStateChanged(playbackState: Int) {
-                    when (playbackState) {
-                        Player.STATE_ENDED -> {
-                            Log.d("PlaybackManager", "Song ended, advancing queue...")
-                            handleSongEnded()
-                        }
-                        Player.STATE_READY -> {
-                            networkRecoveryJob?.cancel()
-                            networkRecoveryJob = null
-                        }
-                        else -> {}
-                    }
-                    updatePlaybackInfo()
-                }
-
-                override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                    syncAndroidAutoQueueFromPlayer(mediaItem)
-                }
-
-                override fun onIsPlayingChanged(isPlaying: Boolean) {
-                    if (isPlaying) {
-                        isTransitioning = false
-                        releaseTransitionWakeLock()
-                    }
-                    updatePlaybackInfo()
-                }
-
-                override fun onPlayerError(error: PlaybackException) {
-                    Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
-                    isTransitioning = false
-                    handlePlayerError(error)
-                }
-            })
+        val currentLooper = android.os.Looper.myLooper()
+        val mainLooper = android.os.Looper.getMainLooper()
+        check(currentLooper == mainLooper) {
+            "Player initialization must occur on the main thread (current thread: ${Thread.currentThread().name}, looper: $currentLooper, expected: $mainLooper)"
         }
-        _player = newPlayer
-        return newPlayer
+        return synchronized(playerInitLock) {
+            _player?.let { return it }
+            val networkModule = NetworkModule(preferencesManager, scope = coroutineScope)
+            val dataSourceFactory = androidx.media3.datasource.okhttp.OkHttpDataSource.Factory(networkModule.mediaOkHttpClient)
+            val newPlayer = ExoPlayer.Builder(context)
+                .setLooper(mainLooper)
+                .setMediaSourceFactory(androidx.media3.exoplayer.source.DefaultMediaSourceFactory(dataSourceFactory))
+                .setWakeMode(C.WAKE_MODE_NETWORK)
+                .setHandleAudioBecomingNoisy(true)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setContentType(C.AUDIO_CONTENT_TYPE_MUSIC)
+                        .setUsage(C.USAGE_MEDIA)
+                        .build(),
+                    true
+                )
+                .build().apply {
+                    addListener(object : Player.Listener {
+                        override fun onPlaybackStateChanged(playbackState: Int) {
+                            when (playbackState) {
+                                Player.STATE_ENDED -> {
+                                    Log.d("PlaybackManager", "Song ended, advancing queue...")
+                                    handleSongEnded()
+                                }
+                                Player.STATE_READY -> {
+                                    networkRecoveryJob?.cancel()
+                                    networkRecoveryJob = null
+                                }
+                                else -> {}
+                            }
+                            updatePlaybackInfo()
+                        }
+
+                        override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                            syncAndroidAutoQueueFromPlayer(mediaItem)
+                        }
+
+                        override fun onIsPlayingChanged(isPlaying: Boolean) {
+                            if (isPlaying) {
+                                isTransitioning = false
+                                releaseTransitionWakeLock()
+                            }
+                            updatePlaybackInfo()
+                        }
+
+                        override fun onPlayerError(error: PlaybackException) {
+                            Log.e("PlaybackManager", "ExoPlayer error occurred: ${error.message}", error)
+                            isTransitioning = false
+                            handlePlayerError(error)
+                        }
+                    })
+                }
+            _player = newPlayer
+            newPlayer
+        }
+    }
+
+    suspend fun getOrInitializePlayerOnMain(): ExoPlayer {
+        _player?.let { return it }
+        return withContext(Dispatchers.Main.immediate) {
+            ensurePlayerInitialized()
+        }
     }
 
     private var _mediaSession: MediaLibrarySession? = null
@@ -287,13 +305,17 @@ class PlaybackManager(
                     isTransitioning = true
                     acquireTransitionWakeLock()
                     if (isDecoderOrResourceError) {
-                        try {
-                            _player?.release()
-                        } catch (e: Exception) {
-                            // ignore
+                        withContext(Dispatchers.Main.immediate) {
+                            synchronized(playerInitLock) {
+                                try {
+                                    _player?.release()
+                                } catch (e: Exception) {
+                                    Log.e("PlaybackManager", "Error releasing ExoPlayer during decoder recovery", e)
+                                }
+                                _player = null
+                                ensurePlayerInitialized()
+                            }
                         }
-                        _player = null
-                        ensurePlayerInitialized()
                     }
                     val currentPos = _playbackPositionMs.value.coerceAtLeast(0L)
                     playCurrentQueueIndex(targetInstrumental = latest.isInstrumental, initialPositionMs = currentPos)
@@ -644,7 +666,7 @@ class PlaybackManager(
 
                 val activeMediaItem = allMediaItems?.getOrNull(targetIndex) ?: buildMediaItem(song, wantInst)
 
-                withContext(Dispatchers.Main) {
+                withContext(Dispatchers.Main.immediate) {
                     if (requestId != playbackRequestId) {
                         return@withContext
                     }
@@ -1109,7 +1131,7 @@ class PlaybackManager(
             0L
         }
 
-        withContext(Dispatchers.Main) {
+        withContext(Dispatchers.Main.immediate) {
             if (restoreRequestId != playbackRequestId) return@withContext
             if (_playbackInfo.value.currentSong != null || _playbackInfo.value.queue.isNotEmpty()) return@withContext
 
