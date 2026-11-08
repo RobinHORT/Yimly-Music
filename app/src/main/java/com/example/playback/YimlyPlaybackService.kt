@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaLibraryService
@@ -41,22 +42,39 @@ class YimlyPlaybackService : MediaLibraryService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (com.example.BuildConfig.DEBUG) android.util.Log.d("AA_DIAG", "YimlyPlaybackService.onStartCommand() intent=$intent")
+
+        // Every explicit startPlaybackService() call represents a playback/resumption
+        // request. Promote immediately instead of waiting for Media3 to finish resolving
+        // a remote item and issue its first notification callback. Android Auto can take
+        // several seconds to resolve a selected track on a cold start.
+        val preparingNotification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_headset)
+            .setContentTitle(getString(R.string.app_name))
+            .setContentText("Preparing playback")
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        ServiceCompat.startForeground(
+            this,
+            NOTIFICATION_ID,
+            preparingNotification,
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+            } else {
+                0
+            }
+        )
+
         val app = application as? YimlyApplication
         val manager = app?.playbackManager
         val session = manager?.mediaSession
-
-        if (session != null) {
-            if (!sessions.contains(session)) {
-                addSession(session)
-            }
-
-            // Defensive: Trigger immediate notification update if transitioning to 
-            // satisfy foreground-service watchdog deadline. Executes regardless 
-            // of whether session was newly registered or already active.
-            if (manager.isTransitioning) {
-                onUpdateNotification(session, true)
-            }
+        if (session != null && !sessions.contains(session)) {
+            addSession(session)
         }
+
+        // Media3 owns subsequent notification updates and foreground/background
+        // transitions. Do not invoke its onUpdateNotification callback directly.
         return super.onStartCommand(intent, flags, startId)
     }
 
