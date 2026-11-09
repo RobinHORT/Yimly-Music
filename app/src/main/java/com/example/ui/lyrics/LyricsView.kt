@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
@@ -66,12 +67,14 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.roundToPx
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.isActive
 import com.example.data.models.LyricAlignment
@@ -330,325 +333,21 @@ fun LyricsView(
                     }
                 }
             }
-        } else if (rotatingSections) {
-            // Cinematic credit-style fullscreen lyrics with 5 visible lines:
-            // Previous-previous (-2, 35%), previous (-1, 75%), active (0, 100%),
-            // next (+1, 75%), next-next (+2, 35%). Active line is at exact screen center.
-            val activeLineIndex = slotState.currentIndex
-            AnimatedContent(
-                targetState = activeLineIndex,
-                modifier = Modifier.fillMaxSize().testTag("fullscreen_credit_lyrics"),
-                transitionSpec = {
-                    (slideInVertically(
-                        initialOffsetY = { height -> height },
-                        animationSpec = tween(durationMillis = 520)
-                    ) + fadeIn(animationSpec = tween(durationMillis = 360))) togetherWith
-                        (slideOutVertically(
-                            targetOffsetY = { height -> -height },
-                            animationSpec = tween(durationMillis = 520)
-                        ) + fadeOut(animationSpec = tween(durationMillis = 360)))
-                },
-                label = "fullscreen_credit_line_transition"
-            ) { lineIndex ->
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
-                    ) {
-                        // 1. Previous-previous line (-2, 35% opacity)
-                        val lineMinus2 = lines.getOrNull(lineIndex - 2)
-                        if (lineMinus2 != null) {
-                            Text(
-                                text = formatLyricText(lineMinus2.text, config.textCase),
-                                fontSize = config.otherLineFontSizeSp.sp,
-                                fontFamily = composeFontFamily,
-                                fontWeight = FontWeight.Normal,
-                                color = currentLineColor.copy(alpha = 0.35f),
-                                textAlign = TextAlign.Center,
-                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSeekTo((lineMinus2.timeMs - effectiveOffset).coerceAtLeast(0L)) }
-                                    .testTag("fullscreen_lyric_minus_2")
-                            )
-                        } else {
-                            Text(
-                                text = "",
-                                fontSize = config.otherLineFontSizeSp.sp,
-                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        // 2. Previous line (-1, 75% opacity)
-                        val lineMinus1 = lines.getOrNull(lineIndex - 1)
-                        if (lineMinus1 != null) {
-                            Text(
-                                text = formatLyricText(lineMinus1.text, config.textCase),
-                                fontSize = config.otherLineFontSizeSp.sp,
-                                fontFamily = composeFontFamily,
-                                fontWeight = FontWeight.Normal,
-                                color = currentLineColor.copy(alpha = 0.75f),
-                                textAlign = TextAlign.Center,
-                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSeekTo((lineMinus1.timeMs - effectiveOffset).coerceAtLeast(0L)) }
-                                    .testTag("fullscreen_lyric_minus_1")
-                            )
-                        } else {
-                            Text(
-                                text = "",
-                                fontSize = config.otherLineFontSizeSp.sp,
-                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        // 3. Current active line (0, 100% opacity)
-                        val activeLine = lines.getOrNull(lineIndex)
-                        if (activeLine != null) {
-                            if (config.formatMode == LyricsFormatMode.ELRC && activeLine.hasWordTimestamps && activeLine.words.isNotEmpty()) {
-                                SynchronizedLyricContent(
-                                    line = activeLine,
-                                    isCurrent = true,
-                                    currentPositionMs = currentPositionMs,
-                                    effectiveOffsetMs = effectiveOffset,
-                                    config = config,
-                                    currentLineColor = currentLineColor,
-                                    composeFontFamily = composeFontFamily,
-                                    textAlign = TextAlign.Center,
-                                    isPlaying = isPlaying,
-                                    modifier = Modifier.fillMaxWidth().testTag("fullscreen_credit_active_line")
-                                )
-                            } else {
-                                Text(
-                                    text = formatLyricText(activeLine.text, config.textCase),
-                                    modifier = Modifier.fillMaxWidth().testTag("fullscreen_credit_active_line"),
-                                    color = currentLineColor,
-                                    fontSize = config.currentLineFontSizeSp.sp,
-                                    fontFamily = composeFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    textAlign = TextAlign.Center,
-                                    lineHeight = (config.currentLineFontSizeSp * 1.2f).sp
-                                )
-                            }
-                        } else {
-                            Text(
-                                text = "",
-                                fontSize = config.currentLineFontSizeSp.sp,
-                                lineHeight = (config.currentLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        // 4. Next line (+1, 75% opacity)
-                        val linePlus1 = lines.getOrNull(lineIndex + 1)
-                        if (linePlus1 != null) {
-                            Text(
-                                text = formatLyricText(linePlus1.text, config.textCase),
-                                fontSize = config.otherLineFontSizeSp.sp,
-                                fontFamily = composeFontFamily,
-                                fontWeight = FontWeight.Normal,
-                                color = currentLineColor.copy(alpha = 0.75f),
-                                textAlign = TextAlign.Center,
-                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSeekTo((linePlus1.timeMs - effectiveOffset).coerceAtLeast(0L)) }
-                                    .testTag("fullscreen_lyric_plus_1")
-                            )
-                        } else {
-                            Text(
-                                text = "",
-                                fontSize = config.otherLineFontSizeSp.sp,
-                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-
-                        // 5. Next-next line (+2, 35% opacity)
-                        val linePlus2 = lines.getOrNull(lineIndex + 2)
-                        if (linePlus2 != null) {
-                            Text(
-                                text = formatLyricText(linePlus2.text, config.textCase),
-                                fontSize = config.otherLineFontSizeSp.sp,
-                                fontFamily = composeFontFamily,
-                                fontWeight = FontWeight.Normal,
-                                color = currentLineColor.copy(alpha = 0.35f),
-                                textAlign = TextAlign.Center,
-                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clickable { onSeekTo((linePlus2.timeMs - effectiveOffset).coerceAtLeast(0L)) }
-                                    .testTag("fullscreen_lyric_plus_2")
-                            )
-                        } else {
-                            Text(
-                                text = "",
-                                fontSize = config.otherLineFontSizeSp.sp,
-                                lineHeight = (config.otherLineFontSizeSp * 1.2f).sp,
-                                modifier = Modifier.fillMaxWidth()
-                            )
-                        }
-                    }
-                }
-            }
-        } else if (viewMode == 0) {
-            // Focus Mode: Supports configurable visible lines (1, 3, 5, 7)
-            val radius = ((config.visibleLines - 1) / 2).coerceAtLeast(0)
-            val currentIndex = slotState.currentIndex
-
-            val previousLines = if (currentIndex >= 0 && radius > 0) {
-                (1..radius).mapNotNull { offset ->
-                    val idx = currentIndex - (radius - offset + 1)
-                    if (idx >= 0) lines.getOrNull(idx) else null
-                }
-            } else emptyList()
-
-            val currentLine = if (currentIndex >= 0) lines.getOrNull(currentIndex) else null
-
-            val nextLines = if (currentIndex >= 0 && radius > 0) {
-                (1..radius).mapNotNull { offset ->
-                    lines.getOrNull(currentIndex + offset)
-                }
-            } else if (currentIndex == -1) {
-                lines.take(config.visibleLines)
-            } else emptyList()
-
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = alignmentModifier,
-                    verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
-                ) {
-                    // Previous Lines (Shared Other Line Size & Opacity)
-                    previousLines.forEach { prev ->
-                        Text(
-                            text = formatLyricText(prev.text, config.textCase),
-                            fontSize = config.otherLineFontSizeSp.sp,
-                            fontFamily = composeFontFamily,
-                            fontWeight = FontWeight.Light,
-                            color = TextPrimaryDark.copy(alpha = config.otherLinesOpacity),
-                            textAlign = textAlign,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSeekTo((prev.timeMs - effectiveOffset).coerceAtLeast(0L)) }
-                        )
-                    }
-
-                    val preLyricIndicator = when {
-                        !isPlaying && currentPositionMs == 0L -> "♪ Music stopped ♪"
-                        !isPlaying -> "♪ Music paused ♪"
-                        else -> "♪ Music playing ♪"
-                    }
-
-                    // CURRENT LINE (Independently Styled with Word-Level or Line-Level synchronization)
-                    if (config.highlightCurrentLine) {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(18.dp))
-                                .border(1.dp, currentLineColor.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
-                                .clickable(enabled = currentLine != null) {
-                                    currentLine?.let { onSeekTo((it.timeMs - effectiveOffset).coerceAtLeast(0L)) }
-                                }
-                                .testTag("current_lyric_slot"),
-                            colors = CardDefaults.cardColors(
-                                containerColor = currentLineColor.copy(alpha = 0.20f)
-                            )
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 18.dp, vertical = 20.dp),
-                                contentAlignment = effectiveContentAlignment
-                            ) {
-                                if (currentLine != null) {
-                                    SynchronizedLyricContent(
-                                        line = currentLine,
-                                        isCurrent = true,
-                                        currentPositionMs = currentPositionMs,
-                                        effectiveOffsetMs = effectiveOffset,
-                                        config = config,
-                                        currentLineColor = currentLineColor,
-                                        composeFontFamily = composeFontFamily,
-                                        textAlign = textAlign,
-                                        isPlaying = isPlaying
-                                    )
-                                } else {
-                                    Text(
-                                        text = formatLyricText(preLyricIndicator, config.textCase),
-                                        fontSize = config.currentLineFontSizeSp.sp,
-                                        fontFamily = composeFontFamily,
-                                        fontWeight = FontWeight.Bold,
-                                        color = currentLineColor,
-                                        textAlign = textAlign,
-                                        lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable(enabled = currentLine != null) {
-                                    currentLine?.let { onSeekTo((it.timeMs - effectiveOffset).coerceAtLeast(0L)) }
-                                }
-                                .padding(horizontal = 18.dp, vertical = 12.dp)
-                                .testTag("current_lyric_slot"),
-                            contentAlignment = effectiveContentAlignment
-                        ) {
-                            if (currentLine != null) {
-                                SynchronizedLyricContent(
-                                    line = currentLine,
-                                    isCurrent = true,
-                                    currentPositionMs = currentPositionMs,
-                                    effectiveOffsetMs = effectiveOffset,
-                                    config = config,
-                                    currentLineColor = TextPrimaryDark,
-                                    composeFontFamily = composeFontFamily,
-                                    textAlign = textAlign,
-                                    isPlaying = isPlaying
-                                )
-                            } else {
-                                Text(
-                                    text = formatLyricText(preLyricIndicator, config.textCase),
-                                    fontSize = config.currentLineFontSizeSp.sp,
-                                    fontFamily = composeFontFamily,
-                                    fontWeight = FontWeight.Bold,
-                                    color = TextPrimaryDark,
-                                    textAlign = textAlign,
-                                    lineHeight = (config.currentLineFontSizeSp * 1.3f).sp
-                                )
-                            }
-                        }
-                    }
-
-                    // Next Lines (Shared Other Line Size & Opacity)
-                    nextLines.forEachIndexed { nextIndex, next ->
-                        Text(
-                            text = formatLyricText(next.text, config.textCase),
-                            fontSize = config.otherLineFontSizeSp.sp,
-                            fontFamily = composeFontFamily,
-                            fontWeight = if (nextIndex == 0) FontWeight.Normal else FontWeight.Light,
-                            color = TextPrimaryDark.copy(alpha = config.otherLinesOpacity),
-                            textAlign = textAlign,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { onSeekTo((next.timeMs - effectiveOffset).coerceAtLeast(0L)) }
-                        )
-                    }
-                }
-            }
+        } else if (rotatingSections || viewMode == 0) {
+            ContinuousLyricsDisplay(
+                lines = lines,
+                currentIndex = slotState.currentIndex,
+                currentPositionMs = currentPositionMs,
+                effectiveOffsetMs = effectiveOffset,
+                config = config,
+                currentLineColor = currentLineColor,
+                composeFontFamily = composeFontFamily,
+                textAlign = textAlign,
+                isPlaying = isPlaying,
+                onSeekTo = onSeekTo,
+                rotatingSections = rotatingSections,
+                modifier = Modifier.fillMaxSize()
+            )
         } else {
             // Full Synced List with optional Auto-scroll
             val listState = rememberLazyListState()
@@ -727,6 +426,158 @@ fun LyricsView(
 }
 
 /**
+ * One continuous lyrics stream shared by Focus and fullscreen lyrics.
+ *
+ * Every lyric remains in the same LazyColumn, so changing the active index moves
+ * the stream rather than replacing a stack of independently composed sections.
+ * Word-level eLRC progress is calculated for every visible line from the same
+ * playback clock, preserving the outgoing line's completed sweep while it fades.
+ */
+@Composable
+private fun ContinuousLyricsDisplay(
+    lines: List<LyricLine>,
+    currentIndex: Int,
+    currentPositionMs: Long,
+    effectiveOffsetMs: Long,
+    config: LyricsDisplayConfig,
+    currentLineColor: Color,
+    composeFontFamily: FontFamily,
+    textAlign: TextAlign,
+    isPlaying: Boolean,
+    onSeekTo: (Long) -> Unit,
+    rotatingSections: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val showPreLyrics = currentIndex < 0
+    val preLyricsStatus = when {
+        !isPlaying && currentPositionMs == 0L -> "♪ Music stopped ♪"
+        !isPlaying -> "♪ Music paused ♪"
+        else -> "♪ Music playing ♪"
+    }
+
+    BoxWithConstraints(modifier = modifier.testTag(
+        if (rotatingSections) "fullscreen_credit_lyrics" else "continuous_lyrics_display"
+    )) {
+        val listState = rememberLazyListState()
+        val density = LocalDensity.current
+        val centerOffsetPx = with(density) { (maxHeight / 2 - 36.dp).roundToPx() }
+        val topPadding = if (showPreLyrics) (maxHeight / 2 - 36.dp).coerceAtLeast(16.dp) else 16.dp
+
+        LaunchedEffect(currentIndex, lines.size) {
+            if (currentIndex in lines.indices) {
+                listState.animateScrollToItem(
+                    index = currentIndex,
+                    scrollOffset = -centerOffsetPx
+                )
+            }
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(top = topPadding, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
+        ) {
+            if (showPreLyrics) {
+                item(key = "pre_lyrics_status") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = formatLyricText(preLyricsStatus, config.textCase),
+                            fontSize = config.currentLineFontSizeSp.sp,
+                            fontFamily = composeFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = currentLineColor,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.testTag("current_lyric_slot")
+                        )
+                    }
+                }
+            }
+            itemsIndexed(lines, key = { index, line -> "${line.timeMs}_${index}" }) { index, line ->
+                val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - currentIndex)
+                val targetAlpha = continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
+                val lineAlpha by animateFloatAsState(
+                    targetValue = targetAlpha,
+                    animationSpec = tween(durationMillis = config.animationDurationMs),
+                    label = "continuousLyricOpacity"
+                )
+                val isCurrent = index == currentIndex
+                val lineColor = if (config.formatMode == LyricsFormatMode.ELRC) {
+                    currentLineColor
+                } else if (isCurrent && config.highlightCurrentLine) {
+                    currentLineColor
+                } else {
+                    TextPrimaryDark
+                }
+                val lineSize = if (isCurrent) config.currentLineFontSizeSp else config.otherLineFontSizeSp
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .alpha(lineAlpha)
+                        .clickable { onSeekTo((line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)) }
+                        .padding(horizontal = 18.dp, vertical = 12.dp)
+                        .testTag(
+                            when {
+                                isCurrent && rotatingSections -> "fullscreen_credit_active_line"
+                                isCurrent -> "current_lyric_slot"
+                                else -> "continuous_lyric_line_$index"
+                            }
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (config.formatMode == LyricsFormatMode.ELRC &&
+                        line.hasWordTimestamps && line.words.isNotEmpty()
+                    ) {
+                        // Keep timestamp-driven word progress active on outgoing and
+                        // incoming lines as well as the current line.
+                        SynchronizedLyricContent(
+                            line = line,
+                            isCurrent = isCurrent,
+                            currentPositionMs = currentPositionMs,
+                            effectiveOffsetMs = effectiveOffsetMs,
+                            config = config,
+                            currentLineColor = lineColor,
+                            composeFontFamily = composeFontFamily,
+                            textAlign = TextAlign.Center,
+                            isPlaying = isPlaying,
+                            fontSizeSp = lineSize,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    } else {
+                        Text(
+                            text = formatLyricText(line.text, config.textCase),
+                            fontSize = lineSize.sp,
+                            fontFamily = composeFontFamily,
+                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                            color = lineColor,
+                            textAlign = if (config.formatMode == LyricsFormatMode.ELRC) TextAlign.Center else textAlign,
+                            lineHeight = (lineSize * 1.2f).sp,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Opacity curve for the continuous stream: current, near, distant, then faded out. */
+internal fun continuousLyricsLineAlpha(distance: Int, otherLinesOpacity: Float): Float {
+    if (distance <= 0) return 1f
+    val nearOpacity = otherLinesOpacity.coerceIn(0.1f, 0.85f)
+    return when (distance) {
+        1 -> nearOpacity
+        2 -> nearOpacity * 0.55f
+        3 -> nearOpacity * 0.2f
+        else -> 0f
+    }
+}
+
+/**
  * Progressive Sweeping eLRC and line-level LRC lyrics renderer matching Yimly Server specification:
  * - Highlight mode: progressive_sweeping
  * - Driven by actual eLRC word timestamps (startTimeMs, endTimeMs)
@@ -748,12 +599,13 @@ fun SynchronizedLyricContent(
     composeFontFamily: FontFamily,
     textAlign: TextAlign,
     isPlaying: Boolean = true,
+    fontSizeSp: Float = config.currentLineFontSizeSp,
     modifier: Modifier = Modifier
 ) {
     if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
         val adjustedPos = currentPositionMs + effectiveOffsetMs
 
-        val spaceDp = (config.currentLineFontSizeSp * 0.25f).dp
+        val spaceDp = (fontSizeSp * 0.25f).dp
         val rowSpacingDp = (config.lineSpacingDp * 0.35f).coerceAtLeast(4f).dp
 
         FlowRow(
@@ -773,7 +625,7 @@ fun SynchronizedLyricContent(
                     progress = progress,
                     activeColor = currentLineColor,
                     inactiveColor = currentLineColor.copy(alpha = 0.35f),
-                    fontSize = config.currentLineFontSizeSp.sp,
+                    fontSize = fontSizeSp.sp,
                     fontFamily = composeFontFamily,
                     fontWeight = FontWeight.Bold
                 )
@@ -783,12 +635,12 @@ fun SynchronizedLyricContent(
         // Standard line-level synchronization (LRC)
         Text(
             text = formatLyricText(line.text, config.textCase),
-            fontSize = config.currentLineFontSizeSp.sp,
+            fontSize = fontSizeSp.sp,
             fontFamily = composeFontFamily,
             fontWeight = FontWeight.Bold,
             color = currentLineColor,
             textAlign = textAlign,
-            lineHeight = (config.currentLineFontSizeSp * 1.3f).sp,
+            lineHeight = (fontSizeSp * 1.3f).sp,
             modifier = modifier
         )
     }

@@ -82,7 +82,6 @@ fun LyricsSettingsDialog(
 ) {
     // 1. Lyrics Display state
     var formatMode by remember { mutableStateOf(initialConfig.formatMode) }
-    var visibleLines by remember { mutableIntStateOf(initialConfig.visibleLines) }
     var autoScroll by remember { mutableStateOf(initialConfig.autoScroll) }
     var highlightCurrentLine by remember { mutableStateOf(initialConfig.highlightCurrentLine) }
     var animDuration by remember { mutableIntStateOf(initialConfig.animationDurationMs) }
@@ -161,35 +160,6 @@ fun LyricsSettingsDialog(
                                 selected = formatMode == mode,
                                 onClick = { formatMode = mode },
                                 label = { Text(if (mode == LyricsFormatMode.ELRC) "eLRC (Word Sync)" else "LRC (Line Sync)", fontSize = 12.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = YimlyPink,
-                                    selectedLabelColor = Color.White,
-                                    containerColor = SurfaceCardDark,
-                                    labelColor = TextSecondaryDark
-                                )
-                            )
-                        }
-                    }
-                }
-
-                // Visible Lines
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Visible Lines", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("$visibleLines lines", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        listOf(1, 3, 5, 7).forEach { lines ->
-                            FilterChip(
-                                selected = visibleLines == lines,
-                                onClick = { visibleLines = lines },
-                                label = { Text("$lines", fontSize = 12.sp) },
                                 colors = FilterChipDefaults.filterChipColors(
                                     selectedContainerColor = YimlyPink,
                                     selectedLabelColor = Color.White,
@@ -557,7 +527,6 @@ fun LyricsSettingsDialog(
                         onClick = {
                             val updated = initialConfig.copy(
                                 formatMode = formatMode,
-                                visibleLines = visibleLines,
                                 autoScroll = autoScroll,
                                 highlightCurrentLine = highlightCurrentLine,
                                 animationDurationMs = animDuration,
