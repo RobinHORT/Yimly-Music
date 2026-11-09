@@ -57,16 +57,33 @@ class PlaybackQueueManager(
     }
 
     /**
-     * Replaces the entire queue. Used for startup restoration, Android Auto sync, and playlist loading.
-     * Generates new stable identities for the incoming songs.
+     * Replaces the entire queue while attempting to preserve stable entry identities.
+     * Matching is performed by Song ID, preferring existing entries to maintain 
+     * cross-mutation identity for shuffle history and UI stability.
      */
     fun updateQueueState(queue: List<Song>, currentIndex: Int) {
-        val entries = queue.map { QueueEntry(song = it) }
-        val currentEntryId = entries.getOrNull(currentIndex)?.entryId
-        val newState = QueueState(
-            entries = entries,
-            currentEntryId = currentEntryId,
-            revision = _queueState.value.revision + 1
+        val oldState = _queueState.value
+        val oldEntriesBySongId = oldState.entries.groupBy { it.song.id }.mapValues { it.value.toMutableList() }
+        
+        val newEntries = queue.map { song ->
+            val matchingOldEntries = oldEntriesBySongId[song.id]
+            if (matchingOldEntries != null && matchingOldEntries.isNotEmpty()) {
+                matchingOldEntries.removeAt(0).copy(song = song)
+            } else {
+                QueueEntry(song = song)
+            }
+        }
+        
+        val newCurrentEntryId = newEntries.getOrNull(currentIndex)?.entryId
+        
+        if (newEntries == oldState.entries && newCurrentEntryId == oldState.currentEntryId) {
+            return // No-op: do not increment revision
+        }
+
+        val newState = oldState.copy(
+            entries = newEntries,
+            currentEntryId = newCurrentEntryId,
+            revision = oldState.revision + 1
         )
         updateInternalState(newState)
     }
@@ -280,11 +297,11 @@ class PlaybackQueueManager(
         }
     }
 
-    fun updateSongFavoriteStatus(songId: String, isFavorite: Boolean) {
+    fun updateSong(songId: String, transform: (Song) -> Song) {
         val state = _queueState.value
         val newEntries = state.entries.map { entry ->
             if (entry.song.id == songId) {
-                entry.copy(song = entry.song.copy(isFavorite = isFavorite))
+                entry.copy(song = transform(entry.song))
             } else {
                 entry
             }
@@ -295,6 +312,17 @@ class PlaybackQueueManager(
                 revision = state.revision + 1
             ))
         }
+    }
+
+    /**
+     * Returns a consistent snapshot of the current queue and active index.
+     * Use this instead of reading separate flows to avoid revision divergence.
+     */
+    fun getQueueSnapshot(): Pair<List<Song>, Int> {
+        val state = _queueState.value
+        val songs = state.entries.map { it.song }
+        val index = state.entries.indexOfFirst { it.entryId == state.currentEntryId }
+        return songs to index
     }
 
     fun setCurrentIndex(index: Int) {
