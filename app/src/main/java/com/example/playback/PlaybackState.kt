@@ -1,6 +1,7 @@
 package com.example.playback
 
 import com.example.data.models.Song
+import java.util.UUID
 
 enum class RepeatMode {
     OFF,
@@ -36,4 +37,23 @@ data class PlaybackInfo(
     val isBuffering: Boolean = false,
     val hasInstrumental: Boolean = false,
     val isInstrumental: Boolean = false
+)
+
+data class PendingQueueAdd(
+    val token: String = UUID.randomUUID().toString(),
+    val song: Song,
+    val targetIndex: Int // Now immutable as per Phase 3B.2R requirement
+)
+
+data class QueueEntry(
+    val entryId: String = UUID.randomUUID().toString(),
+    val song: Song
+)
+
+data class QueueState(
+    val entries: List<QueueEntry> = emptyList(),
+    val currentEntryId: String? = null,
+    val shuffleHistory: List<String> = emptyList(), // Store entry IDs for stable history
+    val pendingAdds: List<PendingQueueAdd> = emptyList(),
+    val revision: Long = 0L
 )
