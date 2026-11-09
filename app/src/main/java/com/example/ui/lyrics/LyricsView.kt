@@ -411,18 +411,84 @@ private fun ContinuousLyricsDisplay(
         // Requirement 2: All lyric lines must use exactly the same font size.
         val uniformFontSizeSp = config.currentLineFontSizeSp
 
-        // Center padding so that the active item is placed at the vertical center
-        val centerOffsetDp = (maxHeight / 4).coerceIn(16.dp, 100.dp)
+        // Center padding so that the active item is placed at the vertical center (teleprompter timing reference)
+        val centerOffsetDp = (maxHeight / 2).coerceAtLeast(16.dp)
 
-        // Requirement 1: Automatic scrolling to keep current line centered
-        LaunchedEffect(currentIndex, lines.size, config.autoScroll) {
-            if (config.autoScroll && lines.isNotEmpty()) {
-                val targetIndex = (currentIndex.coerceIn(0, lines.lastIndex) + (if (showPreLyrics) 1 else 0)).coerceAtLeast(0)
-                listState.scrollToItem(
-                    index = targetIndex,
-                    scrollOffset = 0
-                )
+        // Continuous End-Credit-Style Scrolling:
+        // Calculate timestamp anchors for each item in LazyColumn.
+        // For pre-lyrics status item (if present): reaches center at 0ms.
+        // For each lyric line:
+        //   - In eLRC mode: arrival target is the timestamp of the first word (line.words.firstOrNull()?.startTimeMs ?: line.timeMs).
+        //   - In LRC mode: arrival target is line.timeMs.
+        val itemAnchors = remember(lines, showPreLyrics, config.formatMode) {
+            val anchors = mutableListOf<Long>()
+            if (showPreLyrics) {
+                anchors.add(0L)
             }
+            lines.forEach { line ->
+                val targetTime = if (config.formatMode == LyricsFormatMode.ELRC) {
+                    line.words.firstOrNull()?.startTimeMs ?: line.timeMs
+                } else {
+                    line.timeMs
+                }
+                anchors.add(targetTime)
+            }
+            anchors
+        }
+
+        // Frame-synchronized smooth continuous upward motion driven by playback timing.
+        // Interpolates smoothly between consecutive anchor points across measured item heights.
+        LaunchedEffect(currentPositionMs, isPlaying, config.autoScroll, itemAnchors.size) {
+            if (!config.autoScroll || itemAnchors.isEmpty()) return@LaunchedEffect
+
+            val adjustedPos = currentPositionMs + effectiveOffsetMs
+
+            // Determine fractional position across items based on adjustedPos
+            val firstAnchor = itemAnchors.first()
+            val lastAnchor = itemAnchors.last()
+
+            val (baseIndex, fraction) = when {
+                adjustedPos <= firstAnchor -> {
+                    0 to 0f
+                }
+                adjustedPos >= lastAnchor -> {
+                    (itemAnchors.lastIndex) to 0f
+                }
+                else -> {
+                    // Binary search for anchor interval [i, i+1]
+                    var low = 0
+                    var high = itemAnchors.lastIndex - 1
+                    var foundIndex = 0
+                    while (low <= high) {
+                        val mid = (low + high) / 2
+                        if (itemAnchors[mid] <= adjustedPos) {
+                            foundIndex = mid
+                            low = mid + 1
+                        } else {
+                            high = mid - 1
+                        }
+                    }
+                    val t0 = itemAnchors[foundIndex]
+                    val t1 = itemAnchors.getOrElse(foundIndex + 1) { t0 }
+                    val dt = (t1 - t0).coerceAtLeast(1L)
+                    val frac = ((adjustedPos - t0).toFloat() / dt.toFloat()).coerceIn(0f, 1f)
+                    foundIndex to frac
+                }
+            }
+
+            // Estimate row height from layout or measured item info
+            val visibleItems = listState.layoutInfo.visibleItemsInfo
+            val measuredItem = visibleItems.find { it.index == baseIndex }
+            val itemHeightPx = measuredItem?.size
+                ?: visibleItems.firstOrNull()?.size
+                ?: with(density) { ((uniformFontSizeSp * 1.3f).sp.toPx() + config.lineSpacingDp.dp.toPx() + 16.dp.toPx()).toInt() }
+
+            val offsetPx = (fraction * itemHeightPx).toInt()
+
+            listState.scrollToItem(
+                index = baseIndex,
+                scrollOffset = offsetPx
+            )
         }
 
         LazyColumn(
