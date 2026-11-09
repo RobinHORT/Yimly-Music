@@ -448,24 +448,11 @@ private fun ContinuousLyricsDisplay(
     rotatingSections: Boolean,
     modifier: Modifier = Modifier
 ) {
-    if (currentIndex < 0) {
-        val status = when {
-            !isPlaying && currentPositionMs == 0L -> "♪ Music stopped ♪"
-            !isPlaying -> "♪ Music paused ♪"
-            else -> "♪ Music playing ♪"
-        }
-        Box(modifier = modifier, contentAlignment = Alignment.Center) {
-            Text(
-                text = formatLyricText(status, config.textCase),
-                fontSize = config.currentLineFontSizeSp.sp,
-                fontFamily = composeFontFamily,
-                fontWeight = FontWeight.Bold,
-                color = currentLineColor,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.testTag("current_lyric_slot")
-            )
-        }
-        return
+    val showPreLyrics = currentIndex < 0
+    val preLyricsStatus = when {
+        !isPlaying && currentPositionMs == 0L -> "♪ Music stopped ♪"
+        !isPlaying -> "♪ Music paused ♪"
+        else -> "♪ Music playing ♪"
     }
 
     BoxWithConstraints(modifier = modifier.testTag(
@@ -474,6 +461,7 @@ private fun ContinuousLyricsDisplay(
         val listState = rememberLazyListState()
         val density = LocalDensity.current
         val centerOffsetPx = with(density) { (maxHeight / 2 - 36.dp).roundToPx() }
+        val topPadding = if (showPreLyrics) (maxHeight / 2 - 36.dp).coerceAtLeast(16.dp) else 16.dp
 
         LaunchedEffect(currentIndex, lines.size) {
             if (currentIndex in lines.indices) {
@@ -487,11 +475,29 @@ private fun ContinuousLyricsDisplay(
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(vertical = 16.dp),
+            contentPadding = PaddingValues(top = topPadding, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
         ) {
+            if (showPreLyrics) {
+                item(key = "pre_lyrics_status") {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = formatLyricText(preLyricsStatus, config.textCase),
+                            fontSize = config.currentLineFontSizeSp.sp,
+                            fontFamily = composeFontFamily,
+                            fontWeight = FontWeight.Bold,
+                            color = currentLineColor,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.testTag("current_lyric_slot")
+                        )
+                    }
+                }
+            }
             itemsIndexed(lines, key = { index, line -> "${line.timeMs}_${index}" }) { index, line ->
-                val distance = kotlin.math.abs(index - currentIndex)
+                val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - currentIndex)
                 val targetAlpha = continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
                 val lineAlpha by animateFloatAsState(
                     targetValue = targetAlpha,
