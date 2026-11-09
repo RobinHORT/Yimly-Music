@@ -59,6 +59,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -454,60 +455,80 @@ private fun ContinuousLyricsDisplay(
         val effectiveOffsetState = rememberUpdatedState(effectiveOffsetMs)
         val isPlayingState = rememberUpdatedState(isPlaying)
 
+        var animatedPosMs by remember { mutableLongStateOf(currentPositionMs + effectiveOffsetMs) }
+
+        // Frame-synchronized playback clock using withFrameNanos anchored to Media3 samples
         LaunchedEffect(config.autoScroll, itemAnchors.size) {
             if (!config.autoScroll || itemAnchors.isEmpty()) return@LaunchedEffect
 
-            var lastPos = currentPosState.value + effectiveOffsetState.value
+            var lastReportedPos = currentPosState.value + effectiveOffsetState.value
+            var lastNanoTime = System.nanoTime()
+            var basePosMs = lastReportedPos
 
             while (isActive) {
-                val playing = isPlayingState.value
-                val adjustedPos = currentPosState.value + effectiveOffsetState.value
-                val posChanged = adjustedPos != lastPos
+                withFrameNanos { frameTimeNanos ->
+                    val playing = isPlayingState.value
+                    val authoritativePos = currentPosState.value + effectiveOffsetState.value
 
-                if (playing || posChanged) {
-                    lastPos = adjustedPos
-
-                    val firstAnchor = itemAnchors.first()
-                    val lastAnchor = itemAnchors.last()
-
-                    val targetY = when {
-                        adjustedPos <= firstAnchor -> anchorScrollYList.getOrNull(0) ?: 0f
-                        adjustedPos >= lastAnchor -> anchorScrollYList.lastOrNull() ?: 0f
-                        else -> {
-                            var low = 0
-                            var high = itemAnchors.size - 2
-                            var foundIndex = 0
-                            while (low <= high) {
-                                val mid = (low + high) / 2
-                                if (itemAnchors[mid] <= adjustedPos) {
-                                    foundIndex = mid
-                                    low = mid + 1
-                                } else {
-                                    high = mid - 1
-                                }
-                            }
-                            val t0 = itemAnchors[foundIndex]
-                            val t1 = itemAnchors.getOrElse(foundIndex + 1) { t0 }
-                            val y0 = anchorScrollYList.getOrElse(foundIndex) { 0f }
-                            val y1 = anchorScrollYList.getOrElse(foundIndex + 1) { y0 }
-                            val dt = (t1 - t0).coerceAtLeast(1L)
-                            val frac = ((adjustedPos - t0).toFloat() / dt.toFloat()).coerceIn(0f, 1f)
-                            y0 + frac * (y1 - y0)
-                        }
-                    }
-
-                    if (posChanged && abs(targetY - currentScrollY) > viewportHeightPx) {
-                        currentScrollY = targetY // Instant jump on seek
+                    if (authoritativePos != lastReportedPos) {
+                        basePosMs = authoritativePos
+                        lastReportedPos = authoritativePos
+                        lastNanoTime = frameTimeNanos
+                        animatedPosMs = authoritativePos
+                    } else if (playing) {
+                        val elapsedNanos = frameTimeNanos - lastNanoTime
+                        val elapsedMs = elapsedNanos / 1_000_000L
+                        animatedPosMs = basePosMs + elapsedMs
                     } else {
-                        val diff = targetY - currentScrollY
-                        if (abs(diff) > 0.1f) {
-                            currentScrollY += diff * 0.35f
-                        } else {
-                            currentScrollY = targetY
-                        }
+                        lastNanoTime = frameTimeNanos
+                        basePosMs = authoritativePos
+                        animatedPosMs = authoritativePos
                     }
                 }
-                kotlinx.coroutines.delay(16L)
+            }
+        }
+
+        // Smooth piecewise linear interpolation toward target Y based on animatedPosMs
+        LaunchedEffect(animatedPosMs, itemAnchors, anchorScrollYList) {
+            if (itemAnchors.isEmpty()) return@LaunchedEffect
+            val adjustedPos = animatedPosMs
+
+            val firstAnchor = itemAnchors.first()
+            val lastAnchor = itemAnchors.last()
+
+            val targetY = when {
+                adjustedPos <= firstAnchor -> anchorScrollYList.getOrNull(0) ?: 0f
+                adjustedPos >= lastAnchor -> anchorScrollYList.lastOrNull() ?: 0f
+                else -> {
+                    var low = 0
+                    var high = itemAnchors.size - 2
+                    var foundIndex = 0
+                    while (low <= high) {
+                        val mid = (low + high) / 2
+                        if (itemAnchors[mid] <= adjustedPos) {
+                            foundIndex = mid
+                            low = mid + 1
+                        } else {
+                            high = mid - 1
+                        }
+                    }
+                    val t0 = itemAnchors[foundIndex]
+                    val t1 = itemAnchors.getOrElse(foundIndex + 1) { t0 }
+                    val y0 = anchorScrollYList.getOrElse(foundIndex) { 0f }
+                    val y1 = anchorScrollYList.getOrElse(foundIndex + 1) { y0 }
+                    val dt = (t1 - t0).coerceAtLeast(1L)
+                    val frac = ((adjustedPos - t0).toFloat() / dt.toFloat()).coerceIn(0f, 1f)
+                    y0 + frac * (y1 - y0)
+                }
+            }
+
+            val diff = targetY - currentScrollY
+            if (abs(diff) > viewportHeightPx) {
+                currentScrollY = targetY // Instant jump on seek
+            } else if (abs(diff) > 0.1f) {
+                currentScrollY += diff * 0.4f
+            } else {
+                currentScrollY = targetY
             }
         }
 
@@ -524,10 +545,18 @@ private fun ContinuousLyricsDisplay(
             ) {
                 Spacer(modifier = Modifier.height(boxHalfHeight))
 
+                var runningTop = halfViewport
+
                 if (showPreLyrics) {
+                    val h = itemHeights[0] ?: defaultItemHeightPx
+                    val centerY = runningTop + h / 2f
+                    val opacity = calculateViewportOpacity(centerY, currentScrollY, viewportHeightPx)
+                    runningTop += h + spacingPx
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .alpha(opacity)
                             .onSizeChanged { size -> itemHeights[0] = size.height }
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
@@ -547,17 +576,22 @@ private fun ContinuousLyricsDisplay(
                 val lineOffsetIndex = if (showPreLyrics) 1 else 0
                 lines.forEachIndexed { index, line ->
                     val actualIndex = index + lineOffsetIndex
-                    val adjustedPos = currentPositionMs + effectiveOffsetMs
+                    val h = itemHeights[actualIndex] ?: defaultItemHeightPx
+                    val centerY = runningTop + h / 2f
+                    val opacity = calculateViewportOpacity(centerY, currentScrollY, viewportHeightPx)
+                    runningTop += h + spacingPx
+
+                    val adjustedPos = animatedPosMs
                     val isHighlighted = index <= currentIndex || line.timeMs <= adjustedPos
                     val isCurrent = index == currentIndex
-
                     val lineColor = if (isHighlighted) currentLineColor else TextSecondaryDark
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .alpha(opacity)
                             .onSizeChanged { size -> itemHeights[actualIndex] = size.height }
-                            .clickable { onSeekTo((line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)) }
+                            .clickable { onSeekTo((line.timeMs - (animatedPosMs - currentPosState.value)).coerceAtLeast(0L)) }
                             .padding(horizontal = 18.dp, vertical = 8.dp)
                             .testTag(
                                 when {
@@ -572,8 +606,8 @@ private fun ContinuousLyricsDisplay(
                             SynchronizedLyricContent(
                                 line = line,
                                 isCurrent = isCurrent,
-                                currentPositionMs = currentPositionMs,
-                                effectiveOffsetMs = effectiveOffsetMs,
+                                currentPositionMs = animatedPosMs,
+                                effectiveOffsetMs = 0L,
                                 config = config,
                                 currentLineColor = currentLineColor,
                                 composeFontFamily = composeFontFamily,
@@ -600,6 +634,23 @@ private fun ContinuousLyricsDisplay(
                 Spacer(modifier = Modifier.height(boxHalfHeight))
             }
         }
+    }
+}
+
+/**
+ * Calculates smooth position-based opacity gradient across 5 reference points:
+ * Top edge: 0% | Upper quarter: 50% | Centre: 100% | Lower quarter: 50% | Bottom edge: 0%
+ */
+internal fun calculateViewportOpacity(itemCenterY: Float, currentScrollY: Float, viewportHeightPx: Float): Float {
+    if (viewportHeightPx <= 0f) return 1f
+    val viewportRelativeY = itemCenterY - currentScrollY
+    val normY = (viewportRelativeY / viewportHeightPx).coerceIn(0f, 1f)
+    return when {
+        normY <= 0f || normY >= 1f -> 0f
+        normY < 0.25f -> (normY / 0.25f) * 0.5f
+        normY < 0.5f -> 0.5f + ((normY - 0.25f) / 0.25f) * 0.5f
+        normY < 0.75f -> 1.0f - ((normY - 0.5f) / 0.25f) * 0.5f
+        else -> 0.5f - ((normY - 0.75f) / 0.25f) * 0.5f
     }
 }
 
