@@ -276,7 +276,7 @@ fun LyricsView(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = lyricsData?.plainLyrics.orEmpty(),
-                    fontSize = fontSizeSp.sp
+                    fontSize = config.currentLineFontSizeSp.sp,
                     fontFamily = composeFontFamily,
                     fontWeight = FontWeight.Bold,
                     color = YimlyPink.copy(alpha = 0.96f),
@@ -322,7 +322,7 @@ fun LyricsView(
                     } else {
                         Text(
                             text = formatLyricText(line.text, config.textCase),
-                            fontSize = fontSizeSp.sp
+                            fontSize = config.currentLineFontSizeSp.sp,
                             fontFamily = composeFontFamily,
                             fontWeight = FontWeight.Bold,
                             color = currentLineColor.copy(alpha = 0.96f),
@@ -619,7 +619,7 @@ fun SynchronizedLyricContent(
                     progress = progress,
                     activeColor = currentLineColor,
                     inactiveColor = currentLineColor.copy(alpha = 0.35f),
-                    fontSize = config.currentLineFontSizeSp.sp,
+                    fontSize = fontSizeSp.sp,
                     fontFamily = composeFontFamily,
                     fontWeight = FontWeight.Bold
                 )
@@ -629,7 +629,7 @@ fun SynchronizedLyricContent(
         // Standard line-level synchronization (LRC)
         Text(
             text = formatLyricText(line.text, config.textCase),
-            fontSize = config.currentLineFontSizeSp.sp,
+            fontSize = fontSizeSp.sp,
             fontFamily = composeFontFamily,
             fontWeight = FontWeight.Bold,
             color = currentLineColor,
