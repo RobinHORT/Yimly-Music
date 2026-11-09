@@ -562,7 +562,7 @@ private fun ContinuousLyricsDisplay(
 /** Opacity curve for the continuous stream: current, near, distant, then faded out. */
 internal fun continuousLyricsLineAlpha(distance: Int, otherLinesOpacity: Float): Float {
     if (distance <= 0) return 1f
-    val nearOpacity = otherLinesOpacity.coerceIn(0.35f, 0.85f)
+    val nearOpacity = otherLinesOpacity.coerceIn(0.1f, 0.85f)
     return when (distance) {
         1 -> nearOpacity
         2 -> nearOpacity * 0.55f
