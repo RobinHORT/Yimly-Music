@@ -500,9 +500,11 @@ private fun ContinuousLyricsDisplay(
                 // Every line uses the same typography. Lines already reached stay
                 // highlighted; upcoming lines remain in the inactive colour.
                 val hasBeenReached = index <= currentIndex
-                val lineColor = if (config.formatMode == LyricsFormatMode.ELRC) {
-                    currentLineColor
-                } else if (hasBeenReached && (index < currentIndex || config.highlightCurrentLine)) {
+                val hasWordTiming = config.formatMode == LyricsFormatMode.ELRC &&
+                    line.hasWordTimestamps && line.words.isNotEmpty()
+                val lineColor = if (hasWordTiming ||
+                    (hasBeenReached && (index < currentIndex || config.highlightCurrentLine))
+                ) {
                     currentLineColor
                 } else {
                     TextPrimaryDark
