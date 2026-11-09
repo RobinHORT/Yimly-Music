@@ -437,58 +437,75 @@ private fun ContinuousLyricsDisplay(
         }
 
         // Frame-synchronized smooth continuous upward motion driven by playback timing.
-        // Interpolates smoothly between consecutive anchor points across measured item heights.
-        LaunchedEffect(currentPositionMs, isPlaying, config.autoScroll, itemAnchors.size) {
+        // Updates scroll offset continuously at ~60 FPS while playing.
+        LaunchedEffect(isPlaying, config.autoScroll, itemAnchors.size) {
             if (!config.autoScroll || itemAnchors.isEmpty()) return@LaunchedEffect
 
-            val adjustedPos = currentPositionMs + effectiveOffsetMs
+            while (isActive) {
+                if (isPlaying) {
+                    val adjustedPos = currentPositionMs + effectiveOffsetMs
 
-            // Determine fractional position across items based on adjustedPos
-            val firstAnchor = itemAnchors.first()
-            val lastAnchor = itemAnchors.last()
+                    val firstAnchor = itemAnchors.first()
+                    val lastAnchor = itemAnchors.last()
 
-            val (baseIndex, fraction) = when {
-                adjustedPos <= firstAnchor -> {
-                    0 to 0f
-                }
-                adjustedPos >= lastAnchor -> {
-                    (itemAnchors.lastIndex) to 0f
-                }
-                else -> {
-                    // Binary search for anchor interval [i, i+1]
-                    var low = 0
-                    var high = itemAnchors.lastIndex - 1
-                    var foundIndex = 0
-                    while (low <= high) {
-                        val mid = (low + high) / 2
-                        if (itemAnchors[mid] <= adjustedPos) {
-                            foundIndex = mid
-                            low = mid + 1
-                        } else {
-                            high = mid - 1
+                    val (baseIndex, fraction) = when {
+                        adjustedPos <= firstAnchor -> 0 to 0f
+                        adjustedPos >= lastAnchor -> itemAnchors.lastIndex to 0f
+                        else -> {
+                            var low = 0
+                            var high = itemAnchors.lastIndex - 1
+                            var foundIndex = 0
+                            while (low <= high) {
+                                val mid = (low + high) / 2
+                                if (itemAnchors[mid] <= adjustedPos) {
+                                    foundIndex = mid
+                                    low = mid + 1
+                                } else {
+                                    high = mid - 1
+                                }
+                            }
+                            val t0 = itemAnchors[foundIndex]
+                            val t1 = itemAnchors.getOrElse(foundIndex + 1) { t0 }
+                            val dt = (t1 - t0).coerceAtLeast(1L)
+                            val frac = ((adjustedPos - t0).toFloat() / dt.toFloat()).coerceIn(0f, 1f)
+                            foundIndex to frac
                         }
                     }
-                    val t0 = itemAnchors[foundIndex]
-                    val t1 = itemAnchors.getOrElse(foundIndex + 1) { t0 }
-                    val dt = (t1 - t0).coerceAtLeast(1L)
-                    val frac = ((adjustedPos - t0).toFloat() / dt.toFloat()).coerceIn(0f, 1f)
-                    foundIndex to frac
+
+                    // Use actual measured row heights from LazyListLayoutInfo for precise row positioning
+                    val visibleItems = listState.layoutInfo.visibleItemsInfo
+                    val measuredItem = visibleItems.find { it.index == baseIndex }
+                    val itemHeightPx = measuredItem?.size
+                        ?: visibleItems.firstOrNull()?.size
+                        ?: with(density) { ((uniformFontSizeSp * 1.3f).sp.toPx() + config.lineSpacingDp.dp.toPx() + 16.dp.toPx()).toInt() }
+
+                    // Correct center alignment: align the vertical center of the row to the vertical center of the viewport
+                    val viewportHeight = listState.layoutInfo.viewportSize.height
+                    val halfViewport = viewportHeight / 2
+                    val halfItem = itemHeightPx / 2
+                    val centerAdjustment = (halfViewport - halfItem).coerceAtLeast(0)
+
+                    val targetOffsetPx = (fraction * itemHeightPx).toInt() - centerAdjustment
+                    val finalScrollIndex = if (targetOffsetPx < 0 && baseIndex > 0) baseIndex - 1 else baseIndex
+                    val finalScrollOffset = if (targetOffsetPx < 0 && baseIndex > 0) {
+                        val prevItem = visibleItems.find { it.index == baseIndex - 1 }
+                        val prevHeight = prevItem?.size ?: itemHeightPx
+                        prevHeight + targetOffsetPx
+                    } else {
+                        targetOffsetPx.coerceAtLeast(0)
+                    }
+
+                    try {
+                        listState.scrollToItem(
+                            index = finalScrollIndex,
+                            scrollOffset = finalScrollOffset
+                        )
+                    } catch (e: Exception) {
+                        // Fallback
+                    }
                 }
+                kotlinx.coroutines.delay(16L)
             }
-
-            // Estimate row height from layout or measured item info
-            val visibleItems = listState.layoutInfo.visibleItemsInfo
-            val measuredItem = visibleItems.find { it.index == baseIndex }
-            val itemHeightPx = measuredItem?.size
-                ?: visibleItems.firstOrNull()?.size
-                ?: with(density) { ((uniformFontSizeSp * 1.3f).sp.toPx() + config.lineSpacingDp.dp.toPx() + 16.dp.toPx()).toInt() }
-
-            val offsetPx = (fraction * itemHeightPx).toInt()
-
-            listState.scrollToItem(
-                index = baseIndex,
-                scrollOffset = offsetPx
-            )
         }
 
         LazyColumn(
