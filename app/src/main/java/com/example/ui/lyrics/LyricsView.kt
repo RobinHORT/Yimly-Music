@@ -634,7 +634,7 @@ fun SynchronizedLyricContent(
             fontWeight = FontWeight.Bold,
             color = currentLineColor,
             textAlign = textAlign,
-            lineHeight = (config.currentLineFontSizeSp * 1.3f).sp,
+            lineHeight = (fontSizeSp * 1.3f).sp,
             modifier = modifier
         )
     }
