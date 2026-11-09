@@ -794,6 +794,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -832,6 +833,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -875,6 +877,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -914,6 +917,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -975,6 +979,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -1014,6 +1019,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -1053,6 +1059,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -1295,6 +1302,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -1335,6 +1343,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -1379,6 +1388,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 
@@ -1475,6 +1485,7 @@ class PerformanceRegressionTests {
                 context = context,
                 musicRepository = repository,
                 preferencesManager = preferencesManager,
+                snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
                 coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
             )
 

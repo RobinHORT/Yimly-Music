@@ -61,6 +61,7 @@ class YimlyApplication : Application(), ImageLoaderFactory {
             context = this,
             musicRepository = musicRepository,
             preferencesManager = preferencesManager,
+            snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
             coroutineScope = applicationScope
         )
     }

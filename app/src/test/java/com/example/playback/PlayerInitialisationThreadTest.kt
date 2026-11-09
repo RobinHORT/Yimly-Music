@@ -50,6 +50,7 @@ class PlayerInitialisationThreadTest {
             context = context,
             musicRepository = app.musicRepository,
             preferencesManager = preferencesManager,
+            snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
             coroutineScope = scope
         )
     }
@@ -115,7 +116,12 @@ class PlayerInitialisationThreadTest {
         pm1.release()
 
         // Constructor 2: Full constructor with Default dispatcher scope
-        val pm2 = createPlaybackManager(scope = CoroutineScope(Dispatchers.Default + SupervisorJob()))
+        val pm2 = PlaybackManager(
+            context = context,
+            musicRepository = (context as YimlyApplication).musicRepository,
+            preferencesManager = preferencesManager,
+            snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager)
+        )
         val p2 = pm2.ensurePlayerInitialized()
         assertEquals(Looper.getMainLooper(), p2.applicationLooper)
         pm2.release()

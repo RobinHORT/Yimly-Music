@@ -41,6 +41,7 @@ class PlaybackManager(
     val context: Context,
     val musicRepository: MusicRepository,
     val preferencesManager: PreferencesManager,
+    val snapshotRepository: PlaybackSnapshotRepository,
     val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
 ) {
     constructor(context: Context) : this(
@@ -55,7 +56,8 @@ class PlaybackManager(
             context = context,
             preferencesManager = PreferencesManager(context)
         ),
-        preferencesManager = PreferencesManager(context)
+        preferencesManager = PreferencesManager(context),
+        snapshotRepository = PlaybackSnapshotRepository(PreferencesManager(context))
     )
 
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
@@ -1221,7 +1223,7 @@ class PlaybackManager(
         snapshotWriteJob?.cancel()
         snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
             try {
-                preferencesManager.savePlaybackSnapshot(snapshot)
+                snapshotRepository.saveSnapshot(snapshot)
             } catch (e: Exception) {
                 Log.w("PlaybackManager", "Failed to persist playback snapshot", e)
             }
@@ -1232,7 +1234,7 @@ class PlaybackManager(
         snapshotWriteJob?.cancel()
         snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
             try {
-                preferencesManager.clearPlaybackSnapshot()
+                snapshotRepository.clearSnapshot()
             } catch (e: Exception) {
                 Log.w("PlaybackManager", "Failed to clear playback snapshot", e)
             }
@@ -1344,7 +1346,7 @@ class PlaybackManager(
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val snapshot = try {
-                    preferencesManager.loadPlaybackSnapshot()
+                    snapshotRepository.loadSnapshot()
                 } catch (e: Exception) {
                     Log.w("PlaybackManager", "Failed to load playback snapshot", e)
                     null
