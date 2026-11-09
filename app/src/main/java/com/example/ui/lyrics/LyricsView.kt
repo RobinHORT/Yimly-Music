@@ -74,7 +74,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.roundToPx
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.isActive
 import com.example.data.models.LyricAlignment
@@ -497,27 +496,24 @@ private fun ContinuousLyricsDisplay(
                 }
             }
             itemsIndexed(lines, key = { index, line -> "${line.timeMs}_${index}" }) { index, line ->
-                val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - currentIndex)
-                val targetAlpha = continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
-                val lineAlpha by animateFloatAsState(
-                    targetValue = targetAlpha,
-                    animationSpec = tween(durationMillis = config.animationDurationMs),
-                    label = "continuousLyricOpacity"
-                )
                 val isCurrent = index == currentIndex
-                val lineColor = if (config.formatMode == LyricsFormatMode.ELRC) {
-                    currentLineColor
-                } else if (isCurrent && config.highlightCurrentLine) {
+                // Every line uses the same typography. Lines already reached stay
+                // highlighted; upcoming lines remain in the inactive colour.
+                val hasBeenReached = index <= currentIndex
+                val hasWordTiming = config.formatMode == LyricsFormatMode.ELRC &&
+                    line.hasWordTimestamps && line.words.isNotEmpty()
+                val lineColor = if (hasWordTiming ||
+                    (hasBeenReached && (index < currentIndex || config.highlightCurrentLine))
+                ) {
                     currentLineColor
                 } else {
                     TextPrimaryDark
                 }
-                val lineSize = if (isCurrent) config.currentLineFontSizeSp else config.otherLineFontSizeSp
+                val lineSize = config.currentLineFontSizeSp
 
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .alpha(lineAlpha)
                         .clickable { onSeekTo((line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)) }
                         .padding(horizontal = 18.dp, vertical = 12.dp)
                         .testTag(
@@ -532,8 +528,8 @@ private fun ContinuousLyricsDisplay(
                     if (config.formatMode == LyricsFormatMode.ELRC &&
                         line.hasWordTimestamps && line.words.isNotEmpty()
                     ) {
-                        // Keep timestamp-driven word progress active on outgoing and
-                        // incoming lines as well as the current line.
+                        // Timestamp progress is evaluated for every line. Completed
+                        // words therefore remain highlighted after playback moves on.
                         SynchronizedLyricContent(
                             line = line,
                             isCurrent = isCurrent,
@@ -552,7 +548,7 @@ private fun ContinuousLyricsDisplay(
                             text = formatLyricText(line.text, config.textCase),
                             fontSize = lineSize.sp,
                             fontFamily = composeFontFamily,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                            fontWeight = FontWeight.Bold,
                             color = lineColor,
                             textAlign = if (config.formatMode == LyricsFormatMode.ELRC) TextAlign.Center else textAlign,
                             lineHeight = (lineSize * 1.2f).sp,
@@ -562,18 +558,6 @@ private fun ContinuousLyricsDisplay(
                 }
             }
         }
-    }
-}
-
-/** Opacity curve for the continuous stream: current, near, distant, then faded out. */
-internal fun continuousLyricsLineAlpha(distance: Int, otherLinesOpacity: Float): Float {
-    if (distance <= 0) return 1f
-    val nearOpacity = otherLinesOpacity.coerceIn(0.1f, 0.85f)
-    return when (distance) {
-        1 -> nearOpacity
-        2 -> nearOpacity * 0.55f
-        3 -> nearOpacity * 0.2f
-        else -> 0f
     }
 }
 
