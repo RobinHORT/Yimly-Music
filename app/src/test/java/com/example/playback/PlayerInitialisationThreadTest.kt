@@ -178,4 +178,71 @@ class PlayerInitialisationThreadTest {
 
         playbackManager.release()
     }
+
+    @Test
+    fun testPlaybackControlsFromBackgroundDispatcherExecuteOnMain() = runBlocking {
+        val playbackManager = createPlaybackManager(
+            scope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+        )
+        playbackManager.ensurePlayerInitialized()
+
+        val testSong = Song(
+            id = "control_test_song",
+            title = "Control Test Song",
+            artist = "Artist",
+            album = "Album",
+            durationSeconds = 180L
+        )
+        playbackManager.playSong(testSong, listOf(testSong), 0)
+
+        withContext(Dispatchers.Default) {
+            playbackManager.pause()
+            playbackManager.seekTo(1000L)
+            playbackManager.play()
+            playbackManager.togglePlayPause()
+            playbackManager.next(manual = true)
+            playbackManager.previous()
+            playbackManager.playQueueItem(0)
+        }
+
+        ShadowLooper.idleMainLooper()
+        kotlinx.coroutines.delay(200L)
+        ShadowLooper.idleMainLooper()
+
+        assertNotNull(playbackManager.player)
+        assertEquals(Looper.getMainLooper(), playbackManager.player?.applicationLooper)
+
+        playbackManager.release()
+    }
+
+    @Test
+    fun testQueueMutationsSynchroniseMedia3Timeline() = runBlocking {
+        val playbackManager = createPlaybackManager()
+        val player = playbackManager.ensurePlayerInitialized()
+
+        val s1 = Song(id = "q1", title = "Track 1")
+        val s2 = Song(id = "q2", title = "Track 2")
+        val s3 = Song(id = "q3", title = "Track 3")
+
+        playbackManager.playSong(s1, listOf(s1), 0)
+        ShadowLooper.idleMainLooper()
+
+        playbackManager.addToQueue(s2)
+        ShadowLooper.idleMainLooper()
+        assertEquals(2, player.mediaItemCount)
+
+        playbackManager.playNext(s3)
+        ShadowLooper.idleMainLooper()
+        assertEquals(3, player.mediaItemCount)
+
+        playbackManager.reorderQueue(2, 0)
+        ShadowLooper.idleMainLooper()
+        assertEquals(3, player.mediaItemCount)
+
+        playbackManager.removeFromQueue(0)
+        ShadowLooper.idleMainLooper()
+        assertEquals(2, player.mediaItemCount)
+
+        playbackManager.release()
+    }
 }

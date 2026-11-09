@@ -470,6 +470,10 @@ class PlaybackManager(
     }
 
     fun playQueueItem(index: Int) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { playQueueItem(index) }
+            return
+        }
         val info = _playbackInfo.value
         if (index in info.queue.indices) {
             androidAutoQueueSyncVersion++
@@ -491,6 +495,10 @@ class PlaybackManager(
     }
 
     fun next(manual: Boolean = true) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { next(manual) }
+            return
+        }
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
@@ -530,6 +538,10 @@ class PlaybackManager(
     }
 
     fun previous() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { previous() }
+            return
+        }
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
@@ -716,6 +728,10 @@ class PlaybackManager(
     }
 
     fun togglePlayPause() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { togglePlayPause() }
+            return
+        }
         val p = _player
         if (p != null && p.isPlaying) {
             pause()
@@ -725,6 +741,10 @@ class PlaybackManager(
     }
 
     fun play() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { play() }
+            return
+        }
         startPlaybackService()
         val p = ensurePlayerInitialized()
         if (p.playbackState == Player.STATE_ENDED) {
@@ -736,6 +756,10 @@ class PlaybackManager(
     }
 
     fun pause() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { pause() }
+            return
+        }
         isTransitioning = false
         releaseTransitionWakeLock()
         _player?.pause()
@@ -744,6 +768,10 @@ class PlaybackManager(
     }
 
     fun seekTo(positionMs: Long) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { seekTo(positionMs) }
+            return
+        }
         ensurePlayerInitialized().seekTo(positionMs)
         _playbackPositionMs.value = positionMs
         _lyricsPositionMs.value = positionMs
@@ -822,7 +850,18 @@ class PlaybackManager(
         }
     }
 
+    private data class PendingQueueAdd(
+        val token: String = java.util.UUID.randomUUID().toString(),
+        val song: Song,
+        var targetIndex: Int
+    )
+    private val pendingQueueAdds = mutableListOf<PendingQueueAdd>()
+
     fun addToQueue(song: Song) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { addToQueue(song) }
+            return
+        }
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
@@ -833,26 +872,79 @@ class PlaybackManager(
         persistPlaybackSnapshot(force = true)
         if (info.currentSong == null) {
             playSong(song, newQueue, 0)
+        } else {
+            val pendingAdd = PendingQueueAdd(song = song, targetIndex = newQueue.lastIndex)
+            pendingQueueAdds.add(pendingAdd)
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val mediaItem = buildMediaItem(song, false)
+                    withContext(Dispatchers.Main.immediate) {
+                        if (pendingAdd in pendingQueueAdds) {
+                            pendingQueueAdds.remove(pendingAdd)
+                            _player?.addMediaItem(pendingAdd.targetIndex.coerceIn(0, _player?.mediaItemCount ?: 0), mediaItem)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("PlaybackManager", "Failed to add media item for queue addition", e)
+                    withContext(Dispatchers.Main.immediate) {
+                        pendingQueueAdds.remove(pendingAdd)
+                    }
+                }
+            }
         }
     }
 
     fun playNext(song: Song) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { playNext(song) }
+            return
+        }
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
         val info = _playbackInfo.value
         val queue = info.queue.toMutableList()
         val insertIndex = if (info.currentQueueIndex in queue.indices) info.currentQueueIndex + 1 else queue.size
+        
+        for (add in pendingQueueAdds) {
+            if (add.targetIndex >= insertIndex) {
+                add.targetIndex++
+            }
+        }
+
         queue.add(insertIndex, song)
         shuffleHistory.clear()
         _playbackInfo.value = info.copy(queue = queue)
         persistPlaybackSnapshot(force = true)
         if (info.currentSong == null) {
             playSong(song, queue, insertIndex)
+        } else {
+            val pendingAdd = PendingQueueAdd(song = song, targetIndex = insertIndex)
+            pendingQueueAdds.add(pendingAdd)
+            coroutineScope.launch(Dispatchers.IO) {
+                try {
+                    val mediaItem = buildMediaItem(song, false)
+                    withContext(Dispatchers.Main.immediate) {
+                        if (pendingAdd in pendingQueueAdds) {
+                            pendingQueueAdds.remove(pendingAdd)
+                            _player?.addMediaItem(pendingAdd.targetIndex.coerceIn(0, _player?.mediaItemCount ?: 0), mediaItem)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.e("PlaybackManager", "Failed to add media item for playNext", e)
+                    withContext(Dispatchers.Main.immediate) {
+                        pendingQueueAdds.remove(pendingAdd)
+                    }
+                }
+            }
         }
     }
 
     fun removeFromQueue(index: Int) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { removeFromQueue(index) }
+            return
+        }
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
@@ -863,7 +955,18 @@ class PlaybackManager(
         val removedCurrent = index == info.currentQueueIndex
         queue.removeAt(index)
 
+        val iterator = pendingQueueAdds.iterator()
+        while (iterator.hasNext()) {
+            val add = iterator.next()
+            if (add.targetIndex == index) {
+                iterator.remove()
+            } else if (add.targetIndex > index) {
+                add.targetIndex--
+            }
+        }
+
         if (queue.isEmpty()) {
+            pendingQueueAdds.clear()
             _player?.stop()
             _player?.clearMediaItems()
             releaseTransitionWakeLock()
@@ -902,7 +1005,12 @@ class PlaybackManager(
 
         shuffleHistory.clear()
         persistPlaybackSnapshot(force = true)
-        // Removing the active item must also move ExoPlayer to the replacement item.
+
+        val p = _player
+        if (p != null && index in 0 until p.mediaItemCount) {
+            p.removeMediaItem(index)
+        }
+
         if (removedCurrent && newSong != null) {
             playCurrentQueueIndex(targetInstrumental = false)
         }
@@ -910,17 +1018,37 @@ class PlaybackManager(
 
     /** Remove every occurrence of a deleted library song from the active queue. */
     fun removeSongFromQueue(songId: String) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { removeSongFromQueue(songId) }
+            return
+        }
         val info = _playbackInfo.value
         val oldIndex = info.currentQueueIndex
         val currentWasRemoved = info.currentSong?.id == songId
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
+
+        val indicesToRemove = info.queue.indices.filter { info.queue[it].id == songId }
+        if (indicesToRemove.isEmpty()) return
+
+        for (idx in indicesToRemove.sortedDescending()) {
+            val iterator = pendingQueueAdds.iterator()
+            while (iterator.hasNext()) {
+                val add = iterator.next()
+                if (add.targetIndex == idx) {
+                    iterator.remove()
+                } else if (add.targetIndex > idx) {
+                    add.targetIndex--
+                }
+            }
+        }
+
         val removedBeforeCurrent = if (oldIndex >= 0) info.queue.take(oldIndex).count { it.id == songId } else 0
         val newQueue = info.queue.filterNot { it.id == songId }
-        if (newQueue.size == info.queue.size) return
 
         if (newQueue.isEmpty()) {
+            pendingQueueAdds.clear()
             _player?.stop()
             _player?.clearMediaItems()
             isTransitioning = false
@@ -953,6 +1081,16 @@ class PlaybackManager(
 
         shuffleHistory.clear()
         persistPlaybackSnapshot(force = true)
+
+        val p = _player
+        if (p != null) {
+            for (idx in indicesToRemove.sortedDescending()) {
+                if (idx in 0 until p.mediaItemCount) {
+                    p.removeMediaItem(idx)
+                }
+            }
+        }
+
         if (currentWasRemoved && newSong != null) {
             _player?.pause()
             _playbackPositionMs.value = 0L
@@ -962,6 +1100,10 @@ class PlaybackManager(
     }
 
     fun reorderQueue(fromIndex: Int, toIndex: Int) {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { reorderQueue(fromIndex, toIndex) }
+            return
+        }
         androidAutoQueueSyncVersion++
         androidAutoQueueSyncJob?.cancel()
         androidAutoQueueSyncJob = null
@@ -970,6 +1112,17 @@ class PlaybackManager(
         if (fromIndex in queue.indices && toIndex in queue.indices) {
             val item = queue.removeAt(fromIndex)
             queue.add(toIndex, item)
+            
+            for (add in pendingQueueAdds) {
+                if (add.targetIndex == fromIndex) {
+                    add.targetIndex = toIndex
+                } else if (fromIndex < toIndex && add.targetIndex in (fromIndex + 1)..toIndex) {
+                    add.targetIndex--
+                } else if (fromIndex > toIndex && add.targetIndex in toIndex until fromIndex) {
+                    add.targetIndex++
+                }
+            }
+
             val oldIndex = info.currentQueueIndex
             val newIndex = when {
                 oldIndex !in info.queue.indices -> oldIndex
@@ -985,6 +1138,11 @@ class PlaybackManager(
             )
             shuffleHistory.clear()
             persistPlaybackSnapshot(force = true)
+
+            val p = _player
+            if (p != null && fromIndex in 0 until p.mediaItemCount && toIndex in 0 until p.mediaItemCount) {
+                p.moveMediaItem(fromIndex, toIndex)
+            }
         }
     }
 
