@@ -496,12 +496,28 @@ private fun ContinuousLyricsDisplay(
                     }
                 }
             }
+            val adjustedPositionMs = currentPositionMs + effectiveOffsetMs
+            val transitionProgress = if (currentIndex in lines.indices) {
+                continuousLyricsTransitionProgress(
+                    adjustedPositionMs = adjustedPositionMs,
+                    currentLineTimeMs = lines[currentIndex].timeMs,
+                    nextLineTimeMs = lines.getOrNull(currentIndex + 1)?.timeMs
+                )
+            } else {
+                0f
+            }
+
             itemsIndexed(lines, key = { index, line -> "${line.timeMs}_${index}" }) { index, line ->
-                val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - currentIndex)
-                val targetAlpha = continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
+                val targetAlpha = if (showPreLyrics) {
+                    0f
+                } else {
+                    continuousLyricsLineAlpha(index, currentIndex, transitionProgress)
+                }
+                // Playback position is sampled every 500ms; a matching short tween
+                // keeps the fade visually continuous without trailing the lyric clock.
                 val lineAlpha by animateFloatAsState(
                     targetValue = targetAlpha,
-                    animationSpec = tween(durationMillis = config.animationDurationMs),
+                    animationSpec = tween(durationMillis = 500),
                     label = "continuousLyricOpacity"
                 )
                 val isCurrent = index == currentIndex
@@ -565,14 +581,38 @@ private fun ContinuousLyricsDisplay(
     }
 }
 
-/** Opacity curve for the continuous stream: current, near, distant, then faded out. */
-internal fun continuousLyricsLineAlpha(distance: Int, otherLinesOpacity: Float): Float {
-    if (distance <= 0) return 1f
-    val nearOpacity = otherLinesOpacity.coerceIn(0.1f, 0.85f)
-    return when (distance) {
-        1 -> nearOpacity
-        2 -> nearOpacity * 0.55f
-        3 -> nearOpacity * 0.2f
+/**
+ * Progress through the active lyric's time slot. The next line fades in while the
+ * active line stays fully visible; the previous line fades out over the same slot.
+ */
+internal fun continuousLyricsTransitionProgress(
+    adjustedPositionMs: Long,
+    currentLineTimeMs: Long,
+    nextLineTimeMs: Long?
+): Float {
+    // A final line has no following timestamp, so give its outgoing line a short
+    // three-second fade rather than leaving it visible indefinitely.
+    val endTimeMs = nextLineTimeMs ?: (currentLineTimeMs + 3_000L)
+    val durationMs = (endTimeMs - currentLineTimeMs).coerceAtLeast(1L)
+    return ((adjustedPositionMs - currentLineTimeMs).toFloat() / durationMs.toFloat())
+        .coerceIn(0f, 1f)
+}
+
+/**
+ * Opacity for the three-line transition window:
+ * previous 1→0, current fixed at 1, next 0→1.
+ */
+internal fun continuousLyricsLineAlpha(
+    lineIndex: Int,
+    currentIndex: Int,
+    transitionProgress: Float
+): Float {
+    if (currentIndex < 0) return 0f
+    val progress = transitionProgress.coerceIn(0f, 1f)
+    return when (lineIndex) {
+        currentIndex - 1 -> 1f - progress
+        currentIndex -> 1f
+        currentIndex + 1 -> progress
         else -> 0f
     }
 }
