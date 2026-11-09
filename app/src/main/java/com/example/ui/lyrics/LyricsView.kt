@@ -276,7 +276,7 @@ fun LyricsView(
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
                     text = lyricsData?.plainLyrics.orEmpty(),
-                    fontSize = config.currentLineFontSizeSp.sp,
+                    fontSize = fontSizeSp.sp
                     fontFamily = composeFontFamily,
                     fontWeight = FontWeight.Bold,
                     color = YimlyPink.copy(alpha = 0.96f),
@@ -322,7 +322,7 @@ fun LyricsView(
                     } else {
                         Text(
                             text = formatLyricText(line.text, config.textCase),
-                            fontSize = config.currentLineFontSizeSp.sp,
+                            fontSize = fontSizeSp.sp
                             fontFamily = composeFontFamily,
                             fontWeight = FontWeight.Bold,
                             color = currentLineColor.copy(alpha = 0.96f),
@@ -538,6 +538,7 @@ private fun ContinuousLyricsDisplay(
                             composeFontFamily = composeFontFamily,
                             textAlign = TextAlign.Center,
                             isPlaying = isPlaying,
+                            fontSizeSp = lineSize,
                             modifier = Modifier.fillMaxWidth()
                         )
                     } else {
@@ -592,12 +593,13 @@ fun SynchronizedLyricContent(
     composeFontFamily: FontFamily,
     textAlign: TextAlign,
     isPlaying: Boolean = true,
+    fontSizeSp: Float = config.currentLineFontSizeSp,
     modifier: Modifier = Modifier
 ) {
     if (config.formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps && line.words.isNotEmpty()) {
         val adjustedPos = currentPositionMs + effectiveOffsetMs
 
-        val spaceDp = (config.currentLineFontSizeSp * 0.25f).dp
+        val spaceDp = (fontSizeSp * 0.25f).dp
         val rowSpacingDp = (config.lineSpacingDp * 0.35f).coerceAtLeast(4f).dp
 
         FlowRow(
