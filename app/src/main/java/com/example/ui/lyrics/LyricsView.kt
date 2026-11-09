@@ -53,6 +53,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
@@ -436,14 +437,24 @@ private fun ContinuousLyricsDisplay(
             anchors
         }
 
+        val currentPosState = rememberUpdatedState(currentPositionMs)
+        val effectiveOffsetState = rememberUpdatedState(effectiveOffsetMs)
+        val isPlayingState = rememberUpdatedState(isPlaying)
+
         // Frame-synchronized smooth continuous upward motion driven by playback timing.
         // Updates scroll offset continuously at ~60 FPS while playing.
-        LaunchedEffect(isPlaying, config.autoScroll, itemAnchors.size) {
+        LaunchedEffect(config.autoScroll, itemAnchors.size) {
             if (!config.autoScroll || itemAnchors.isEmpty()) return@LaunchedEffect
 
+            var lastPosition = currentPosState.value + effectiveOffsetState.value
+
             while (isActive) {
-                if (isPlaying) {
-                    val adjustedPos = currentPositionMs + effectiveOffsetMs
+                val playing = isPlayingState.value
+                val adjustedPos = currentPosState.value + effectiveOffsetState.value
+                val positionChanged = adjustedPos != lastPosition
+
+                if (playing || positionChanged) {
+                    lastPosition = adjustedPos
 
                     val firstAnchor = itemAnchors.first()
                     val lastAnchor = itemAnchors.last()
