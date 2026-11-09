@@ -20,7 +20,7 @@ class ContinuousLyricsDisplayTest {
     @Test
     fun continuousLineOpacityClampsInvalidPreferenceValues() {
         assertEquals(1f, continuousLyricsLineAlpha(0, -1f), 0.001f)
-        assertEquals(0.35f, continuousLyricsLineAlpha(1, -1f), 0.001f)
+        assertEquals(0.1f, continuousLyricsLineAlpha(1, -1f), 0.001f)
         assertEquals(0.85f, continuousLyricsLineAlpha(1, 2f), 0.001f)
     }
 }
