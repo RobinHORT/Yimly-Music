@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -50,7 +51,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -60,6 +63,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
@@ -67,6 +71,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
@@ -77,6 +82,7 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.isActive
+import kotlin.math.abs
 import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricLine
 import com.example.data.models.LyricsData
@@ -403,24 +409,17 @@ private fun ContinuousLyricsDisplay(
     BoxWithConstraints(modifier = modifier.testTag(
         if (rotatingSections) "fullscreen_credit_lyrics" else "continuous_lyrics_display"
     )) {
-        val initialIndex = if (lines.isNotEmpty()) {
-            (currentIndex.coerceIn(0, lines.lastIndex) + (if (showPreLyrics) 1 else 0)).coerceAtLeast(0)
-        } else 0
-        val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+        val boxHalfHeight = maxHeight / 2
         val density = LocalDensity.current
-
-        // Requirement 2: All lyric lines must use exactly the same font size.
         val uniformFontSizeSp = config.currentLineFontSizeSp
+        val spacingDp = config.lineSpacingDp
 
-        // Center padding so that the active item is placed at the vertical center (teleprompter timing reference)
-        val centerOffsetDp = (maxHeight / 2).coerceAtLeast(16.dp)
+        val itemHeights = remember { mutableStateMapOf<Int, Int>() }
+        val defaultItemHeightPx = with(density) { ((uniformFontSizeSp * 1.3f).sp.toPx() + spacingDp.dp.toPx() + 24.dp.toPx()).toInt() }
+        val spacingPx = with(density) { spacingDp.dp.toPx().toInt() }
+        val viewportHeightPx = with(density) { maxHeight.toPx() }
+        val halfViewport = viewportHeightPx / 2f
 
-        // Continuous End-Credit-Style Scrolling:
-        // Calculate timestamp anchors for each item in LazyColumn.
-        // For pre-lyrics status item (if present): reaches center at 0ms.
-        // For each lyric line:
-        //   - In eLRC mode: arrival target is the timestamp of the first word (line.words.firstOrNull()?.startTimeMs ?: line.timeMs).
-        //   - In LRC mode: arrival target is line.timeMs.
         val itemAnchors = remember(lines, showPreLyrics, config.formatMode) {
             val anchors = mutableListOf<Long>()
             if (showPreLyrics) {
@@ -437,34 +436,46 @@ private fun ContinuousLyricsDisplay(
             anchors
         }
 
+        val anchorScrollYList = remember(itemAnchors, itemHeights.toMap(), viewportHeightPx, spacingPx, defaultItemHeightPx) {
+            val list = FloatArray(itemAnchors.size)
+            var currentTop = halfViewport
+            for (i in itemAnchors.indices) {
+                val h = itemHeights[i] ?: defaultItemHeightPx
+                val centerY = currentTop + h / 2f
+                list[i] = centerY - halfViewport
+                currentTop += h + spacingPx
+            }
+            list
+        }
+
+        var currentScrollY by remember { mutableFloatStateOf(0f) }
+
         val currentPosState = rememberUpdatedState(currentPositionMs)
         val effectiveOffsetState = rememberUpdatedState(effectiveOffsetMs)
         val isPlayingState = rememberUpdatedState(isPlaying)
 
-        // Frame-synchronized smooth continuous upward motion driven by playback timing.
-        // Updates scroll offset continuously at ~60 FPS while playing.
         LaunchedEffect(config.autoScroll, itemAnchors.size) {
             if (!config.autoScroll || itemAnchors.isEmpty()) return@LaunchedEffect
 
-            var lastPosition = currentPosState.value + effectiveOffsetState.value
+            var lastPos = currentPosState.value + effectiveOffsetState.value
 
             while (isActive) {
                 val playing = isPlayingState.value
                 val adjustedPos = currentPosState.value + effectiveOffsetState.value
-                val positionChanged = adjustedPos != lastPosition
+                val posChanged = adjustedPos != lastPos
 
-                if (playing || positionChanged) {
-                    lastPosition = adjustedPos
+                if (playing || posChanged) {
+                    lastPos = adjustedPos
 
                     val firstAnchor = itemAnchors.first()
                     val lastAnchor = itemAnchors.last()
 
-                    val (baseIndex, fraction) = when {
-                        adjustedPos <= firstAnchor -> 0 to 0f
-                        adjustedPos >= lastAnchor -> itemAnchors.lastIndex to 0f
+                    val targetY = when {
+                        adjustedPos <= firstAnchor -> anchorScrollYList.getOrNull(0) ?: 0f
+                        adjustedPos >= lastAnchor -> anchorScrollYList.lastOrNull() ?: 0f
                         else -> {
                             var low = 0
-                            var high = itemAnchors.lastIndex - 1
+                            var high = itemAnchors.size - 2
                             var foundIndex = 0
                             while (low <= high) {
                                 val mid = (low + high) / 2
@@ -477,58 +488,48 @@ private fun ContinuousLyricsDisplay(
                             }
                             val t0 = itemAnchors[foundIndex]
                             val t1 = itemAnchors.getOrElse(foundIndex + 1) { t0 }
+                            val y0 = anchorScrollYList.getOrElse(foundIndex) { 0f }
+                            val y1 = anchorScrollYList.getOrElse(foundIndex + 1) { y0 }
                             val dt = (t1 - t0).coerceAtLeast(1L)
                             val frac = ((adjustedPos - t0).toFloat() / dt.toFloat()).coerceIn(0f, 1f)
-                            foundIndex to frac
+                            y0 + frac * (y1 - y0)
                         }
                     }
 
-                    // Use actual measured row heights from LazyListLayoutInfo for precise row positioning
-                    val visibleItems = listState.layoutInfo.visibleItemsInfo
-                    val measuredItem = visibleItems.find { it.index == baseIndex }
-                    val itemHeightPx = measuredItem?.size
-                        ?: visibleItems.firstOrNull()?.size
-                        ?: with(density) { ((uniformFontSizeSp * 1.3f).sp.toPx() + config.lineSpacingDp.dp.toPx() + 16.dp.toPx()).toInt() }
-
-                    // Correct center alignment: align the vertical center of the row to the vertical center of the viewport
-                    val viewportHeight = listState.layoutInfo.viewportSize.height
-                    val halfViewport = viewportHeight / 2
-                    val halfItem = itemHeightPx / 2
-                    val centerAdjustment = (halfViewport - halfItem).coerceAtLeast(0)
-
-                    val targetOffsetPx = (fraction * itemHeightPx).toInt() - centerAdjustment
-                    val finalScrollIndex = if (targetOffsetPx < 0 && baseIndex > 0) baseIndex - 1 else baseIndex
-                    val finalScrollOffset = if (targetOffsetPx < 0 && baseIndex > 0) {
-                        val prevItem = visibleItems.find { it.index == baseIndex - 1 }
-                        val prevHeight = prevItem?.size ?: itemHeightPx
-                        prevHeight + targetOffsetPx
+                    if (posChanged && abs(targetY - currentScrollY) > viewportHeightPx) {
+                        currentScrollY = targetY // Instant jump on seek
                     } else {
-                        targetOffsetPx.coerceAtLeast(0)
-                    }
-
-                    try {
-                        listState.scrollToItem(
-                            index = finalScrollIndex,
-                            scrollOffset = finalScrollOffset
-                        )
-                    } catch (e: Exception) {
-                        // Fallback
+                        val diff = targetY - currentScrollY
+                        if (abs(diff) > 0.1f) {
+                            currentScrollY += diff * 0.35f
+                        } else {
+                            currentScrollY = targetY
+                        }
                     }
                 }
                 kotlinx.coroutines.delay(16L)
             }
         }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(top = centerOffsetDp, bottom = centerOffsetDp),
-            verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clipToBounds()
         ) {
-            if (showPreLyrics) {
-                item(key = "pre_lyrics_status") {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .graphicsLayer { translationY = -currentScrollY },
+                verticalArrangement = Arrangement.spacedBy(spacingDp.dp)
+            ) {
+                Spacer(modifier = Modifier.height(boxHalfHeight))
+
+                if (showPreLyrics) {
                     Box(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { size -> itemHeights[0] = size.height }
+                            .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
@@ -542,57 +543,61 @@ private fun ContinuousLyricsDisplay(
                         )
                     }
                 }
-            }
-            itemsIndexed(lines, key = { index, line -> "${line.timeMs}_$index" }) { index, line ->
-                val adjustedPos = currentPositionMs + effectiveOffsetMs
-                val isHighlighted = index <= currentIndex || line.timeMs <= adjustedPos
-                val isCurrent = index == currentIndex
 
-                // Requirement 3: Persistent LRC highlighting
-                val lineColor = if (isHighlighted) currentLineColor else TextSecondaryDark
+                val lineOffsetIndex = if (showPreLyrics) 1 else 0
+                lines.forEachIndexed { index, line ->
+                    val actualIndex = index + lineOffsetIndex
+                    val adjustedPos = currentPositionMs + effectiveOffsetMs
+                    val isHighlighted = index <= currentIndex || line.timeMs <= adjustedPos
+                    val isCurrent = index == currentIndex
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onSeekTo((line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)) }
-                        .padding(horizontal = 18.dp, vertical = 8.dp)
-                        .testTag(
-                            when {
-                                isCurrent && rotatingSections -> "fullscreen_credit_active_line"
-                                isCurrent -> "current_lyric_slot"
-                                else -> "continuous_lyric_line_$index"
-                            }
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (config.formatMode == LyricsFormatMode.ELRC) {
-                        // Requirement 4: Persistent eLRC word highlighting
-                        SynchronizedLyricContent(
-                            line = line,
-                            isCurrent = isCurrent,
-                            currentPositionMs = currentPositionMs,
-                            effectiveOffsetMs = effectiveOffsetMs,
-                            config = config,
-                            currentLineColor = currentLineColor,
-                            composeFontFamily = composeFontFamily,
-                            textAlign = TextAlign.Center,
-                            isPlaying = isPlaying,
-                            fontSizeSp = uniformFontSizeSp,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    } else {
-                        Text(
-                            text = formatLyricText(line.text, config.textCase),
-                            fontSize = uniformFontSizeSp.sp,
-                            fontFamily = composeFontFamily,
-                            fontWeight = FontWeight.Bold,
-                            color = lineColor,
-                            textAlign = if (config.formatMode == LyricsFormatMode.ELRC) TextAlign.Center else textAlign,
-                            lineHeight = (uniformFontSizeSp * 1.3f).sp,
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                    val lineColor = if (isHighlighted) currentLineColor else TextSecondaryDark
+
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .onSizeChanged { size -> itemHeights[actualIndex] = size.height }
+                            .clickable { onSeekTo((line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)) }
+                            .padding(horizontal = 18.dp, vertical = 8.dp)
+                            .testTag(
+                                when {
+                                    isCurrent && rotatingSections -> "fullscreen_credit_active_line"
+                                    isCurrent -> "current_lyric_slot"
+                                    else -> "continuous_lyric_line_$index"
+                                }
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (config.formatMode == LyricsFormatMode.ELRC) {
+                            SynchronizedLyricContent(
+                                line = line,
+                                isCurrent = isCurrent,
+                                currentPositionMs = currentPositionMs,
+                                effectiveOffsetMs = effectiveOffsetMs,
+                                config = config,
+                                currentLineColor = currentLineColor,
+                                composeFontFamily = composeFontFamily,
+                                textAlign = TextAlign.Center,
+                                isPlaying = isPlaying,
+                                fontSizeSp = uniformFontSizeSp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        } else {
+                            Text(
+                                text = formatLyricText(line.text, config.textCase),
+                                fontSize = uniformFontSizeSp.sp,
+                                fontFamily = composeFontFamily,
+                                fontWeight = FontWeight.Bold,
+                                color = lineColor,
+                                textAlign = if (config.formatMode == LyricsFormatMode.ELRC) TextAlign.Center else textAlign,
+                                lineHeight = (uniformFontSizeSp * 1.3f).sp,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
                     }
                 }
+
+                Spacer(modifier = Modifier.height(boxHalfHeight))
             }
         }
     }
