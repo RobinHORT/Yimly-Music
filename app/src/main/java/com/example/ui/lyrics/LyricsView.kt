@@ -727,14 +727,20 @@ private fun ContinuousLyricsDisplay(
                             .drawWithContent {
                                 drawContent()
                                 if (size.height > 0f) {
-                                    val fadeHeightPx = size.height * 0.35f
-                                    val fadeFraction = (fadeHeightPx / size.height).coerceIn(0f, 0.5f)
+                                    // Keep a fully transparent gap at both viewport edges,
+                                    // then fade smoothly into the fully visible centre band.
+                                    val edgeGapFraction = 0.05f
+                                    val fadeFraction = 0.30f
+                                    val topFadeEnd = edgeGapFraction + fadeFraction
+                                    val bottomFadeStart = 1f - edgeGapFraction - fadeFraction
                                     drawRect(
                                         brush = Brush.verticalGradient(
                                             colorStops = arrayOf(
                                                 0f to Color.Transparent,
-                                                fadeFraction to Color.Black,
-                                                (1f - fadeFraction) to Color.Black,
+                                                edgeGapFraction to Color.Transparent,
+                                                topFadeEnd to Color.Black,
+                                                bottomFadeStart to Color.Black,
+                                                (1f - edgeGapFraction) to Color.Transparent,
                                                 1f to Color.Transparent
                                             ),
                                             startY = 0f,
