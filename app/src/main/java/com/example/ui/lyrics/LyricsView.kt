@@ -497,7 +497,9 @@ private fun ContinuousLyricsDisplay(
             }
             itemsIndexed(lines, key = { index, line -> "${line.timeMs}_${index}" }) { index, line ->
                 val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - currentIndex)
-                val targetAlpha = continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
+                // Fullscreen credit mode keeps every lyric fully visible as it passes.
+                // Earlier lines retain their highlighted state instead of fading back out.
+                val targetAlpha = if (rotatingSections) 1f else continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
                 val lineAlpha by animateFloatAsState(
                     targetValue = targetAlpha,
                     animationSpec = tween(durationMillis = config.animationDurationMs),
@@ -505,6 +507,8 @@ private fun ContinuousLyricsDisplay(
                 )
                 val isCurrent = index == currentIndex
                 val lineColor = if (config.formatMode == LyricsFormatMode.ELRC) {
+                    currentLineColor
+                } else if (rotatingSections && index <= currentIndex) {
                     currentLineColor
                 } else if (isCurrent && config.highlightCurrentLine) {
                     currentLineColor
