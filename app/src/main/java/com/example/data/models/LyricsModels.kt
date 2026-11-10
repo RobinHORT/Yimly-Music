@@ -34,6 +34,19 @@ enum class LyricsFormatMode(val displayName: String) {
     LRC("LRC")
 }
 
+enum class LyricsColorTheme(
+    val displayName: String,
+    val activeColorHex: String,
+    val inactiveColorHex: String,
+    val inactiveAlpha: Float = 1f
+) {
+    STREAMING_STANDARD("Streaming Standard", "#FFFFFF", "#FFFFFF", 0.35f),
+    CYBERPUNK_ENERGY("Cyberpunk Energy", "#39FF14", "#4A5D4E"),
+    ELECTRIC_OCEAN("Electric Ocean", "#00F0FF", "#415A77"),
+    NEON_SUNSET("Neon Sunset", "#FF7B00", "#FFB7B2", 0.40f),
+    ROYAL_GOLD("Royal Gold", "#FFD700", "#D48A37", 0.30f)
+}
+
 enum class LyricFontFamily(val displayName: String) {
     DEFAULT("Default"),
     MONOSPACE("Monospace"),
@@ -106,6 +119,7 @@ data class LyricsDisplayConfig(
     // Current Line
     val currentLineFontSizeSp: Float = 24f,
     val currentLineColorHex: String = "#FF3366",
+    val colorTheme: LyricsColorTheme = LyricsColorTheme.STREAMING_STANDARD,
     val fontWeightBold: Boolean = true,
 
     // Previous & Next Lines
