@@ -53,8 +53,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameMillis
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -102,6 +103,7 @@ fun LyricsView(
     onOffsetChange: (Long) -> Unit,
     onToggleFormatMode: (() -> Unit)? = null,
     isPlaying: Boolean = true,
+    playbackSpeed: Float = 1.0f,
     showFocusControls: Boolean = true,
     floatingFocusMode: Boolean = false,
     rotatingSections: Boolean = false,
@@ -343,6 +345,7 @@ fun LyricsView(
                 composeFontFamily = composeFontFamily,
                 textAlign = textAlign,
                 isPlaying = isPlaying,
+                playbackSpeed = playbackSpeed,
                 onSeekTo = onSeekTo,
                 rotatingSections = rotatingSections,
                 modifier = Modifier.fillMaxSize()
@@ -424,6 +427,28 @@ fun LyricsView(
     }
 }
 
+/** Timestamp used to anchor a fullscreen line; eLRC starts at its first word. */
+internal fun fullscreenLyricTimestamp(
+    line: LyricLine,
+    formatMode: LyricsFormatMode
+): Long = if (formatMode == LyricsFormatMode.ELRC && line.hasWordTimestamps) {
+    line.words.firstOrNull()?.startTimeMs ?: line.timeMs
+} else {
+    line.timeMs
+}
+
+/** Playback-time fraction between two lyric anchors, clamped to the current interval. */
+internal fun fullscreenLyricsScrollProgress(
+    playbackPositionMs: Double,
+    currentLineTimeMs: Long,
+    nextLineTimeMs: Long
+): Float {
+    val durationMs = (nextLineTimeMs - currentLineTimeMs).coerceAtLeast(1L)
+    return ((playbackPositionMs - currentLineTimeMs.toDouble()) / durationMs.toDouble())
+        .coerceIn(0.0, 1.0)
+        .toFloat()
+}
+
 /**
  * One continuous lyrics stream shared by Focus and fullscreen lyrics.
  *
@@ -443,11 +468,20 @@ private fun ContinuousLyricsDisplay(
     composeFontFamily: FontFamily,
     textAlign: TextAlign,
     isPlaying: Boolean,
+    playbackSpeed: Float,
     onSeekTo: (Long) -> Unit,
     rotatingSections: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val showPreLyrics = currentIndex < 0
+    val lineTimestamps = remember(lines, config.formatMode) {
+        lines.map { fullscreenLyricTimestamp(it, config.formatMode) }
+    }
+    var activeDisplayIndex by remember(lines) { mutableStateOf(currentIndex) }
+    val latestPositionMs by rememberUpdatedState(currentPositionMs)
+    val latestIsPlaying by rememberUpdatedState(isPlaying)
+    val latestPlaybackSpeed by rememberUpdatedState(playbackSpeed)
+    val latestEffectiveOffsetMs by rememberUpdatedState(effectiveOffsetMs)
+    val showPreLyrics = activeDisplayIndex < 0
     val preLyricsStatus = when {
         !isPlaying && currentPositionMs == 0L -> "♪ Music stopped ♪"
         !isPlaying -> "♪ Music paused ♪"
@@ -459,14 +493,88 @@ private fun ContinuousLyricsDisplay(
     )) {
         val listState = rememberLazyListState()
         val density = LocalDensity.current
-        val centerOffsetPx = with(density) { (maxHeight / 2 - 36.dp).roundToPx() }
         val topPadding = if (showPreLyrics) (maxHeight / 2 - 36.dp).coerceAtLeast(16.dp) else 16.dp
+        val lineSpacingPx = with(density) { config.lineSpacingDp.dp.roundToPx() }
 
-        LaunchedEffect(currentIndex, lines.size) {
-            if (currentIndex in lines.indices) {
+        // Fullscreen mode follows the playback clock frame-by-frame. Each line starts
+        // centred at its timestamp, then glides to the next line's centre over the
+        // exact timestamp interval between those two lines.
+        LaunchedEffect(lines, rotatingSections, config.formatMode) {
+            if (rotatingSections && lines.isNotEmpty()) {
+                var lastSamplePositionMs = latestPositionMs
+                var anchorPositionMs = latestPositionMs.toDouble()
+                var anchorFrameNanos = 0L
+
+                while (isActive) {
+                    val frameNanos = withFrameNanos { it }
+                    val samplePositionMs = latestPositionMs
+                    if (anchorFrameNanos == 0L || samplePositionMs != lastSamplePositionMs) {
+                        anchorPositionMs = samplePositionMs.toDouble()
+                        anchorFrameNanos = frameNanos
+                        lastSamplePositionMs = samplePositionMs
+                    }
+
+                    val playbackPositionMs = if (latestIsPlaying) {
+                        anchorPositionMs +
+                            ((frameNanos - anchorFrameNanos).coerceAtLeast(0L) / 1_000_000.0) *
+                            latestPlaybackSpeed.coerceAtLeast(0f)
+                    } else {
+                        samplePositionMs.toDouble()
+                    }
+                    val adjustedPositionMs = playbackPositionMs + latestEffectiveOffsetMs
+                    val activeIndex = lineTimestamps.indexOfLast { it <= adjustedPositionMs }
+                    activeDisplayIndex = activeIndex
+
+                    if (activeIndex < 0) {
+                        listState.scrollToItem(0)
+                        continue
+                    }
+
+                    var currentItem = listState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { it.index == activeIndex }
+                    if (currentItem == null) {
+                        listState.scrollToItem(activeIndex)
+                        continue
+                    }
+
+                    val nextIndex = activeIndex + 1
+                    val nextTimeMs = lineTimestamps.getOrNull(nextIndex)
+                    val nextItem = if (nextTimeMs != null) {
+                        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == nextIndex }
+                    } else null
+
+                    // The measured centre-to-centre distance includes actual wrapping
+                    // height and LazyColumn spacing, not an assumed fixed row height.
+                    val centreDistancePx = if (nextItem != null) {
+                        (nextItem.offset + nextItem.size / 2f) -
+                            (currentItem.offset + currentItem.size / 2f)
+                    } else {
+                        currentItem.size.toFloat() + lineSpacingPx
+                    }
+                    val progress = if (nextTimeMs != null) {
+                        fullscreenLyricsScrollProgress(
+                            adjustedPositionMs,
+                            lineTimestamps[activeIndex],
+                            nextTimeMs
+                        )
+                    } else {
+                        0f
+                    }
+                    val centredItemOffset = currentItem.size / 2 -
+                        listState.layoutInfo.viewportSize.height / 2
+                    val interpolatedOffset = centredItemOffset +
+                        (centreDistancePx * progress).toInt()
+
+                    listState.scrollToItem(activeIndex, interpolatedOffset)
+                }
+            }
+        }
+
+        LaunchedEffect(currentIndex, lines.size, rotatingSections) {
+            if (!rotatingSections && currentIndex in lines.indices) {
                 listState.animateScrollToItem(
                     index = currentIndex,
-                    scrollOffset = -centerOffsetPx
+                    scrollOffset = -(maxHeight / 2 - 36.dp).roundToPx()
                 )
             }
         }
@@ -496,7 +604,7 @@ private fun ContinuousLyricsDisplay(
                 }
             }
             itemsIndexed(lines, key = { index, line -> "${line.timeMs}_${index}" }) { index, line ->
-                val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - currentIndex)
+                val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - activeDisplayIndex)
                 // Fullscreen credit mode keeps every lyric fully visible as it passes.
                 // Earlier lines retain their highlighted state instead of fading back out.
                 val targetAlpha = if (rotatingSections) 1f else continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
@@ -505,7 +613,7 @@ private fun ContinuousLyricsDisplay(
                     animationSpec = tween(durationMillis = config.animationDurationMs),
                     label = "continuousLyricOpacity"
                 )
-                val isCurrent = index == currentIndex
+                val isCurrent = index == activeDisplayIndex
                 val lineColor = if (config.formatMode == LyricsFormatMode.ELRC) {
                     currentLineColor
                 } else if (rotatingSections && index <= currentIndex) {
