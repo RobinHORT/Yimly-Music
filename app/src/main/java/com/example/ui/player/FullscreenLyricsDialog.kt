@@ -1,5 +1,13 @@
 package com.example.ui.player
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode as AnimationRepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
@@ -37,10 +45,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -49,7 +56,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import coil.compose.AsyncImage
+import androidx.core.graphics.drawable.toBitmap
+import androidx.palette.graphics.Palette
+import coil.imageLoader
+import coil.request.ImageRequest
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import com.example.YimlyApplication
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
@@ -132,30 +144,7 @@ fun FullscreenLyricsDialog(
                     )
                 }
         ) {
-            if (!song.artworkUrl.isNullOrBlank()) {
-                AsyncImage(
-                    model = song.artworkUrl,
-                    contentDescription = null,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().blur(30.dp).graphicsLayer { alpha = 0.42f }
-                )
-            }
-
-            Box(
-                modifier = Modifier.fillMaxSize().background(Color(0xFF190D18).copy(alpha = 0.48f))
-            )
-
-            Box(
-                modifier = Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color(0xFFBE185D).copy(alpha = 0.30f),
-                            Color(0xFF9D174D).copy(alpha = 0.40f),
-                            Color(0xFF230C1D).copy(alpha = 0.68f)
-                        )
-                    )
-                )
-            )
+            ArtworkMeshBackground(artworkUrl = song.artworkUrl)
 
             Column(
                 modifier = Modifier
@@ -233,5 +222,149 @@ fun FullscreenLyricsDialog(
                 )
             }
         }
+    }
+}
+
+
+/**
+ * Animated artwork-colour mesh used only by the fullscreen lyrics backdrop.
+ * The artwork is sampled off the main thread; palette changes crossfade over one second.
+ */
+@Composable
+private fun ArtworkMeshBackground(artworkUrl: String?) {
+    val context = LocalContext.current
+    var artworkColors by remember {
+        mutableStateOf(
+            listOf(
+                Color(0xFF8E1B5A),
+                Color(0xFF54245F),
+                Color(0xFFB83280)
+            )
+        )
+    }
+
+    LaunchedEffect(artworkUrl) {
+        if (artworkUrl.isNullOrBlank()) return@LaunchedEffect
+        runCatching {
+            val request = ImageRequest.Builder(context)
+                .data(artworkUrl)
+                .size(96, 96)
+                .allowHardware(false)
+                .build()
+            val result = context.imageLoader.execute(request)
+            val bitmap = result.drawable.toBitmap()
+            withContext(Dispatchers.Default) {
+                val palette = Palette.from(bitmap).generate()
+                listOf(
+                    palette.vibrantSwatch?.rgb
+                        ?: palette.dominantSwatch?.rgb
+                        ?: 0xFF8E1B5A.toInt(),
+                    palette.darkVibrantSwatch?.rgb
+                        ?: palette.darkMutedSwatch?.rgb
+                        ?: palette.mutedSwatch?.rgb
+                        ?: 0xFF54245F.toInt(),
+                    palette.lightVibrantSwatch?.rgb
+                        ?: palette.lightMutedSwatch?.rgb
+                        ?: palette.dominantSwatch?.rgb
+                        ?: 0xFFB83280.toInt()
+                ).map(::Color)
+            }
+        }.onSuccess { extractedColors ->
+            artworkColors = extractedColors
+        }
+    }
+
+    val colorOne by animateColorAsState(
+        targetValue = artworkColors[0],
+        animationSpec = tween(durationMillis = 1000),
+        label = "meshArtworkColorOne"
+    )
+    val colorTwo by animateColorAsState(
+        targetValue = artworkColors[1],
+        animationSpec = tween(durationMillis = 1000),
+        label = "meshArtworkColorTwo"
+    )
+    val colorThree by animateColorAsState(
+        targetValue = artworkColors[2],
+        animationSpec = tween(durationMillis = 1000),
+        label = "meshArtworkColorThree"
+    )
+
+    val transition = rememberInfiniteTransition(label = "lyricsArtworkMesh")
+    val waveOffset by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 100f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 8000, easing = LinearEasing),
+            repeatMode = AnimationRepeatMode.Reverse
+        ),
+        label = "lyricsMeshWaveOffset"
+    )
+
+    Box(modifier = Modifier.fillMaxSize().background(BackgroundDark)) {
+        Canvas(modifier = Modifier.fillMaxSize().blur(80.dp)) {
+            val drift = waveOffset
+            val radius = maxOf(size.width, size.height) * 0.78f
+
+            val topLeft = Offset(
+                x = -size.width * 0.04f + drift,
+                y = -size.height * 0.05f + drift * 0.35f
+            )
+            val bottomRight = Offset(
+                x = size.width * 1.04f - drift * 0.55f,
+                y = size.height * 1.05f - drift
+            )
+            val upperRight = Offset(
+                x = size.width * 1.02f - drift * 0.3f,
+                y = size.height * 0.18f + drift * 0.65f
+            )
+
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0f to colorOne.copy(alpha = 0.95f),
+                        0.48f to colorOne.copy(alpha = 0.52f),
+                        1f to Color.Transparent
+                    ),
+                    center = topLeft,
+                    radius = radius
+                ),
+                radius = radius,
+                center = topLeft
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0f to colorTwo.copy(alpha = 0.92f),
+                        0.5f to colorTwo.copy(alpha = 0.5f),
+                        1f to Color.Transparent
+                    ),
+                    center = bottomRight,
+                    radius = radius
+                ),
+                radius = radius,
+                center = bottomRight
+            )
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colorStops = arrayOf(
+                        0f to colorThree.copy(alpha = 0.78f),
+                        0.52f to colorThree.copy(alpha = 0.38f),
+                        1f to Color.Transparent
+                    ),
+                    center = upperRight,
+                    radius = radius * 0.72f
+                ),
+                radius = radius * 0.72f,
+                center = upperRight
+            )
+        }
+
+        // Keep lyrics and controls legible over even very bright artwork palettes.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.45f))
+        )
     }
 }
