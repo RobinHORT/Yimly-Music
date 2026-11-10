@@ -115,4 +115,39 @@ class PlaybackManagerQueueConsistencyTest {
         assertEquals(2, infoAfter.queue.size)
         assertEquals(1, infoAfter.currentQueueIndex)
     }
+
+    @Test
+    fun `handlePlayerError releases transition WakeLock immediately`() = runTest {
+        // Mock a WakeLock being held
+        playbackManager.acquireTransitionWakeLock()
+        
+        // Call handlePlayerError
+        val error = mockk<androidx.media3.common.PlaybackException>(relaxed = true)
+        playbackManager.handlePlayerError(error)
+        
+        // Verify WakeLock is released
+        assertFalse(playbackManager.isTransitionWakeLockHeld)
+    }
+
+    @Test
+    fun `restoreFromSnapshot uses authoritative queue check`() = runTest {
+        val song = createSong("1")
+        playbackManager.playSong(song)
+        
+        val snapshot = PlaybackSnapshot(
+            queue = listOf(createSong("2")),
+            currentQueueIndex = 0,
+            currentPositionMs = 0,
+            isShuffle = false,
+            repeatMode = RepeatMode.OFF,
+            isInstrumental = false
+        )
+        
+        // Attempt to restore when queue is already populated
+        val result = playbackManager.restoreFromSnapshot(snapshot)
+        
+        // Should return false and not overwrite
+        assertFalse(result)
+        assertEquals("1", playbackManager.playbackInfo.value.currentSong?.id)
+    }
 }

@@ -308,6 +308,7 @@ class PlaybackManager(
     }
 
     fun handlePlayerError(error: PlaybackException) {
+        releaseTransitionWakeLock()
         val (currentQueue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val currentSong = currentQueue.getOrNull(currentQueueIndex)
         val info = _playbackInfo.value
@@ -1094,7 +1095,8 @@ class PlaybackManager(
 
         withContext(Dispatchers.Main.immediate) {
             if (restoreRequestId != playbackRequestId) return@withContext
-            if (_playbackInfo.value.currentSong != null || _playbackInfo.value.queue.isNotEmpty()) return@withContext
+            val (currentQueue, _) = queueManager.getQueueSnapshot()
+            if (currentQueue.isNotEmpty()) return@withContext
 
             val validQueue = resolvedEntries.map { it.song }
             val mediaItems = resolvedEntries.map { it.mediaItem }
