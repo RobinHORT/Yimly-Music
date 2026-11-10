@@ -31,6 +31,11 @@ class LyricsSettingsComprehensiveTest {
     val composeTestRule = createComposeRule()
 
     @Test
+    fun testLyricsDisplayConfigDefaultsToTitleCase() {
+        assertEquals(LyricTextCase.TITLE_CASE, LyricsDisplayConfig().textCase)
+    }
+
+    @Test
     fun testTitleCaseTransformationRules() {
         assertEquals("Hello World", toTitleCase("hello world"))
         assertEquals("This Is A Song", toTitleCase("THIS IS A SONG"))
