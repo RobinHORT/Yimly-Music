@@ -719,7 +719,7 @@ private fun ContinuousLyricsDisplay(
                 .fillMaxSize()
                 // Inset the lyrics section itself so the edge fades begin inside
                 // the padded viewport rather than leaving a transparent gap in it.
-                .padding(vertical = if (rotatingSections) 24.dp else 0.dp)
+                .padding(vertical = if (rotatingSections) 40.dp else 0.dp)
                 .onGloballyPositioned { coordinates ->
                     containerBounds[0] = coordinates.positionInRoot().y
                     containerBounds[1] = coordinates.size.height.toFloat()
@@ -865,9 +865,9 @@ private fun ContinuousLyricsDisplay(
                                     (isCurrent && config.highlightCurrentLine)
                                 ) {
                                     Shadow(
-                                        color = Color.Black.copy(alpha = 0.92f),
+                                        color = Color.Black.copy(alpha = 1f),
                                         offset = Offset.Zero,
-                                        blurRadius = 9f
+                                        blurRadius = 2f
                                     )
                                 } else null
                             ),
@@ -1004,9 +1004,9 @@ fun ProgressiveSweepWord(
             color = activeColor,
             style = TextStyle(
                 shadow = Shadow(
-                    color = Color.Black.copy(alpha = 0.92f),
+                    color = Color.Black.copy(alpha = 1f),
                     offset = Offset.Zero,
-                    blurRadius = 9f
+                    blurRadius = 2f
                 )
             ),
             fontSize = fontSize,
