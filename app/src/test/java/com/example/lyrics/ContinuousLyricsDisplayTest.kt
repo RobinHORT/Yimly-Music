@@ -5,6 +5,7 @@ import com.example.data.models.LyricWord
 import com.example.data.models.LyricsFormatMode
 import com.example.ui.lyrics.fullscreenLyricTimestamp
 import com.example.ui.lyrics.fullscreenLyricsScrollProgress
+import com.example.ui.lyrics.fullscreenLyricsPixelDelta
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import kotlin.math.abs
@@ -109,6 +110,17 @@ class ContinuousLyricsDisplayTest {
     fun fullscreenScrollHandlesDuplicateOrReversedTimestampsSafely() {
         assertEquals(1f, fullscreenLyricsScrollProgress(2500.0, 2000L, 2000L), 0.001f)
         assertEquals(0f, fullscreenLyricsScrollProgress(2500.0, 3000L, 2000L), 0.001f)
+    }
+
+    @Test
+    fun fullscreenPixelDeltaMovesOnlyTheProgressDifference() {
+        assertEquals(25f, fullscreenLyricsPixelDelta(100f, 0.25f, 0.5f), 0.001f)
+        assertEquals(50f, fullscreenLyricsPixelDelta(100f, 0.5f, 1f), 0.001f)
+    }
+
+    @Test
+    fun fullscreenPixelDeltaSupportsReverseSeekCorrections() {
+        assertEquals(-30f, fullscreenLyricsPixelDelta(100f, 0.8f, 0.5f), 0.001f)
     }
 
 }
