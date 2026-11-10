@@ -717,6 +717,9 @@ private fun ContinuousLyricsDisplay(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
+                // Inset the lyrics section itself so the edge fades begin inside
+                // the padded viewport rather than leaving a transparent gap in it.
+                .padding(vertical = if (rotatingSections) 24.dp else 0.dp)
                 .onGloballyPositioned { coordinates ->
                     containerBounds[0] = coordinates.positionInRoot().y
                     containerBounds[1] = coordinates.size.height.toFloat()
@@ -730,20 +733,15 @@ private fun ContinuousLyricsDisplay(
                             .drawWithContent {
                                 drawContent()
                                 if (size.height > 0f) {
-                                    // Keep a fully transparent gap at both viewport edges,
-                                    // then fade smoothly into the fully visible centre band.
-                                    val edgeGapFraction = 0.05f
+                                    // Fade directly from transparent at the section edge
+                                    // into the fully visible centre, with no flat zero-opacity gap.
                                     val fadeFraction = 0.30f
-                                    val topFadeEnd = edgeGapFraction + fadeFraction
-                                    val bottomFadeStart = 1f - edgeGapFraction - fadeFraction
                                     drawRect(
                                         brush = Brush.verticalGradient(
                                             colorStops = arrayOf(
                                                 0f to Color.Transparent,
-                                                edgeGapFraction to Color.Transparent,
-                                                topFadeEnd to Color.Black,
-                                                bottomFadeStart to Color.Black,
-                                                (1f - edgeGapFraction) to Color.Transparent,
+                                                fadeFraction to Color.Black,
+                                                (1f - fadeFraction) to Color.Black,
                                                 1f to Color.Transparent
                                             ),
                                             startY = 0f,
@@ -867,9 +865,9 @@ private fun ContinuousLyricsDisplay(
                                     (isCurrent && config.highlightCurrentLine)
                                 ) {
                                     Shadow(
-                                        color = Color.Black.copy(alpha = 0.72f),
+                                        color = Color.Black.copy(alpha = 0.92f),
                                         offset = Offset.Zero,
-                                        blurRadius = 5f
+                                        blurRadius = 9f
                                     )
                                 } else null
                             ),
@@ -1006,9 +1004,9 @@ fun ProgressiveSweepWord(
             color = activeColor,
             style = TextStyle(
                 shadow = Shadow(
-                    color = Color.Black.copy(alpha = 0.72f),
+                    color = Color.Black.copy(alpha = 0.92f),
                     offset = Offset.Zero,
-                    blurRadius = 5f
+                    blurRadius = 9f
                 )
             ),
             fontSize = fontSize,
