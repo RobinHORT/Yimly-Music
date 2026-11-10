@@ -532,8 +532,8 @@ private fun ContinuousLyricsDisplay(
                         continue
                     }
 
-                    var currentItem = listState.layoutInfo.visibleItemsInfo
-                        .firstOrNull { it.index == activeIndex }
+                    val currentItem = listState.layoutInfo.visibleItemsInfo
+                        .firstOrNull { it.index == activeIndex && it.key != "pre_lyrics_status" }
                     if (currentItem == null) {
                         listState.scrollToItem(activeIndex)
                         continue
@@ -542,7 +542,9 @@ private fun ContinuousLyricsDisplay(
                     val nextIndex = activeIndex + 1
                     val nextTimeMs = lineTimestamps.getOrNull(nextIndex)
                     val nextItem = if (nextTimeMs != null) {
-                        listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == nextIndex }
+                        listState.layoutInfo.visibleItemsInfo.firstOrNull {
+                            it.index == nextIndex && it.key != "pre_lyrics_status"
+                        }
                     } else null
 
                     // The measured centre-to-centre distance includes actual wrapping
