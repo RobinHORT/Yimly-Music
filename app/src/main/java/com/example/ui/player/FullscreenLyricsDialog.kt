@@ -84,7 +84,8 @@ fun FullscreenLyricsDialog(
     onSeekTo: (Long) -> Unit,
     onOpenSettings: () -> Unit,
     onLyricsOffsetChange: (Long) -> Unit,
-    onSaveLyricsConfig: (LyricsDisplayConfig) -> Unit
+    onSaveLyricsConfig: (LyricsDisplayConfig) -> Unit,
+    playbackSpeed: Float = 1.0f
 ) {
     var fullscreenFormatMode by remember(song.id, lyricsConfig.formatMode) { mutableStateOf(lyricsConfig.formatMode) }
     val context = LocalContext.current
@@ -227,6 +228,7 @@ fun FullscreenLyricsDialog(
                     onSeekTo = onSeekTo,
                     onOpenSettings = onOpenSettings,
                     onOffsetChange = onLyricsOffsetChange,
+                    playbackSpeed = playbackSpeed,
                     modifier = Modifier.weight(1f).fillMaxWidth()
                 )
             }

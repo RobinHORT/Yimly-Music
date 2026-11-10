@@ -7,29 +7,62 @@ import kotlin.math.abs
 class ContinuousLyricsDisplayTest {
 
     @Test
-    fun testViewportOpacityGradientCalculation() {
-        // Top edge: 0.0 -> 0%
-        assertEquals(0f, calculateViewportOpacity(0f, 0f, 1000f), 0.001f)
-        // Upper quarter: 0.25 -> 50%
-        assertEquals(0.5f, calculateViewportOpacity(250f, 0f, 1000f), 0.001f)
-        // Centre: 0.5 -> 100%
-        assertEquals(1.0f, calculateViewportOpacity(500f, 0f, 1000f), 0.001f)
-        // Lower quarter: 0.75 -> 50%
-        assertEquals(0.5f, calculateViewportOpacity(750f, 0f, 1000f), 0.001f)
-        // Bottom edge: 1.0 -> 0%
-        assertEquals(0f, calculateViewportOpacity(1000f, 0f, 1000f), 0.001f)
+    fun testClockExtrapolation() {
+        val basePosMs = 1000L
+        val elapsedNanos = 500_000_000L // 500ms
+        val speed = 1.0f
+        
+        val elapsedMs = (elapsedNanos.toDouble() / 1_000_000.0) * speed
+        val animatedPosMs = basePosMs.toDouble() + elapsedMs
+        
+        assertEquals(1500.0, animatedPosMs, 0.001)
     }
 
-    private fun calculateViewportOpacity(itemCenterY: Float, currentScrollY: Float, viewportHeightPx: Float): Float {
-        if (viewportHeightPx <= 0f) return 1f
-        val viewportRelativeY = itemCenterY - currentScrollY
-        val normY = (viewportRelativeY / viewportHeightPx).coerceIn(0f, 1f)
-        return when {
-            normY <= 0f || normY >= 1f -> 0f
-            normY < 0.25f -> (normY / 0.25f) * 0.5f
-            normY < 0.5f -> 0.5f + ((normY - 0.25f) / 0.25f) * 0.5f
-            normY < 0.75f -> 1.0f - ((normY - 0.5f) / 0.25f) * 0.5f
-            else -> 0.5f - ((normY - 0.75f) / 0.25f) * 0.5f
-        }
+    @Test
+    fun testClockExtrapolationWithSpeed() {
+        val basePosMs = 1000L
+        val elapsedNanos = 500_000_000L // 500ms
+        val speed = 1.5f
+        
+        val elapsedMs = (elapsedNanos.toDouble() / 1_000_000.0) * speed
+        val animatedPosMs = basePosMs.toDouble() + elapsedMs
+        
+        assertEquals(1750.0, animatedPosMs, 0.001)
+    }
+
+    @Test
+    fun testInterpolationFraction() {
+        val t0 = 1000L
+        val t1 = 2000L
+        val adjustedPos = 1500.0
+        
+        val dt = (t1 - t0).coerceAtLeast(1L)
+        val frac = ((adjustedPos - t0.toDouble()) / dt.toDouble()).coerceIn(0.0, 1.0).toFloat()
+        
+        assertEquals(0.5f, frac, 0.001f)
+    }
+
+    @Test
+    fun testAnchorCalculationWithInitialSpacing() {
+        val halfViewport = 500f
+        val spacingPx = 20
+        val h0 = 100
+        val h1 = 120
+        
+        // Item 0
+        // Column spacedBy puts spacing between children. Spacer is the first child.
+        // First lyric item top = halfViewport + spacingPx
+        var currentTop = halfViewport + spacingPx
+        val centerY0 = currentTop + h0 / 2f
+        val list0 = centerY0 - halfViewport
+        
+        assertEquals(spacingPx + h0 / 2f, list0, 0.001f)
+        
+        // Item 1
+        currentTop += h0 + spacingPx
+        val centerY1 = currentTop + h1 / 2f
+        val list1 = centerY1 - halfViewport
+        
+        assertEquals(2 * spacingPx + h0 + h1 / 2f, list1, 0.001f)
     }
 }

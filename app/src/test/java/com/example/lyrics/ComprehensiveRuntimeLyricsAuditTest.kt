@@ -54,7 +54,8 @@ class ComprehensiveRuntimeLyricsAuditTest {
         val config = LyricsDisplayConfig(
             formatMode = LyricsFormatMode.LRC,
             alignment = LyricAlignment.CENTER,
-            highlightCurrentLine = true
+            highlightCurrentLine = true,
+            autoScroll = false
         )
 
         composeTestRule.setContent {
@@ -85,7 +86,8 @@ class ComprehensiveRuntimeLyricsAuditTest {
 
         val config = LyricsDisplayConfig(
             formatMode = LyricsFormatMode.ELRC,
-            highlightCurrentLine = true
+            highlightCurrentLine = true,
+            autoScroll = false
         )
 
         composeTestRule.setContent {

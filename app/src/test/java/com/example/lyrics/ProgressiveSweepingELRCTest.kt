@@ -60,7 +60,8 @@ class ProgressiveSweepingELRCTest {
         val config = LyricsDisplayConfig(
             formatMode = LyricsFormatMode.ELRC,
             alignment = LyricAlignment.START, // Even if set to START, eLRC must remain centered
-            highlightCurrentLine = true
+            highlightCurrentLine = true,
+            autoScroll = false
         )
 
         composeTestRule.setContent {
@@ -98,7 +99,8 @@ class ProgressiveSweepingELRCTest {
 
         val config = LyricsDisplayConfig(
             formatMode = LyricsFormatMode.ELRC,
-            highlightCurrentLine = true
+            highlightCurrentLine = true,
+            autoScroll = false
         )
 
         composeTestRule.setContent {

@@ -184,7 +184,8 @@ fun FullPlayerScreen(
             onSeekTo = onSeekTo,
             onOpenSettings = { showFullscreenLyrics = false; showLyricsSettings = true },
             onLyricsOffsetChange = onLyricsOffsetChange,
-            onSaveLyricsConfig = onSaveLyricsConfig
+            onSaveLyricsConfig = onSaveLyricsConfig,
+            playbackSpeed = playbackInfo.playbackSpeed
         )
     }
 

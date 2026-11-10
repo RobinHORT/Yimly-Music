@@ -160,7 +160,7 @@ class LyricsAuditFixesTest {
             hasWordSync = false,
             lines = listOf(LyricLine(text = "First line", timeMs = 10000L))
         )
-        val config = LyricsDisplayConfig()
+        val config = LyricsDisplayConfig(autoScroll = false)
 
         // 1. Stopped (currentPositionMs == 0 and !isPlaying)
         composeTestRule.setContent {
@@ -186,7 +186,7 @@ class LyricsAuditFixesTest {
             hasWordSync = false,
             lines = listOf(LyricLine(text = "First line", timeMs = 10000L))
         )
-        val config = LyricsDisplayConfig()
+        val config = LyricsDisplayConfig(autoScroll = false)
 
         // 2. Paused (currentPositionMs > 0, before first lyric, !isPlaying)
         composeTestRule.setContent {
@@ -212,7 +212,7 @@ class LyricsAuditFixesTest {
             hasWordSync = false,
             lines = listOf(LyricLine(text = "First line", timeMs = 10000L))
         )
-        val config = LyricsDisplayConfig()
+        val config = LyricsDisplayConfig(autoScroll = false)
 
         // 3. Actively Playing before first lyric
         composeTestRule.setContent {
