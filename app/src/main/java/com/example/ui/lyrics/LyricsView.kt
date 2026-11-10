@@ -65,6 +65,8 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -75,6 +77,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -857,6 +860,19 @@ private fun ContinuousLyricsDisplay(
                                 isCurrent || (rotatingSections && index < activeDisplayIndex)
                             ) FontWeight.Bold else FontWeight.Normal,
                             color = lineColor,
+                            style = TextStyle(
+                                shadow = if (
+                                    config.formatMode == LyricsFormatMode.ELRC ||
+                                    (rotatingSections && index <= activeDisplayIndex) ||
+                                    (isCurrent && config.highlightCurrentLine)
+                                ) {
+                                    Shadow(
+                                        color = Color.Black.copy(alpha = 0.72f),
+                                        offset = Offset.Zero,
+                                        blurRadius = 5f
+                                    )
+                                } else null
+                            ),
                             textAlign = if (config.formatMode == LyricsFormatMode.ELRC) TextAlign.Center else textAlign,
                             lineHeight = (lineSize * 1.2f).sp,
                             modifier = Modifier.fillMaxWidth()
@@ -988,6 +1004,13 @@ fun ProgressiveSweepWord(
         Text(
             text = text,
             color = activeColor,
+            style = TextStyle(
+                shadow = Shadow(
+                    color = Color.Black.copy(alpha = 0.72f),
+                    offset = Offset.Zero,
+                    blurRadius = 5f
+                )
+            ),
             fontSize = fontSize,
             fontFamily = fontFamily,
             fontWeight = fontWeight,
