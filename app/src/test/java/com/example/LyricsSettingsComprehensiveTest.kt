@@ -9,9 +9,11 @@ import androidx.compose.ui.test.performScrollTo
 import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricLine
+import com.example.data.models.LyricWord
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsFormatMode
 import com.example.data.models.formatLyricText
 import com.example.data.models.toTitleCase
 import com.example.ui.lyrics.LyricsSettingsDialog
@@ -147,6 +149,45 @@ class LyricsSettingsComprehensiveTest {
         composeTestRule.onNodeWithText("First Previous Lyric").assertIsDisplayed()
         composeTestRule.onNodeWithText("Current Active Lyric").assertIsDisplayed()
         composeTestRule.onNodeWithText("Next Future Lyric").assertIsDisplayed()
+    }
+
+    @Test
+    fun fullscreenLyricsTapSeeksToFirstWordTimestamp() {
+        var requestedSeekMs: Long? = null
+        val lyricsData = LyricsData(
+            songId = "fullscreen_tap_seek",
+            lines = listOf(
+                LyricLine(
+                    timeMs = 1000L,
+                    text = "first lyric",
+                    words = listOf(LyricWord("First", 1100L, 1600L)),
+                    hasWordTimestamps = true
+                ),
+                LyricLine(
+                    timeMs = 2000L,
+                    text = "second lyric",
+                    words = listOf(LyricWord("Second", 2100L, 2600L)),
+                    hasWordTimestamps = true
+                )
+            )
+        )
+
+        composeTestRule.setContent {
+            LyricsView(
+                lyricsData = lyricsData,
+                currentPositionMs = 1200L,
+                songOffsetMs = 100L,
+                config = LyricsDisplayConfig(formatMode = LyricsFormatMode.ELRC),
+                onSeekTo = { requestedSeekMs = it },
+                onOffsetChange = {},
+                isPlaying = false,
+                showFocusControls = false,
+                fullscreenCreditMode = true
+            )
+        }
+
+        composeTestRule.onNodeWithTag("fullscreen_credit_active_line").performClick()
+        assertEquals(1000L, requestedSeekMs)
     }
 
     @Test
