@@ -1,6 +1,7 @@
 package com.example.ui.lyrics
 
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
@@ -506,6 +507,10 @@ private fun ContinuousLyricsDisplay(
         if (rotatingSections) "fullscreen_credit_lyrics" else "continuous_lyrics_display"
     )) {
         val listState = rememberLazyListState()
+        val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
+        var requestedSeekTargetMs by remember(lines) { mutableStateOf<Long?>(null) }
+        val latestRequestedSeekTargetMs by rememberUpdatedState(requestedSeekTargetMs)
+        val latestIsUserDragging by rememberUpdatedState(isUserDragging)
         val density = LocalDensity.current
         // Half-viewport end padding lets the first and last lyric lines reach centre.
         val topPadding = if (rotatingSections) maxHeight / 2
@@ -588,6 +593,29 @@ private fun ContinuousLyricsDisplay(
                     val adjustedPositionMs = playbackPositionMs + latestEffectiveOffsetMs
                     val activeIndex = lineTimestamps.indexOfLast { it <= adjustedPositionMs }
                     activeDisplayIndex = activeIndex
+
+                    // A tapped lyric requests a real player seek. Wait for the authoritative
+                    // player position to reach that target before re-anchoring the stream.
+                    val requestedTargetMs = latestRequestedSeekTargetMs
+                    if (requestedTargetMs != null) {
+                        if (kotlin.math.abs(samplePositionMs - requestedTargetMs) <= 250L) {
+                            requestedSeekTargetMs = null
+                            needsCentreAnchor = true
+                            previousActiveIndex = -1
+                            previousProgress = 0f
+                        } else {
+                            continue
+                        }
+                    }
+
+                    // Manual drags temporarily own the scroll position. Once released,
+                    // the active lyric is measured and centred by the normal glide loop.
+                    if (latestIsUserDragging) {
+                        needsCentreAnchor = true
+                        previousActiveIndex = activeIndex
+                        previousProgress = 0f
+                        continue
+                    }
 
                     if (activeIndex < 0) {
                         if (listState.firstVisibleItemIndex != 0 ||
@@ -715,6 +743,7 @@ private fun ContinuousLyricsDisplay(
 
         LazyColumn(
             state = listState,
+            userScrollEnabled = true,
             modifier = Modifier
                 .fillMaxSize()
                 // The percentage mask defines the edge gaps; no external inset is needed.
@@ -815,7 +844,19 @@ private fun ContinuousLyricsDisplay(
                     modifier = Modifier
                         .fillMaxWidth()
                         .alpha(lineAlpha)
-                        .clickable { onSeekTo((line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)) }
+                        .clickable(
+                            interactionSource = remember(line) { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            val lyricTimestampMs = if (rotatingSections) {
+                                fullscreenLyricTimestamp(line, config.formatMode)
+                            } else {
+                                line.timeMs
+                            }
+                            val targetPositionMs = (lyricTimestampMs - effectiveOffsetMs).coerceAtLeast(0L)
+                            if (rotatingSections) requestedSeekTargetMs = targetPositionMs
+                            onSeekTo(targetPositionMs)
+                        }
                         .padding(horizontal = 18.dp, vertical = 12.dp)
                         .onGloballyPositioned { coordinates ->
                             lineCentresInRoot[index] =
