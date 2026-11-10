@@ -504,7 +504,10 @@ private fun ContinuousLyricsDisplay(
     )) {
         val listState = rememberLazyListState()
         val density = LocalDensity.current
-        val topPadding = if (showPreLyrics) (maxHeight / 2 - 36.dp).coerceAtLeast(16.dp) else 16.dp
+        // Half-viewport end padding lets the first and last lyric lines reach centre.
+        val topPadding = if (rotatingSections) maxHeight / 2
+            else if (showPreLyrics) (maxHeight / 2 - 36.dp).coerceAtLeast(16.dp)
+            else 16.dp
         // Coordinates are measured in root space, then converted to this lyrics viewport.
         // A plain map avoids recomposing the entire list for every layout callback.
         val containerBounds = remember(lines) { FloatArray(2) }
@@ -542,13 +545,14 @@ private fun ContinuousLyricsDisplay(
                     } else 0.0
                     val actualSampleAdvanceMs =
                         (samplePositionMs - lastSamplePositionMs).toDouble()
-                    val sampleLooksLikeSeek = samplePositionMs != lastSamplePositionMs &&
+                    val sampleChanged = samplePositionMs != lastSamplePositionMs
+                    val sampleLooksLikeSeek = sampleChanged &&
                         kotlin.math.abs(actualSampleAdvanceMs - expectedSampleAdvanceMs) > 500.0
                     val offsetChanged = latestEffectiveOffsetMs != previousOffsetMs
 
                     if (
                         anchorFrameNanos == 0L ||
-                        samplePositionMs != lastSamplePositionMs ||
+                        sampleChanged ||
                         playingNow != previousPlaying ||
                         speedNow != previousSpeed
                     ) {
@@ -558,7 +562,7 @@ private fun ContinuousLyricsDisplay(
                         previousPlaying = playingNow
                         previousSpeed = speedNow
                     }
-                    if (samplePositionMs != lastSamplePositionMs || lastSampleFrameNanos == 0L) {
+                    if (sampleChanged || lastSampleFrameNanos == 0L) {
                         lastSampleFrameNanos = frameNanos
                     }
                     if (sampleLooksLikeSeek || offsetChanged) {
@@ -647,7 +651,7 @@ private fun ContinuousLyricsDisplay(
                         // The previous interval ended with this line arriving at centre.
                         // Reset only the interval progress; do not reposition the list.
                         previousActiveIndex = activeIndex
-                        previousProgress = 0f
+                        previousProgress = progress
                     }
 
                     val nextIsVisible = nextIndex in visibleIndices
@@ -690,7 +694,10 @@ private fun ContinuousLyricsDisplay(
                     containerBounds[0] = coordinates.positionInRoot().y
                     containerBounds[1] = coordinates.size.height.toFloat()
                 },
-            contentPadding = PaddingValues(top = topPadding, bottom = 16.dp),
+            contentPadding = PaddingValues(
+                top = topPadding,
+                bottom = if (rotatingSections) maxHeight / 2 else 16.dp
+            ),
             verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
         ) {
             if (showPreLyrics) {
