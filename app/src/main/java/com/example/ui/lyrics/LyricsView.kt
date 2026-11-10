@@ -691,8 +691,10 @@ private fun ContinuousLyricsDisplay(
                             listState.scrollBy(totalPixelDelta)
                         }
                         previousProgress = progress
-                    } else if (boundaryCorrectionPx > 0f) {
-                        listState.scrollBy(boundaryCorrectionPx)
+                    } else {
+                        if (boundaryCorrectionPx != 0f) {
+                            listState.scrollBy(boundaryCorrectionPx)
+                        }
                         previousProgress = progress
                     }
                 }
@@ -770,10 +772,10 @@ private fun ContinuousLyricsDisplay(
                         .clickable { onSeekTo((line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)) }
                         .padding(horizontal = 18.dp, vertical = 12.dp)
                         .onGloballyPositioned { coordinates ->
-                        lineCentresInRoot[index] =
-                            coordinates.positionInRoot().y + coordinates.size.height / 2f
-                    }
-                    .testTag(
+                            lineCentresInRoot[index] =
+                                coordinates.positionInRoot().y + coordinates.size.height / 2f
+                        }
+                        .testTag(
                             when {
                                 isCurrent && rotatingSections -> "fullscreen_credit_active_line"
                                 isCurrent -> "current_lyric_slot"
