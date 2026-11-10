@@ -1,5 +1,10 @@
 package com.example.lyrics
 
+import com.example.data.models.LyricLine
+import com.example.data.models.LyricWord
+import com.example.data.models.LyricsFormatMode
+import com.example.ui.lyrics.fullscreenLyricTimestamp
+import com.example.ui.lyrics.fullscreenLyricsScrollProgress
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import kotlin.math.abs
@@ -65,4 +70,45 @@ class ContinuousLyricsDisplayTest {
         
         assertEquals(2 * spacingPx + h0 + h1 / 2f, list1, 0.001f)
     }
+    @Test
+    fun fullscreenLrcUsesLineTimestampAsScrollAnchor() {
+        val line = LyricLine(timeMs = 2400L, text = "LRC line")
+        assertEquals(2400L, fullscreenLyricTimestamp(line, LyricsFormatMode.LRC))
+    }
+
+    @Test
+    fun fullscreenElrcUsesFirstWordTimestampAsScrollAnchor() {
+        val line = LyricLine(
+            timeMs = 2000L,
+            text = "eLRC line",
+            words = listOf(
+                LyricWord("Hello", 2150L, 2600L),
+                LyricWord("world", 2600L, 3200L)
+            ),
+            hasWordTimestamps = true
+        )
+        assertEquals(2150L, fullscreenLyricTimestamp(line, LyricsFormatMode.ELRC))
+    }
+
+    @Test
+    fun fullscreenScrollUsesExactTimestampInterval() {
+        assertEquals(
+            0.5f,
+            fullscreenLyricsScrollProgress(3000.0, 2000L, 4000L),
+            0.001f
+        )
+    }
+
+    @Test
+    fun fullscreenScrollClampsBeforeAndAfterInterval() {
+        assertEquals(0f, fullscreenLyricsScrollProgress(1500.0, 2000L, 4000L), 0.001f)
+        assertEquals(1f, fullscreenLyricsScrollProgress(4500.0, 2000L, 4000L), 0.001f)
+    }
+
+    @Test
+    fun fullscreenScrollHandlesDuplicateOrReversedTimestampsSafely() {
+        assertEquals(1f, fullscreenLyricsScrollProgress(2500.0, 2000L, 2000L), 0.001f)
+        assertEquals(1f, fullscreenLyricsScrollProgress(2500.0, 3000L, 2000L), 0.001f)
+    }
+
 }
