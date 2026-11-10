@@ -71,7 +71,6 @@ class PreferencesManager(private val context: Context) {
 
         // Lyrics Config Keys
         private val KEY_LYRICS_FORMAT_MODE = stringPreferencesKey("lyrics_format_mode")
-        private val KEY_LYRICS_VISIBLE_LINES = intPreferencesKey("lyrics_visible_lines")
         private val KEY_LYRICS_AUTO_SCROLL = booleanPreferencesKey("lyrics_auto_scroll")
         private val KEY_LYRICS_HIGHLIGHT_CURRENT = booleanPreferencesKey("lyrics_highlight_current")
         private val KEY_LYRICS_FONT_FAMILY = stringPreferencesKey("lyrics_font_family")
@@ -156,7 +155,6 @@ class PreferencesManager(private val context: Context) {
             } catch (e: Exception) {
                 com.example.data.models.LyricsFormatMode.ELRC
             },
-            visibleLines = prefs[KEY_LYRICS_VISIBLE_LINES] ?: 3,
             autoScroll = prefs[KEY_LYRICS_AUTO_SCROLL] ?: true,
             highlightCurrentLine = prefs[KEY_LYRICS_HIGHLIGHT_CURRENT] ?: true,
             animationDurationMs = prefs[KEY_LYRICS_ANIM_DURATION] ?: 250,
@@ -335,7 +333,6 @@ class PreferencesManager(private val context: Context) {
     suspend fun updateLyricsConfig(config: LyricsDisplayConfig) {
         context.dataStore.edit { prefs ->
             prefs[KEY_LYRICS_FORMAT_MODE] = config.formatMode.name
-            prefs[KEY_LYRICS_VISIBLE_LINES] = config.visibleLines
             prefs[KEY_LYRICS_AUTO_SCROLL] = config.autoScroll
             prefs[KEY_LYRICS_HIGHLIGHT_CURRENT] = config.highlightCurrentLine
             prefs[KEY_LYRICS_ANIM_DURATION] = config.animationDurationMs
