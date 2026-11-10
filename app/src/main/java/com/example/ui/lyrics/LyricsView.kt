@@ -727,7 +727,7 @@ private fun ContinuousLyricsDisplay(
                             .drawWithContent {
                                 drawContent()
                                 if (size.height > 0f) {
-                                    val fadeHeightPx = 40.dp.toPx().coerceAtMost(size.height / 2f)
+                                    val fadeHeightPx = 64.dp.toPx().coerceAtMost(size.height / 2f)
                                     val fadeFraction = (fadeHeightPx / size.height).coerceIn(0f, 0.5f)
                                     drawRect(
                                         brush = Brush.verticalGradient(
