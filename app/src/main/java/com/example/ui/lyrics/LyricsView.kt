@@ -843,7 +843,9 @@ private fun ContinuousLyricsDisplay(
                             text = formatLyricText(line.text, config.textCase),
                             fontSize = lineSize.sp,
                             fontFamily = composeFontFamily,
-                            fontWeight = if (isCurrent) FontWeight.Bold else FontWeight.Normal,
+                            fontWeight = if (
+                                isCurrent || (rotatingSections && index < activeDisplayIndex)
+                            ) FontWeight.Bold else FontWeight.Normal,
                             color = lineColor,
                             textAlign = if (config.formatMode == LyricsFormatMode.ELRC) TextAlign.Center else textAlign,
                             lineHeight = (lineSize * 1.2f).sp,
