@@ -17,6 +17,7 @@ import androidx.media3.session.MediaLibraryService.LibraryParams
 import androidx.media3.session.LibraryResult
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionResult
+import androidx.media3.session.SessionError
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.google.common.util.concurrent.MoreExecutors
@@ -392,13 +393,13 @@ class YimlySessionCallback(
                 future.set(LibraryResult.ofItemList(immutableList, params))
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() ERROR parentId=$parentId: ${e.message}", e)
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetChildren() Job cancelled/failed for parentId=$parentId: ${cause.message}")
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         return future
@@ -445,12 +446,12 @@ class YimlySessionCallback(
                 }
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetItem() ERROR mediaId=$mediaId: ${e.message}", e)
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         return future
@@ -481,7 +482,7 @@ class YimlySessionCallback(
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         return future
@@ -533,12 +534,12 @@ class YimlySessionCallback(
                 future.set(LibraryResult.ofItemList(immutableList, params))
             } catch (e: Throwable) {
                 android.util.Log.e("AA_DIAG", "YimlySessionCallback.onGetSearchResult() ERROR query=$query: ${e.message}", e)
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         job.invokeOnCompletion { cause ->
             if (cause != null && !future.isDone) {
-                future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                future.set(LibraryResult.ofError(SessionError.ERROR_UNKNOWN))
             }
         }
         return future

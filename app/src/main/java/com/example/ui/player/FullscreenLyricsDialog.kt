@@ -252,7 +252,7 @@ private fun ArtworkMeshBackground(artworkUrl: String?) {
                 .allowHardware(false)
                 .build()
             val result = context.imageLoader.execute(request)
-            val bitmap = result.drawable.toBitmap()
+            val bitmap = result.drawable?.toBitmap() ?: throw IllegalStateException("Drawable is null")
             withContext(Dispatchers.Default) {
                 val palette = Palette.from(bitmap).generate()
                 listOf(
