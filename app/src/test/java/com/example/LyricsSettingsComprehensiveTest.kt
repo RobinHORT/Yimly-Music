@@ -51,7 +51,7 @@ class LyricsSettingsComprehensiveTest {
     }
 
     @Test
-    fun testLyricsSettingsDialogFullSectionsAndTitleCaseSelection() {
+    fun testLyricsSettingsDialogOnlyLiveOptionsAndTitleCaseSelection() {
         var savedConfig: LyricsDisplayConfig? = null
         val initialConfig = LyricsDisplayConfig(
             fontFamily = LyricFontFamily.DEFAULT,
@@ -74,8 +74,8 @@ class LyricsSettingsComprehensiveTest {
         composeTestRule.onNodeWithText("Lyrics Display").assertExists()
         composeTestRule.onNodeWithText("Text Case").assertExists()
         composeTestRule.onNodeWithText("Current Line").assertExists()
-        composeTestRule.onNodeWithText("Previous & Next Lines").assertExists()
-        composeTestRule.onNodeWithText("Other").assertExists()
+        composeTestRule.onNodeWithText("Lyrics Colour Theme").assertExists()
+        composeTestRule.onNodeWithText("Lyrics Sync").assertExists()
 
         // Verify all 4 text case options exist
         composeTestRule.onNodeWithText("Original").assertExists()
