@@ -477,6 +477,7 @@ private fun ContinuousLyricsDisplay(
         lines.map { fullscreenLyricTimestamp(it, config.formatMode) }
     }
     var activeDisplayIndex by remember(lines) { mutableStateOf(currentIndex) }
+    var animatedPlaybackPositionMs by remember(lines) { mutableStateOf(currentPositionMs.toDouble()) }
     val latestPositionMs by rememberUpdatedState(currentPositionMs)
     val latestIsPlaying by rememberUpdatedState(isPlaying)
     val latestPlaybackSpeed by rememberUpdatedState(playbackSpeed)
@@ -521,6 +522,7 @@ private fun ContinuousLyricsDisplay(
                     } else {
                         samplePositionMs.toDouble()
                     }
+                    animatedPlaybackPositionMs = playbackPositionMs
                     val adjustedPositionMs = playbackPositionMs + latestEffectiveOffsetMs
                     val activeIndex = lineTimestamps.indexOfLast { it <= adjustedPositionMs }
                     activeDisplayIndex = activeIndex
@@ -616,7 +618,7 @@ private fun ContinuousLyricsDisplay(
                 val isCurrent = index == activeDisplayIndex
                 val lineColor = if (config.formatMode == LyricsFormatMode.ELRC) {
                     currentLineColor
-                } else if (rotatingSections && index <= currentIndex) {
+                } else if (rotatingSections && index <= activeDisplayIndex) {
                     currentLineColor
                 } else if (isCurrent && config.highlightCurrentLine) {
                     currentLineColor
@@ -649,7 +651,7 @@ private fun ContinuousLyricsDisplay(
                         SynchronizedLyricContent(
                             line = line,
                             isCurrent = isCurrent,
-                            currentPositionMs = currentPositionMs,
+                            currentPositionMs = animatedPlaybackPositionMs.toLong(),
                             effectiveOffsetMs = effectiveOffsetMs,
                             config = config,
                             currentLineColor = lineColor,
