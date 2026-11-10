@@ -717,9 +717,7 @@ private fun ContinuousLyricsDisplay(
             state = listState,
             modifier = Modifier
                 .fillMaxSize()
-                // Inset the lyrics section itself so the edge fades begin inside
-                // the padded viewport rather than leaving a transparent gap in it.
-                .padding(vertical = if (rotatingSections) 40.dp else 0.dp)
+                // The percentage mask defines the edge gaps; no external inset is needed.
                 .onGloballyPositioned { coordinates ->
                     containerBounds[0] = coordinates.positionInRoot().y
                     containerBounds[1] = coordinates.size.height.toFloat()
@@ -733,15 +731,16 @@ private fun ContinuousLyricsDisplay(
                             .drawWithContent {
                                 drawContent()
                                 if (size.height > 0f) {
-                                    // Fade directly from transparent at the section edge
-                                    // into the fully visible centre, with no flat zero-opacity gap.
-                                    val fadeFraction = 0.30f
+                                    // Fullscreen mask proportions: 15% clear gap, 20% fade,
+                                    // 30% fully visible centre, then the mirrored fade and gap.
                                     drawRect(
                                         brush = Brush.verticalGradient(
                                             colorStops = arrayOf(
                                                 0f to Color.Transparent,
-                                                fadeFraction to Color.Black,
-                                                (1f - fadeFraction) to Color.Black,
+                                                0.15f to Color.Transparent,
+                                                0.35f to Color.Black,
+                                                0.65f to Color.Black,
+                                                0.85f to Color.Transparent,
                                                 1f to Color.Transparent
                                             ),
                                             startY = 0f,
