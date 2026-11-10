@@ -444,6 +444,13 @@ internal fun fullscreenLyricTimestamp(
     line.timeMs
 }
 
+/** Converts a lyric's display timestamp into the media position used by the player. */
+internal fun fullscreenLyricsSeekPosition(
+    line: LyricLine,
+    formatMode: LyricsFormatMode,
+    effectiveOffsetMs: Long
+): Long = (fullscreenLyricTimestamp(line, formatMode) - effectiveOffsetMs).coerceAtLeast(0L)
+
 /** Playback-time fraction between two lyric anchors, clamped to the current interval. */
 internal fun fullscreenLyricsScrollProgress(
     playbackPositionMs: Double,
@@ -848,12 +855,11 @@ private fun ContinuousLyricsDisplay(
                             interactionSource = remember(line) { MutableInteractionSource() },
                             indication = null
                         ) {
-                            val lyricTimestampMs = if (rotatingSections) {
-                                fullscreenLyricTimestamp(line, config.formatMode)
+                            val targetPositionMs = if (rotatingSections) {
+                                fullscreenLyricsSeekPosition(line, config.formatMode, effectiveOffsetMs)
                             } else {
-                                line.timeMs
+                                (line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)
                             }
-                            val targetPositionMs = (lyricTimestampMs - effectiveOffsetMs).coerceAtLeast(0L)
                             if (rotatingSections) requestedSeekTargetMs = targetPositionMs
                             onSeekTo(targetPositionMs)
                         }
