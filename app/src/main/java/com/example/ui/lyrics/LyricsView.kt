@@ -112,6 +112,7 @@ fun LyricsView(
     onOffsetChange: (Long) -> Unit,
     onToggleFormatMode: (() -> Unit)? = null,
     isPlaying: Boolean = true,
+    playbackSpeed: Float = 1.0f,
     showFocusControls: Boolean = true,
     floatingFocusMode: Boolean = false,
     rotatingSections: Boolean = false,
@@ -373,6 +374,7 @@ fun LyricsView(
                 isPlaying = isPlaying,
                 onSeekTo = onSeekTo,
                 rotatingSections = rotatingSections,
+                playbackSpeed = playbackSpeed,
                 modifier = Modifier.fillMaxSize()
             )
         }
@@ -400,6 +402,7 @@ private fun ContinuousLyricsDisplay(
     isPlaying: Boolean,
     onSeekTo: (Long) -> Unit,
     rotatingSections: Boolean,
+    playbackSpeed: Float = 1.0f,
     modifier: Modifier = Modifier
 ) {
     val showPreLyrics = currentIndex < 0
@@ -456,6 +459,7 @@ private fun ContinuousLyricsDisplay(
         val currentPosState = rememberUpdatedState(currentPositionMs)
         val effectiveOffsetState = rememberUpdatedState(effectiveOffsetMs)
         val isPlayingState = rememberUpdatedState(isPlaying)
+        val playbackSpeedState = rememberUpdatedState(playbackSpeed)
 
         var animatedPosMs by remember { mutableLongStateOf(currentPositionMs + effectiveOffsetMs) }
 
@@ -471,6 +475,7 @@ private fun ContinuousLyricsDisplay(
                 withFrameNanos { frameTimeNanos ->
                     val playing = isPlayingState.value
                     val authoritativePos = currentPosState.value + effectiveOffsetState.value
+                    val speed = playbackSpeedState.value
 
                     if (authoritativePos != lastReportedPos) {
                         basePosMs = authoritativePos
@@ -479,8 +484,8 @@ private fun ContinuousLyricsDisplay(
                         animatedPosMs = authoritativePos
                     } else if (playing) {
                         val elapsedNanos = frameTimeNanos - lastNanoTime
-                        val elapsedMs = elapsedNanos / 1_000_000L
-                        animatedPosMs = basePosMs + elapsedMs
+                        val elapsedMs = (elapsedNanos / 1_000_000L) * speed
+                        animatedPosMs = basePosMs + elapsedMs.toLong()
                     } else {
                         lastNanoTime = frameTimeNanos
                         basePosMs = authoritativePos

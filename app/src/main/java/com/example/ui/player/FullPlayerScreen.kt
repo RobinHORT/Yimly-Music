@@ -376,6 +376,7 @@ fun FullPlayerScreen(
                         isPlaying = playbackInfo.isPlaying,
                         showFocusControls = false,
                         floatingFocusMode = true,
+                        playbackSpeed = playbackInfo.playbackSpeed,
                         modifier = Modifier.fillMaxSize().clip(artworkShape)
                     )
                     // Tapping the lyric itself opens the same fullscreen lyrics view as the artwork.

@@ -981,7 +981,8 @@ class PlaybackManager(
                 isPlaying = p.isPlaying,
                 currentPositionMs = p.currentPosition,
                 durationMs = if (p.duration > 0) p.duration else 0L,
-                isBuffering = p.playbackState == Player.STATE_BUFFERING
+                isBuffering = p.playbackState == Player.STATE_BUFFERING,
+                playbackSpeed = p.playbackParameters.speed
             )
             persistPlaybackSnapshot()
         }

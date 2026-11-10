@@ -36,7 +36,8 @@ data class PlaybackInfo(
     val repeatMode: RepeatMode = RepeatMode.OFF,
     val isBuffering: Boolean = false,
     val hasInstrumental: Boolean = false,
-    val isInstrumental: Boolean = false
+    val isInstrumental: Boolean = false,
+    val playbackSpeed: Float = 1.0f
 )
 
 data class PendingQueueAdd(
