@@ -168,7 +168,7 @@ fun LyricsSettingsDialog(
                 // 4. CURRENT LINE SECTION
                 // ==========================================
                 Text(
-                    text = "Current Line",
+                    text = "Lyrics Appearance",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimaryDark
@@ -180,7 +180,7 @@ fun LyricsSettingsDialog(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Text("Current Line Size", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
+                        Text("Lyrics Size", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
                         Text("${currentSize.toInt()} sp", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
                     }
                     Slider(
