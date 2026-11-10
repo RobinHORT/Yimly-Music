@@ -91,11 +91,13 @@ import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.LyricsFormatMode
 import com.example.data.models.formatLyricText
 import com.example.lyrics.LyricsParser
+import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.SurfaceBorderDark
 import com.example.ui.theme.SurfaceCardDark
 import com.example.ui.theme.SurfaceElevatedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
+import com.example.ui.theme.BackgroundDark
 import com.example.ui.theme.YimlyPink
 import com.example.ui.theme.LTKaraoke
 
@@ -523,13 +525,7 @@ private fun ContinuousLyricsDisplay(
             }
 
             val diff = targetY - currentScrollY
-            if (abs(diff) > viewportHeightPx) {
-                currentScrollY = targetY // Instant jump on seek
-            } else if (abs(diff) > 0.1f) {
-                currentScrollY += diff * 0.4f
-            } else {
-                currentScrollY = targetY
-            }
+            currentScrollY = targetY
         }
 
         Box(
@@ -545,18 +541,12 @@ private fun ContinuousLyricsDisplay(
             ) {
                 Spacer(modifier = Modifier.height(boxHalfHeight))
 
-                var runningTop = halfViewport
-
                 if (showPreLyrics) {
                     val h = itemHeights[0] ?: defaultItemHeightPx
-                    val centerY = runningTop + h / 2f
-                    val opacity = calculateViewportOpacity(centerY, currentScrollY, viewportHeightPx)
-                    runningTop += h + spacingPx
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .alpha(opacity)
                             .onSizeChanged { size -> itemHeights[0] = size.height }
                             .padding(vertical = 12.dp),
                         contentAlignment = Alignment.Center
@@ -577,9 +567,6 @@ private fun ContinuousLyricsDisplay(
                 lines.forEachIndexed { index, line ->
                     val actualIndex = index + lineOffsetIndex
                     val h = itemHeights[actualIndex] ?: defaultItemHeightPx
-                    val centerY = runningTop + h / 2f
-                    val opacity = calculateViewportOpacity(centerY, currentScrollY, viewportHeightPx)
-                    runningTop += h + spacingPx
 
                     val adjustedPos = animatedPosMs
                     val isHighlighted = index <= currentIndex || line.timeMs <= adjustedPos
@@ -589,7 +576,6 @@ private fun ContinuousLyricsDisplay(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .alpha(opacity)
                             .onSizeChanged { size -> itemHeights[actualIndex] = size.height }
                             .clickable { onSeekTo((line.timeMs - (animatedPosMs - currentPosState.value)).coerceAtLeast(0L)) }
                             .padding(horizontal = 18.dp, vertical = 8.dp)
@@ -633,38 +619,37 @@ private fun ContinuousLyricsDisplay(
 
                 Spacer(modifier = Modifier.height(boxHalfHeight))
             }
+
+            // Top Edge Fade Gradient Overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp)
+                    .align(Alignment.TopCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(BackgroundDark, BackgroundDark.copy(alpha = 0f))
+                        )
+                    )
+            )
+
+            // Bottom Edge Fade Gradient Overlay
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(80.dp)
+                    .align(Alignment.BottomCenter)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(BackgroundDark.copy(alpha = 0f), BackgroundDark)
+                        )
+                    )
+            )
         }
     }
 }
 
-/**
- * Calculates smooth position-based opacity gradient across 5 reference points:
- * Top edge: 0% | Upper quarter: 50% | Centre: 100% | Lower quarter: 50% | Bottom edge: 0%
- */
-internal fun calculateViewportOpacity(itemCenterY: Float, currentScrollY: Float, viewportHeightPx: Float): Float {
-    if (viewportHeightPx <= 0f) return 1f
-    val viewportRelativeY = itemCenterY - currentScrollY
-    val normY = (viewportRelativeY / viewportHeightPx).coerceIn(0f, 1f)
-    return when {
-        normY <= 0f || normY >= 1f -> 0f
-        normY < 0.25f -> (normY / 0.25f) * 0.5f
-        normY < 0.5f -> 0.5f + ((normY - 0.25f) / 0.25f) * 0.5f
-        normY < 0.75f -> 1.0f - ((normY - 0.5f) / 0.25f) * 0.5f
-        else -> 0.5f - ((normY - 0.75f) / 0.25f) * 0.5f
-    }
-}
 
-/** Opacity curve for the continuous stream: current, near, distant, then faded out. */
-internal fun continuousLyricsLineAlpha(distance: Int, otherLinesOpacity: Float): Float {
-    if (distance <= 0) return 1f
-    val nearOpacity = otherLinesOpacity.coerceIn(0.1f, 0.85f)
-    return when (distance) {
-        1 -> nearOpacity
-        2 -> nearOpacity * 0.55f
-        3 -> nearOpacity * 0.2f
-        else -> 0f
-    }
-}
 
 /**
  * Progressive Sweeping eLRC and line-level LRC lyrics renderer matching Yimly Server specification:
