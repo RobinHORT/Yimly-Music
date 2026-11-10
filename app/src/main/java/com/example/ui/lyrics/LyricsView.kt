@@ -113,7 +113,7 @@ fun LyricsView(
     playbackSpeed: Float = 1.0f,
     showFocusControls: Boolean = true,
     floatingFocusMode: Boolean = false,
-    rotatingSections: Boolean = false,
+    fullscreenCreditMode: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     var viewMode by remember { mutableStateOf(0) } // 0 = Focus Mode, 1 = Full Synced List
@@ -341,7 +341,7 @@ fun LyricsView(
                     }
                 }
             }
-        } else if (rotatingSections || viewMode == 0) {
+        } else if (fullscreenCreditMode || viewMode == 0) {
             ContinuousLyricsDisplay(
                 lines = lines,
                 currentIndex = slotState.currentIndex,
@@ -354,7 +354,7 @@ fun LyricsView(
                 isPlaying = isPlaying,
                 playbackSpeed = playbackSpeed,
                 onSeekTo = onSeekTo,
-                rotatingSections = rotatingSections,
+                fullscreenCreditMode = fullscreenCreditMode,
                 modifier = Modifier.fillMaxSize()
             )
         } else {
@@ -491,7 +491,7 @@ private fun ContinuousLyricsDisplay(
     isPlaying: Boolean,
     playbackSpeed: Float,
     onSeekTo: (Long) -> Unit,
-    rotatingSections: Boolean,
+    fullscreenCreditMode: Boolean,
     modifier: Modifier = Modifier
 ) {
     val lineTimestamps = remember(lines, config.formatMode) {
@@ -511,7 +511,7 @@ private fun ContinuousLyricsDisplay(
     }
 
     BoxWithConstraints(modifier = modifier.testTag(
-        if (rotatingSections) "fullscreen_credit_lyrics" else "continuous_lyrics_display"
+        if (fullscreenCreditMode) "fullscreen_credit_lyrics" else "continuous_lyrics_display"
     )) {
         val listState = rememberLazyListState()
         val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
@@ -520,7 +520,7 @@ private fun ContinuousLyricsDisplay(
         val latestIsUserDragging by rememberUpdatedState(isUserDragging)
         val density = LocalDensity.current
         // Half-viewport end padding lets the first and last lyric lines reach centre.
-        val topPadding = if (rotatingSections) maxHeight / 2
+        val topPadding = if (fullscreenCreditMode) maxHeight / 2
             else if (showPreLyrics) (maxHeight / 2 - 36.dp).coerceAtLeast(16.dp)
             else 16.dp
         // Coordinates are measured in root space, then converted to this lyrics viewport.
@@ -531,8 +531,8 @@ private fun ContinuousLyricsDisplay(
         // A frame clock extrapolates between authoritative player samples. scrollBy()
         // receives only the incremental pixel delta, so no easing curve or per-frame
         // scrollToItem() repositioning can introduce a stepped effect.
-        LaunchedEffect(lines, rotatingSections, config.formatMode) {
-            if (rotatingSections && lines.isNotEmpty()) {
+        LaunchedEffect(lines, fullscreenCreditMode, config.formatMode) {
+            if (fullscreenCreditMode && lines.isNotEmpty()) {
                 var lastSamplePositionMs = latestPositionMs
                 var anchorPositionMs = latestPositionMs.toDouble()
                 var anchorFrameNanos = 0L
@@ -542,6 +542,7 @@ private fun ContinuousLyricsDisplay(
                 var lastSampleFrameNanos = 0L
                 var previousActiveIndex = -1
                 var previousProgress = 0f
+                var pendingSeekStartedAtNanos = 0L
                 var needsCentreAnchor = true
 
                 while (isActive) {
@@ -605,14 +606,22 @@ private fun ContinuousLyricsDisplay(
                     // player position to reach that target before re-anchoring the stream.
                     val requestedTargetMs = latestRequestedSeekTargetMs
                     if (requestedTargetMs != null) {
-                        if (kotlin.math.abs(samplePositionMs - requestedTargetMs) <= 250L) {
+                        if (pendingSeekStartedAtNanos == 0L) {
+                            pendingSeekStartedAtNanos = frameNanos
+                        }
+                        val seekConfirmed = kotlin.math.abs(samplePositionMs - requestedTargetMs) <= 250L
+                        val seekTimedOut = frameNanos - pendingSeekStartedAtNanos >= 1_500_000_000L
+                        if (seekConfirmed || seekTimedOut) {
                             requestedSeekTargetMs = null
+                            pendingSeekStartedAtNanos = 0L
                             needsCentreAnchor = true
                             previousActiveIndex = -1
                             previousProgress = 0f
                         } else {
                             continue
                         }
+                    } else {
+                        pendingSeekStartedAtNanos = 0L
                     }
 
                     // Manual drags temporarily own the scroll position. Once released,
@@ -739,8 +748,8 @@ private fun ContinuousLyricsDisplay(
             }
         }
 
-        LaunchedEffect(currentIndex, lines.size, rotatingSections) {
-            if (!rotatingSections && currentIndex in lines.indices) {
+        LaunchedEffect(currentIndex, lines.size, fullscreenCreditMode) {
+            if (!fullscreenCreditMode && currentIndex in lines.indices) {
                 listState.animateScrollToItem(
                     index = currentIndex,
                     scrollOffset = -with(density) { (maxHeight / 2 - 36.dp).roundToPx() }
@@ -761,7 +770,7 @@ private fun ContinuousLyricsDisplay(
                 // Fade only the fullscreen credit-mode viewport. The offscreen layer
                 // keeps DstIn masking local to the lyrics, leaving dialog controls untouched.
                 .then(
-                    if (rotatingSections) {
+                    if (fullscreenCreditMode) {
                         Modifier
                             .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
                             .drawWithContent {
@@ -792,7 +801,7 @@ private fun ContinuousLyricsDisplay(
                 ),
             contentPadding = PaddingValues(
                 top = topPadding,
-                bottom = if (rotatingSections) maxHeight / 2 else 16.dp
+                bottom = if (fullscreenCreditMode) maxHeight / 2 else 16.dp
             ),
             verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
         ) {
@@ -818,7 +827,7 @@ private fun ContinuousLyricsDisplay(
                 val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - activeDisplayIndex)
                 // Fullscreen credit mode keeps every lyric fully visible as it passes.
                 // Earlier lines retain their highlighted state instead of fading back out.
-                val targetAlpha = if (rotatingSections) {
+                val targetAlpha = if (fullscreenCreditMode) {
                     // Keep completed/current lyrics fully highlighted; upcoming LRC lines
                     // remain visible at the same 85% inactive opacity used by eLRC words.
                     1f
@@ -835,9 +844,9 @@ private fun ContinuousLyricsDisplay(
                     .copy(alpha = config.colorTheme.inactiveAlpha)
                 val lineColor = if (config.formatMode == LyricsFormatMode.ELRC) {
                     currentLineColor
-                } else if (rotatingSections && index <= activeDisplayIndex) {
+                } else if (fullscreenCreditMode && index <= activeDisplayIndex) {
                     currentLineColor
-                } else if (rotatingSections) {
+                } else if (fullscreenCreditMode) {
                     themeInactiveColor
                 } else if (isCurrent && config.highlightCurrentLine) {
                     currentLineColor
@@ -855,12 +864,12 @@ private fun ContinuousLyricsDisplay(
                             interactionSource = remember(line) { MutableInteractionSource() },
                             indication = null
                         ) {
-                            val targetPositionMs = if (rotatingSections) {
+                            val targetPositionMs = if (fullscreenCreditMode) {
                                 fullscreenLyricsSeekPosition(line, config.formatMode, effectiveOffsetMs)
                             } else {
                                 (line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)
                             }
-                            if (rotatingSections) requestedSeekTargetMs = targetPositionMs
+                            if (fullscreenCreditMode) requestedSeekTargetMs = targetPositionMs
                             onSeekTo(targetPositionMs)
                         }
                         .padding(horizontal = 18.dp, vertical = 12.dp)
@@ -870,7 +879,7 @@ private fun ContinuousLyricsDisplay(
                         }
                         .testTag(
                             when {
-                                isCurrent && rotatingSections -> "fullscreen_credit_active_line"
+                                isCurrent && fullscreenCreditMode -> "fullscreen_credit_active_line"
                                 isCurrent -> "current_lyric_slot"
                                 else -> "continuous_lyric_line_$index"
                             }
@@ -901,13 +910,13 @@ private fun ContinuousLyricsDisplay(
                             fontSize = lineSize.sp,
                             fontFamily = composeFontFamily,
                             fontWeight = if (
-                                isCurrent || (rotatingSections && index < activeDisplayIndex)
+                                isCurrent || (fullscreenCreditMode && index < activeDisplayIndex)
                             ) FontWeight.Bold else FontWeight.Normal,
                             color = lineColor,
                             style = TextStyle(
                                 shadow = if (
                                     config.formatMode == LyricsFormatMode.ELRC ||
-                                    (rotatingSections && index <= activeDisplayIndex) ||
+                                    (fullscreenCreditMode && index <= activeDisplayIndex) ||
                                     (isCurrent && config.highlightCurrentLine)
                                 ) {
                                     Shadow(
