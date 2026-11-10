@@ -511,7 +511,8 @@ private fun ContinuousLyricsDisplay(
                 } else {
                     TextPrimaryDark
                 }
-                val lineSize = if (isCurrent) config.currentLineFontSizeSp else config.otherLineFontSizeSp
+                // Keep every line at the configured current-line size; highlighting changes colour only.
+                val lineSize = config.currentLineFontSizeSp
 
                 Box(
                     modifier = Modifier
