@@ -172,9 +172,9 @@ class PreferencesManager(private val context: Context) {
                 LyricFontFamily.DEFAULT
             },
             textCase = try {
-                LyricTextCase.valueOf(prefs[KEY_LYRICS_TEXT_CASE] ?: LyricTextCase.ORIGINAL.name)
+                LyricTextCase.valueOf(prefs[KEY_LYRICS_TEXT_CASE] ?: LyricTextCase.TITLE_CASE.name)
             } catch (e: Exception) {
-                LyricTextCase.ORIGINAL
+                LyricTextCase.TITLE_CASE
             },
             currentLineFontSizeSp = prefs[KEY_LYRICS_CURRENT_FONT_SIZE] ?: 24f,
             currentLineColorHex = prefs[KEY_LYRICS_CURRENT_COLOR] ?: "#FF3366",
