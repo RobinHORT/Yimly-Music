@@ -33,8 +33,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,26 +51,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsDisplayConfig
 import com.example.data.models.LyricsColorTheme
-import com.example.data.models.LyricsFormatMode
 import com.example.ui.theme.SurfaceBorderDark
 import com.example.ui.theme.SurfaceCardDark
 import com.example.ui.theme.SurfaceElevatedDark
 import com.example.ui.theme.TextPrimaryDark
 import com.example.ui.theme.TextSecondaryDark
 import com.example.ui.theme.YimlyPink
-
-val COLOR_PRESETS = listOf(
-    Pair("Pink", "#FF3366"),
-    Pair("White", "#FFFFFF"),
-    Pair("Cyan", "#00E5FF"),
-    Pair("Yellow", "#FFD600"),
-    Pair("Green", "#00E676"),
-    Pair("Purple", "#E040FB")
-)
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -81,28 +68,16 @@ fun LyricsSettingsDialog(
     onDismiss: () -> Unit,
     onSaveConfig: (LyricsDisplayConfig) -> Unit
 ) {
-    // 1. Lyrics Display state
-    var formatMode by remember { mutableStateOf(initialConfig.formatMode) }
-    var autoScroll by remember { mutableStateOf(initialConfig.autoScroll) }
-    var highlightCurrentLine by remember { mutableStateOf(initialConfig.highlightCurrentLine) }
-    var animDuration by remember { mutableIntStateOf(initialConfig.animationDurationMs) }
     var lineSpacing by remember { mutableFloatStateOf(initialConfig.lineSpacingDp) }
-    var alignment by remember { mutableStateOf(initialConfig.alignment) }
-
-    // 3. Text Case state
     var textCase by remember { mutableStateOf(initialConfig.textCase) }
-
-    // 4. Current Line state
     var currentSize by remember { mutableFloatStateOf(initialConfig.currentLineFontSizeSp) }
     var selectedColorTheme by remember { mutableStateOf(initialConfig.colorTheme) }
-
-    // 5. Previous & Next Lines state (Shared)
-    var otherSize by remember { mutableFloatStateOf(initialConfig.otherLineFontSizeSp) }
-    var otherOpacity by remember { mutableFloatStateOf(initialConfig.otherLinesOpacity) }
-
-    // 6. Other state
-    var lyricsOverlay by remember { mutableStateOf(initialConfig.lyricsOverlay) }
-    var manualOffset by remember { mutableLongStateOf(initialConfig.effectiveFormatManualOffsetMs) }
+    var lrcOffsetMs by remember {
+        mutableLongStateOf(if (initialConfig.lrcOffsetMs != 0L) initialConfig.lrcOffsetMs else initialConfig.manualOffsetMs)
+    }
+    var elrcOffsetMs by remember {
+        mutableLongStateOf(if (initialConfig.elrcOffsetMs != 0L) initialConfig.elrcOffsetMs else initialConfig.manualOffsetMs)
+    }
 
     Dialog(onDismissRequest = onDismiss) {
         Card(
@@ -129,107 +104,13 @@ fun LyricsSettingsDialog(
                     color = YimlyPink
                 )
 
-                // ==========================================
-                // 1. LYRICS DISPLAY SECTION
-                // ==========================================
+                // Lyrics Display: spacing is the only adjustable layout value used by the live renderers.
                 Text(
                     text = "Lyrics Display",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimaryDark
                 )
-
-                // Lyrics Format Mode (eLRC vs LRC)
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Format Mode", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text(
-                            if (formatMode == LyricsFormatMode.ELRC) "Word-level (eLRC)" else "Line-level (LRC)",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = YimlyPink
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        LyricsFormatMode.values().forEach { mode ->
-                            FilterChip(
-                                selected = formatMode == mode,
-                                onClick = { formatMode = mode },
-                                label = { Text(if (mode == LyricsFormatMode.ELRC) "eLRC (Word Sync)" else "LRC (Line Sync)", fontSize = 12.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = YimlyPink,
-                                    selectedLabelColor = Color.White,
-                                    containerColor = SurfaceCardDark,
-                                    labelColor = TextSecondaryDark
-                                )
-                            )
-                        }
-                    }
-                }
-
-                // Auto Scroll Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Auto Scroll", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                    Switch(
-                        checked = autoScroll,
-                        onCheckedChange = { autoScroll = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = YimlyPink,
-                            uncheckedTrackColor = SurfaceBorderDark
-                        )
-                    )
-                }
-
-                // Highlight Current Line Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("Highlight Current Line", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                    Switch(
-                        checked = highlightCurrentLine,
-                        onCheckedChange = { highlightCurrentLine = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = YimlyPink,
-                            uncheckedTrackColor = SurfaceBorderDark
-                        )
-                    )
-                }
-
-                // Animation Duration Slider
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Animation Duration", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("$animDuration ms", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
-                    }
-                    Slider(
-                        value = animDuration.toFloat(),
-                        onValueChange = { animDuration = it.toInt() },
-                        valueRange = 100f..600f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = YimlyPink,
-                            activeTrackColor = YimlyPink,
-                            inactiveTrackColor = SurfaceBorderDark
-                        )
-                    )
-                }
-
-                // Line Spacing Slider
                 Column {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -248,29 +129,6 @@ fun LyricsSettingsDialog(
                             inactiveTrackColor = SurfaceBorderDark
                         )
                     )
-                }
-
-                // Alignment Chips
-                Column {
-                    Text("Alignment", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        LyricAlignment.values().forEach { align ->
-                            FilterChip(
-                                selected = alignment == align,
-                                onClick = { alignment = align },
-                                label = { Text(align.displayName, fontSize = 11.sp) },
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = YimlyPink,
-                                    selectedLabelColor = Color.White,
-                                    containerColor = SurfaceCardDark,
-                                    labelColor = TextSecondaryDark
-                                )
-                            )
-                        }
-                    }
                 }
 
                 HorizontalDivider(color = SurfaceBorderDark, thickness = 1.dp)
@@ -370,134 +228,15 @@ fun LyricsSettingsDialog(
 
                 HorizontalDivider(color = SurfaceBorderDark, thickness = 1.dp)
 
-                // ==========================================
-                // 5. PREVIOUS & NEXT LINES SECTION (SHARED)
-                // ==========================================
+                // Independent timing offsets for fixed LRC Focus and eLRC fullscreen modes.
                 Text(
-                    text = "Previous & Next Lines",
+                    text = "Lyrics Sync",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = TextPrimaryDark
                 )
-
-                // Shared Size
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Size", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("${otherSize.toInt()} sp", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
-                    }
-                    Slider(
-                        value = otherSize,
-                        onValueChange = { otherSize = it },
-                        valueRange = 12f..24f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = YimlyPink,
-                            activeTrackColor = YimlyPink,
-                            inactiveTrackColor = SurfaceBorderDark
-                        )
-                    )
-                }
-
-                // Shared Opacity
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Opacity", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("${(otherOpacity * 100).toInt()}%", style = MaterialTheme.typography.bodyMedium, color = YimlyPink)
-                    }
-                    Slider(
-                        value = otherOpacity,
-                        onValueChange = { otherOpacity = it },
-                        valueRange = 0.10f..1.0f,
-                        colors = SliderDefaults.colors(
-                            thumbColor = YimlyPink,
-                            activeTrackColor = YimlyPink,
-                            inactiveTrackColor = SurfaceBorderDark
-                        )
-                    )
-                }
-
-                HorizontalDivider(color = SurfaceBorderDark, thickness = 1.dp)
-
-                // ==========================================
-                // 6. OTHER SECTION
-                // ==========================================
-                Text(
-                    text = "Other",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = TextPrimaryDark
-                )
-
-                // Lyrics Overlay Switch
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column {
-                        Text("Lyrics Overlay", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text("Show floating lyrics on mini player", style = MaterialTheme.typography.bodySmall, color = TextSecondaryDark)
-                    }
-                    Switch(
-                        checked = lyricsOverlay,
-                        onCheckedChange = { lyricsOverlay = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Color.White,
-                            checkedTrackColor = YimlyPink,
-                            uncheckedTrackColor = SurfaceBorderDark
-                        )
-                    )
-                }
-
-                // Offset Control
-                Column {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text("Offset", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                        Text(
-                            text = if (manualOffset == 0L) "Sync (0.0s)" else String.format(java.util.Locale.US, "%+.1fs", manualOffset / 1000f),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (manualOffset != 0L) YimlyPink else TextSecondaryDark
-                        )
-                    }
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        OutlinedButton(
-                            onClick = { manualOffset -= 200L },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimaryDark),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("-0.2s", fontSize = 12.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = { manualOffset = 0L },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = YimlyPink),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("Reset", fontSize = 12.sp)
-                        }
-
-                        OutlinedButton(
-                            onClick = { manualOffset += 200L },
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimaryDark),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text("+0.2s", fontSize = 12.sp)
-                        }
-                    }
-                }
+                LyricsOffsetControl("Focus Mode (LRC)", lrcOffsetMs) { lrcOffsetMs = it }
+                LyricsOffsetControl("Fullscreen (eLRC)", elrcOffsetMs) { elrcOffsetMs = it }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -518,23 +257,14 @@ fun LyricsSettingsDialog(
                     Button(
                         onClick = {
                             val updated = initialConfig.copy(
-                                formatMode = formatMode,
-                                autoScroll = autoScroll,
-                                highlightCurrentLine = highlightCurrentLine,
-                                animationDurationMs = animDuration,
-                                lineSpacingDp = lineSpacing,
-                                alignment = alignment,
-                                fontFamily = com.example.data.models.LyricFontFamily.DEFAULT,
                                 textCase = textCase,
+                                lineSpacingDp = lineSpacing,
                                 currentLineFontSizeSp = currentSize,
                                 currentLineColorHex = selectedColorTheme.activeColorHex,
                                 colorTheme = selectedColorTheme,
-                                otherLineFontSizeSp = otherSize,
-                                otherLinesOpacity = otherOpacity,
-                                lyricsOverlay = lyricsOverlay,
-                                manualOffsetMs = manualOffset,
-                                lrcOffsetMs = if (formatMode == LyricsFormatMode.LRC) manualOffset else initialConfig.lrcOffsetMs,
-                                elrcOffsetMs = if (formatMode == LyricsFormatMode.ELRC) manualOffset else initialConfig.elrcOffsetMs
+                                manualOffsetMs = 0L,
+                                lrcOffsetMs = lrcOffsetMs,
+                                elrcOffsetMs = elrcOffsetMs
                             )
                             onSaveConfig(updated)
                             onDismiss()
@@ -548,6 +278,43 @@ fun LyricsSettingsDialog(
                         Text("Apply", fontWeight = FontWeight.Bold)
                     }
                 }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun LyricsOffsetControl(
+    label: String,
+    offsetMs: Long,
+    onOffsetChange: (Long) -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text(label, style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
+            Text(
+                text = if (offsetMs == 0L) "Sync (0.0s)" else String.format(java.util.Locale.US, "%+.1fs", offsetMs / 1000f),
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (offsetMs != 0L) YimlyPink else TextSecondaryDark
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(onClick = { onOffsetChange(offsetMs - 200L) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimaryDark), shape = RoundedCornerShape(8.dp)) {
+                Text("-0.2s", fontSize = 12.sp)
+            }
+            OutlinedButton(onClick = { onOffsetChange(0L) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = YimlyPink), shape = RoundedCornerShape(8.dp)) {
+                Text("Reset", fontSize = 12.sp)
+            }
+            OutlinedButton(onClick = { onOffsetChange(offsetMs + 200L) }, colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimaryDark), shape = RoundedCornerShape(8.dp)) {
+                Text("+0.2s", fontSize = 12.sp)
             }
         }
     }
