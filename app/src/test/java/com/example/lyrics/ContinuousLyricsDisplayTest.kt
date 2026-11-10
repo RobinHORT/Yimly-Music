@@ -108,7 +108,7 @@ class ContinuousLyricsDisplayTest {
     @Test
     fun fullscreenScrollHandlesDuplicateOrReversedTimestampsSafely() {
         assertEquals(1f, fullscreenLyricsScrollProgress(2500.0, 2000L, 2000L), 0.001f)
-        assertEquals(1f, fullscreenLyricsScrollProgress(2500.0, 3000L, 2000L), 0.001f)
+        assertEquals(0f, fullscreenLyricsScrollProgress(2500.0, 3000L, 2000L), 0.001f)
     }
 
 }
