@@ -65,6 +65,7 @@ import kotlinx.coroutines.withContext
 import com.example.YimlyApplication
 import com.example.data.models.LyricsData
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsFormatMode
 import com.example.data.models.Song
 import com.example.playback.RepeatMode
 import com.example.ui.components.YimlyMicIcon
@@ -99,16 +100,15 @@ fun FullscreenLyricsDialog(
     onSaveLyricsConfig: (LyricsDisplayConfig) -> Unit,
     playbackSpeed: Float = 1.0f
 ) {
-    var fullscreenFormatMode by remember(song.id, lyricsConfig.formatMode) { mutableStateOf(lyricsConfig.formatMode) }
     val context = LocalContext.current
     val app = context.applicationContext as? YimlyApplication
     val musicRepository = app?.musicRepository
 
     var activeLyricsData by remember(song.id, lyricsData) { mutableStateOf(lyricsData) }
 
-    LaunchedEffect(song.id, fullscreenFormatMode) {
+    LaunchedEffect(song.id) {
         if (musicRepository != null) {
-            val fetched = musicRepository.getLyricsForSong(song, fullscreenFormatMode, allowSongFallback = true)
+            val fetched = musicRepository.getLyricsForSong(song, LyricsFormatMode.ELRC, allowSongFallback = true)
             activeLyricsData = fetched
         }
     }
@@ -164,22 +164,6 @@ fun FullscreenLyricsDialog(
                         Text(song.title, color = TextPrimaryDark, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Text(song.artist, color = TextSecondaryDark, style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    Row(
-                        modifier = Modifier.clip(RoundedCornerShape(18.dp)).background(SurfaceElevatedDark)
-                            .border(1.dp, SurfaceBorderDark, RoundedCornerShape(18.dp)).padding(horizontal = 4.dp, vertical = 3.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        listOf(com.example.data.models.LyricsFormatMode.LRC, com.example.data.models.LyricsFormatMode.ELRC).forEach { mode ->
-                            Text(mode.displayName,
-                                color = if (fullscreenFormatMode == mode) TextPrimaryDark else TextSecondaryDark,
-                                fontWeight = if (fullscreenFormatMode == mode) FontWeight.Bold else FontWeight.Medium,
-                                fontSize = 11.sp,
-                                modifier = Modifier.clip(RoundedCornerShape(14.dp))
-                                    .background(if (fullscreenFormatMode == mode) YimlyPink.copy(alpha = 0.28f) else Color.Transparent)
-                                    .clickable { fullscreenFormatMode = mode }.padding(horizontal = 9.dp, vertical = 6.dp)
-                                    .testTag("fullscreen_lyrics_mode_${mode.name.lowercase()}"))
-                        }
-                    }
                     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides androidx.compose.ui.unit.Dp.Unspecified) {
                         Row(
                             modifier = Modifier.clip(RoundedCornerShape(20.dp)).background(SurfaceElevatedDark)
@@ -207,7 +191,7 @@ fun FullscreenLyricsDialog(
                     isPlaying = isPlaying,
                     songOffsetMs = songOffsetMs,
                     config = lyricsConfig.copy(
-                        formatMode = fullscreenFormatMode,
+                        formatMode = LyricsFormatMode.ELRC,
                         highlightCurrentLine = false,
                         currentLineColorHex = "#FFFFFF"
                     ),
