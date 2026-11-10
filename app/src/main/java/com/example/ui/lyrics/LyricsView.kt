@@ -550,11 +550,12 @@ private fun ContinuousLyricsDisplay(
                         kotlin.math.abs(actualSampleAdvanceMs - expectedSampleAdvanceMs) > 500.0
                     val offsetChanged = latestEffectiveOffsetMs != previousOffsetMs
 
+                    val playbackStateChanged =
+                        playingNow != previousPlaying || speedNow != previousSpeed
                     if (
                         anchorFrameNanos == 0L ||
                         sampleChanged ||
-                        playingNow != previousPlaying ||
-                        speedNow != previousSpeed
+                        playbackStateChanged
                     ) {
                         anchorPositionMs = samplePositionMs.toDouble()
                         anchorFrameNanos = frameNanos
@@ -562,7 +563,7 @@ private fun ContinuousLyricsDisplay(
                         previousPlaying = playingNow
                         previousSpeed = speedNow
                     }
-                    if (sampleChanged || lastSampleFrameNanos == 0L) {
+                    if (sampleChanged || playbackStateChanged || lastSampleFrameNanos == 0L) {
                         lastSampleFrameNanos = frameNanos
                     }
                     if (sampleLooksLikeSeek || offsetChanged) {
@@ -647,30 +648,51 @@ private fun ContinuousLyricsDisplay(
                         continue
                     }
 
+                    val advancedFromPreviousLine =
+                        previousActiveIndex >= 0 && activeIndex == previousActiveIndex + 1
+                    val previousIntervalProgress = previousProgress
                     if (activeIndex != previousActiveIndex) {
-                        // The previous interval ended with this line arriving at centre.
-                        // Reset only the interval progress; do not reposition the list.
                         previousActiveIndex = activeIndex
-                        previousProgress = progress
+                        previousProgress = 0f
                     }
 
+                    val previousCentre = if (advancedFromPreviousLine) {
+                        lineCentresInRoot[activeIndex - 1]?.minus(containerBounds[0])
+                    } else null
                     val nextIsVisible = nextIndex in visibleIndices
                     val nextCentre = if (nextIsVisible) {
                         lineCentresInRoot[nextIndex]?.minus(containerBounds[0])
                     } else null
 
+                    // If a frame crosses a timestamp boundary, finish the tiny remainder
+                    // of the previous interval before applying this line's new progress.
+                    // This keeps the newly active line centred at its exact timestamp.
+                    val boundaryCorrectionPx = if (
+                        advancedFromPreviousLine && previousCentre != null
+                    ) {
+                        (currentCentre - previousCentre) * (1f - previousIntervalProgress)
+                    } else 0f
+
                     if (nextCentre != null) {
                         // Pixel gap comes from the two real row centres, including wrapped
                         // text height, row padding, and LazyColumn item spacing.
                         val measuredGapPx = nextCentre - currentCentre
-                        val pixelDelta = fullscreenLyricsPixelDelta(
-                            measuredGapPx,
-                            previousProgress,
-                            progress
-                        )
-                        if (pixelDelta != 0f && measuredGapPx > 0f) {
-                            listState.scrollBy(pixelDelta)
+                        val intervalDeltaPx = if (advancedFromPreviousLine) {
+                            measuredGapPx * progress
+                        } else {
+                            fullscreenLyricsPixelDelta(
+                                measuredGapPx,
+                                previousProgress,
+                                progress
+                            )
                         }
+                        val totalPixelDelta = boundaryCorrectionPx + intervalDeltaPx
+                        if (totalPixelDelta != 0f && measuredGapPx > 0f) {
+                            listState.scrollBy(totalPixelDelta)
+                        }
+                        previousProgress = progress
+                    } else if (boundaryCorrectionPx > 0f) {
+                        listState.scrollBy(boundaryCorrectionPx)
                         previousProgress = progress
                     }
                 }
