@@ -113,7 +113,6 @@ class LyricsSettingsComprehensiveTest {
             currentLineColorHex = "#FF3366",
             otherLineFontSizeSp = otherLineSize,
             otherLinesOpacity = otherOpacity,
-            visibleLines = 3,
             highlightCurrentLine = true
         )
 
@@ -191,9 +190,8 @@ class LyricsSettingsComprehensiveTest {
     }
 
     @Test
-    fun testMultipleVisibleLinesRendering() {
+    fun testContinuousLyricsRendersAllProvidedLines() {
         val config = LyricsDisplayConfig(
-            visibleLines = 5,
             textCase = LyricTextCase.TITLE_CASE
         )
 
@@ -221,7 +219,7 @@ class LyricsSettingsComprehensiveTest {
             )
         }
 
-        // Verify all 5 lines are rendered
+        // Verify the continuous renderer can display every supplied lyric line
         composeTestRule.onNodeWithText("Line 1").assertIsDisplayed()
         composeTestRule.onNodeWithText("Line 2").assertIsDisplayed()
         composeTestRule.onNodeWithText("Line 3 Active").assertIsDisplayed()
