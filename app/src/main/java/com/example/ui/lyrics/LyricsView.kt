@@ -132,7 +132,7 @@ fun LyricsView(
 
     val currentLineColor = remember(config.currentLineColorHex) {
         try {
-            Color(android.graphics.Color.parseColor(config.currentLineColorHex))
+            Color(android.graphics.Color.parseColor(config.colorTheme.activeColorHex))
         } catch (e: Exception) {
             YimlyPink
         }
@@ -785,11 +785,7 @@ private fun ContinuousLyricsDisplay(
                 val targetAlpha = if (rotatingSections) {
                     // Keep completed/current lyrics fully highlighted; upcoming LRC lines
                     // remain visible at the same 85% inactive opacity used by eLRC words.
-                    if (config.formatMode == LyricsFormatMode.ELRC || index <= activeDisplayIndex) {
-                        1f
-                    } else {
-                        0.85f
-                    }
+                    1f
                 } else {
                     continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
                 }
@@ -799,10 +795,14 @@ private fun ContinuousLyricsDisplay(
                     label = "continuousLyricOpacity"
                 )
                 val isCurrent = index == activeDisplayIndex
+                val themeInactiveColor = Color(android.graphics.Color.parseColor(config.colorTheme.inactiveColorHex))
+                    .copy(alpha = config.colorTheme.inactiveAlpha)
                 val lineColor = if (config.formatMode == LyricsFormatMode.ELRC) {
                     currentLineColor
                 } else if (rotatingSections && index <= activeDisplayIndex) {
                     currentLineColor
+                } else if (rotatingSections) {
+                    themeInactiveColor
                 } else if (isCurrent && config.highlightCurrentLine) {
                     currentLineColor
                 } else {
@@ -940,7 +940,7 @@ fun SynchronizedLyricContent(
                     text = wordText,
                     progress = progress,
                     activeColor = currentLineColor,
-                    inactiveColor = currentLineColor.copy(alpha = 0.85f),
+                    inactiveColor = Color(android.graphics.Color.parseColor(config.colorTheme.inactiveColorHex)).copy(alpha = config.colorTheme.inactiveAlpha),
                     fontSize = fontSizeSp.sp,
                     fontFamily = composeFontFamily,
                     fontWeight = FontWeight.Bold
@@ -982,6 +982,7 @@ fun ProgressiveSweepWord(
     fontWeight: FontWeight,
     modifier: Modifier = Modifier
 ) {
+    val resolvedFontWeight = if (progress > 0f) FontWeight.Bold else FontWeight.Normal
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
@@ -992,7 +993,7 @@ fun ProgressiveSweepWord(
             color = inactiveColor,
             fontSize = fontSize,
             fontFamily = fontFamily,
-            fontWeight = fontWeight,
+            fontWeight = resolvedFontWeight,
             maxLines = 1,
             softWrap = false
         )
