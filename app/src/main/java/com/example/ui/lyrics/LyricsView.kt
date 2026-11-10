@@ -782,7 +782,17 @@ private fun ContinuousLyricsDisplay(
                 val distance = if (showPreLyrics) index + 1 else kotlin.math.abs(index - activeDisplayIndex)
                 // Fullscreen credit mode keeps every lyric fully visible as it passes.
                 // Earlier lines retain their highlighted state instead of fading back out.
-                val targetAlpha = if (rotatingSections) 1f else continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
+                val targetAlpha = if (rotatingSections) {
+                    // Keep completed/current lyrics fully highlighted; upcoming LRC lines
+                    // remain visible at the same 85% inactive opacity used by eLRC words.
+                    if (config.formatMode == LyricsFormatMode.ELRC || index <= activeDisplayIndex) {
+                        1f
+                    } else {
+                        0.85f
+                    }
+                } else {
+                    continuousLyricsLineAlpha(distance, config.otherLinesOpacity)
+                }
                 val lineAlpha by animateFloatAsState(
                     targetValue = targetAlpha,
                     animationSpec = tween(durationMillis = config.animationDurationMs),
@@ -917,7 +927,7 @@ fun SynchronizedLyricContent(
                     text = wordText,
                     progress = progress,
                     activeColor = currentLineColor,
-                    inactiveColor = currentLineColor.copy(alpha = 0.35f),
+                    inactiveColor = currentLineColor.copy(alpha = 0.85f),
                     fontSize = fontSizeSp.sp,
                     fontFamily = composeFontFamily,
                     fontWeight = FontWeight.Bold
