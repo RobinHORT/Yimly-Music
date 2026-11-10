@@ -576,7 +576,7 @@ private fun ContinuousLyricsDisplay(
             if (!rotatingSections && currentIndex in lines.indices) {
                 listState.animateScrollToItem(
                     index = currentIndex,
-                    scrollOffset = -(maxHeight / 2 - 36.dp).roundToPx()
+                    scrollOffset = -with(density) { (maxHeight / 2 - 36.dp).roundToPx() }
                 )
             }
         }
