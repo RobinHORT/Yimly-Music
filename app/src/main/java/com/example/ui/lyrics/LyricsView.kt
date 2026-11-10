@@ -452,6 +452,13 @@ internal fun fullscreenLyricsScrollProgress(
         .toFloat()
 }
 
+/** Incremental pixel movement for a linear timestamp-driven glide. */
+internal fun fullscreenLyricsPixelDelta(
+    measuredDistancePx: Float,
+    previousProgress: Float,
+    currentProgress: Float
+): Float = measuredDistancePx * (currentProgress - previousProgress)
+
 /**
  * One continuous lyrics stream shared by Focus and fullscreen lyrics.
  *
@@ -513,6 +520,8 @@ private fun ContinuousLyricsDisplay(
                 var anchorFrameNanos = 0L
                 var previousPlaying = latestIsPlaying
                 var previousSpeed = latestPlaybackSpeed
+                var previousOffsetMs = latestEffectiveOffsetMs
+                var lastSampleFrameNanos = 0L
                 var previousActiveIndex = -1
                 var previousProgress = 0f
                 var needsCentreAnchor = true
@@ -523,8 +532,20 @@ private fun ContinuousLyricsDisplay(
                     val playingNow = latestIsPlaying
                     val speedNow = latestPlaybackSpeed.coerceAtLeast(0f)
 
-                    // Re-anchor on player samples, pause/resume, and speed changes. This
-                    // prevents elapsed paused time from leaking into the scroll clock.
+                    // Detect seeks by comparing the player sample delta with the elapsed
+                    // frame time. Ordinary periodic samples stay on the current glide;
+                    // discontinuities and offset changes re-anchor the active line.
+                    val elapsedSinceSampleMs = if (lastSampleFrameNanos == 0L) 0.0 else
+                        (frameNanos - lastSampleFrameNanos).coerceAtLeast(0L) / 1_000_000.0
+                    val expectedSampleAdvanceMs = if (previousPlaying) {
+                        elapsedSinceSampleMs * previousSpeed.coerceAtLeast(0f)
+                    } else 0.0
+                    val actualSampleAdvanceMs =
+                        (samplePositionMs - lastSamplePositionMs).toDouble()
+                    val sampleLooksLikeSeek = samplePositionMs != lastSamplePositionMs &&
+                        kotlin.math.abs(actualSampleAdvanceMs - expectedSampleAdvanceMs) > 500.0
+                    val offsetChanged = latestEffectiveOffsetMs != previousOffsetMs
+
                     if (
                         anchorFrameNanos == 0L ||
                         samplePositionMs != lastSamplePositionMs ||
@@ -537,6 +558,15 @@ private fun ContinuousLyricsDisplay(
                         previousPlaying = playingNow
                         previousSpeed = speedNow
                     }
+                    if (samplePositionMs != lastSamplePositionMs || lastSampleFrameNanos == 0L) {
+                        lastSampleFrameNanos = frameNanos
+                    }
+                    if (sampleLooksLikeSeek || offsetChanged) {
+                        needsCentreAnchor = true
+                        previousActiveIndex = -1
+                        previousProgress = 0f
+                    }
+                    previousOffsetMs = latestEffectiveOffsetMs
 
                     val playbackPositionMs = if (playingNow) {
                         anchorPositionMs +
@@ -589,31 +619,8 @@ private fun ContinuousLyricsDisplay(
                     val viewportHeightPx = containerBounds[1]
                     if (viewportHeightPx <= 0f) continue
                     val viewportCentre = viewportHeightPx / 2f
-
-                    if (needsCentreAnchor) {
-                        // Initial load / seek: one measured correction to put the active
-                        // line at the exact viewport centre before starting the glide.
-                        listState.scrollBy(currentCentre - viewportCentre)
-                        needsCentreAnchor = false
-                        previousActiveIndex = activeIndex
-                        previousProgress = 0f
-                        continue
-                    }
-
-                    if (activeIndex != previousActiveIndex) {
-                        // The previous interval ended with this line arriving at centre.
-                        // Reset only the interval progress; do not reposition the list.
-                        previousActiveIndex = activeIndex
-                        previousProgress = 0f
-                    }
-
                     val nextIndex = activeIndex + 1
                     val nextTimeMs = lineTimestamps.getOrNull(nextIndex)
-                    val nextIsVisible = nextIndex in visibleIndices
-                    val nextCentre = if (nextIsVisible) {
-                        lineCentresInRoot[nextIndex]?.minus(containerBounds[0])
-                    } else null
-
                     val progress = if (nextTimeMs != null) {
                         fullscreenLyricsScrollProgress(
                             adjustedPositionMs,
@@ -624,13 +631,41 @@ private fun ContinuousLyricsDisplay(
                         0f
                     }
 
+                    if (needsCentreAnchor) {
+                        // Initial load / seek: one measured correction to put the active
+                        // line at the exact viewport centre before starting the glide.
+                        listState.scrollBy(currentCentre - viewportCentre)
+                        needsCentreAnchor = false
+                        previousActiveIndex = activeIndex
+                        // We have centred the active line at the current playback instant.
+                        // Continue only the remaining fraction of this timestamp interval.
+                        previousProgress = progress
+                        continue
+                    }
+
+                    if (activeIndex != previousActiveIndex) {
+                        // The previous interval ended with this line arriving at centre.
+                        // Reset only the interval progress; do not reposition the list.
+                        previousActiveIndex = activeIndex
+                        previousProgress = 0f
+                    }
+
+                    val nextIsVisible = nextIndex in visibleIndices
+                    val nextCentre = if (nextIsVisible) {
+                        lineCentresInRoot[nextIndex]?.minus(containerBounds[0])
+                    } else null
+
                     if (nextCentre != null) {
                         // Pixel gap comes from the two real row centres, including wrapped
                         // text height, row padding, and LazyColumn item spacing.
                         val measuredGapPx = nextCentre - currentCentre
-                        val progressDelta = progress - previousProgress
-                        if (progressDelta != 0f && measuredGapPx > 0f) {
-                            listState.scrollBy(measuredGapPx * progressDelta)
+                        val pixelDelta = fullscreenLyricsPixelDelta(
+                            measuredGapPx,
+                            previousProgress,
+                            progress
+                        )
+                        if (pixelDelta != 0f && measuredGapPx > 0f) {
+                            listState.scrollBy(pixelDelta)
                         }
                         previousProgress = progress
                     }
