@@ -103,7 +103,6 @@ data class LyricsDisplayConfig(
     val elrcHighlightMode: String = ELRC_HIGHLIGHT_MODE_PROGRESSIVE_SWEEPING,
 
     // Lyrics Display
-    val visibleLines: Int = 3,
     val autoScroll: Boolean = true,
     val highlightCurrentLine: Boolean = true,
     val animationDurationMs: Int = 250,
