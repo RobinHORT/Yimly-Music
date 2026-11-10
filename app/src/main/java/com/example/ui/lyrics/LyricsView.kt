@@ -717,7 +717,37 @@ private fun ContinuousLyricsDisplay(
                 .onGloballyPositioned { coordinates ->
                     containerBounds[0] = coordinates.positionInRoot().y
                     containerBounds[1] = coordinates.size.height.toFloat()
-                },
+                }
+                // Fade only the fullscreen credit-mode viewport. The offscreen layer
+                // keeps DstIn masking local to the lyrics, leaving dialog controls untouched.
+                .then(
+                    if (rotatingSections) {
+                        Modifier
+                            .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                            .drawWithContent {
+                                drawContent()
+                                if (size.height > 0f) {
+                                    val fadeHeightPx = 40.dp.toPx().coerceAtMost(size.height / 2f)
+                                    val fadeFraction = (fadeHeightPx / size.height).coerceIn(0f, 0.5f)
+                                    drawRect(
+                                        brush = Brush.verticalGradient(
+                                            colorStops = arrayOf(
+                                                0f to Color.Transparent,
+                                                fadeFraction to Color.Black,
+                                                (1f - fadeFraction) to Color.Black,
+                                                1f to Color.Transparent
+                                            ),
+                                            startY = 0f,
+                                            endY = size.height
+                                        ),
+                                        blendMode = BlendMode.DstIn
+                                    )
+                                }
+                            }
+                    } else {
+                        Modifier
+                    }
+                ),
             contentPadding = PaddingValues(
                 top = topPadding,
                 bottom = if (rotatingSections) maxHeight / 2 else 16.dp
