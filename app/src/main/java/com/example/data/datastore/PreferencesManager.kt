@@ -14,6 +14,7 @@ import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricFontFamily
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsColorTheme
 import com.example.data.models.LyricsFormatMode
 import com.example.playback.PlaybackSnapshot
 import com.squareup.moshi.Moshi
@@ -76,6 +77,7 @@ class PreferencesManager(private val context: Context) {
         private val KEY_LYRICS_FONT_FAMILY = stringPreferencesKey("lyrics_font_family")
         private val KEY_LYRICS_CURRENT_FONT_SIZE = floatPreferencesKey("lyrics_current_font_size")
         private val KEY_LYRICS_CURRENT_COLOR = stringPreferencesKey("lyrics_current_color")
+        private val KEY_LYRICS_COLOR_THEME = stringPreferencesKey("lyrics_color_theme")
         private val KEY_LYRICS_OTHER_FONT_SIZE = floatPreferencesKey("lyrics_other_font_size")
         private val KEY_LYRICS_FONT_WEIGHT_BOLD = booleanPreferencesKey("lyrics_font_weight_bold")
         private val KEY_LYRICS_OTHER_OPACITY = floatPreferencesKey("lyrics_other_opacity")
@@ -176,6 +178,11 @@ class PreferencesManager(private val context: Context) {
             },
             currentLineFontSizeSp = prefs[KEY_LYRICS_CURRENT_FONT_SIZE] ?: 24f,
             currentLineColorHex = prefs[KEY_LYRICS_CURRENT_COLOR] ?: "#FF3366",
+            colorTheme = try {
+                LyricsColorTheme.valueOf(prefs[KEY_LYRICS_COLOR_THEME] ?: LyricsColorTheme.STREAMING_STANDARD.name)
+            } catch (e: Exception) {
+                LyricsColorTheme.STREAMING_STANDARD
+            },
             fontWeightBold = prefs[KEY_LYRICS_FONT_WEIGHT_BOLD] ?: true,
             otherLineFontSizeSp = prefs[KEY_LYRICS_OTHER_FONT_SIZE] ?: 15f,
             otherLinesOpacity = prefs[KEY_LYRICS_OTHER_OPACITY] ?: 0.35f,
@@ -338,6 +345,7 @@ class PreferencesManager(private val context: Context) {
             prefs[KEY_LYRICS_TEXT_CASE] = config.textCase.name
             prefs[KEY_LYRICS_CURRENT_FONT_SIZE] = config.currentLineFontSizeSp
             prefs[KEY_LYRICS_CURRENT_COLOR] = config.currentLineColorHex
+            prefs[KEY_LYRICS_COLOR_THEME] = config.colorTheme.name
             prefs[KEY_LYRICS_FONT_WEIGHT_BOLD] = config.fontWeightBold
             prefs[KEY_LYRICS_OTHER_FONT_SIZE] = config.otherLineFontSizeSp
             prefs[KEY_LYRICS_OTHER_OPACITY] = config.otherLinesOpacity
