@@ -73,7 +73,7 @@ class LyricsSettingsComprehensiveTest {
         composeTestRule.onNodeWithText("Lyrics Settings").assertExists()
         composeTestRule.onNodeWithText("Lyrics Display").assertExists()
         composeTestRule.onNodeWithText("Text Case").assertExists()
-        composeTestRule.onNodeWithText("Current Line").assertExists()
+        composeTestRule.onNodeWithText("Lyrics Appearance").assertExists()
         composeTestRule.onNodeWithText("Lyrics Colour Theme").assertExists()
         composeTestRule.onNodeWithText("Lyrics Sync").assertExists()
 
