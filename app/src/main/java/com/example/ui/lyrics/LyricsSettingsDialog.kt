@@ -56,6 +56,7 @@ import androidx.compose.ui.window.Dialog
 import com.example.data.models.LyricAlignment
 import com.example.data.models.LyricTextCase
 import com.example.data.models.LyricsDisplayConfig
+import com.example.data.models.LyricsColorTheme
 import com.example.data.models.LyricsFormatMode
 import com.example.ui.theme.SurfaceBorderDark
 import com.example.ui.theme.SurfaceCardDark
@@ -93,7 +94,7 @@ fun LyricsSettingsDialog(
 
     // 4. Current Line state
     var currentSize by remember { mutableFloatStateOf(initialConfig.currentLineFontSizeSp) }
-    var currentColorHex by remember { mutableStateOf(initialConfig.currentLineColorHex) }
+    var selectedColorTheme by remember { mutableStateOf(initialConfig.colorTheme) }
 
     // 5. Previous & Next Lines state (Shared)
     var otherSize by remember { mutableFloatStateOf(initialConfig.otherLineFontSizeSp) }
@@ -336,42 +337,33 @@ fun LyricsSettingsDialog(
                     )
                 }
 
-                // Current Line Color Swatches
-                Column {
-                    Text("Current Line Color", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                // Fullscreen karaoke active / inactive colour themes
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("Lyrics Colour Theme", style = MaterialTheme.typography.bodyMedium, color = TextPrimaryDark)
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        COLOR_PRESETS.forEach { (name, hex) ->
-                            val color = try {
-                                Color(android.graphics.Color.parseColor(hex))
-                            } catch (e: Exception) {
-                                YimlyPink
-                            }
-                            val isSelected = currentColorHex.equals(hex, ignoreCase = true)
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(CircleShape)
-                                    .background(color)
-                                    .border(
-                                        width = if (isSelected) 2.5.dp else 1.dp,
-                                        color = if (isSelected) Color.White else SurfaceBorderDark,
-                                        shape = CircleShape
-                                    )
-                                    .clickable { currentColorHex = hex },
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (isSelected) {
-                                    Icon(
-                                        imageVector = Icons.Default.Check,
-                                        contentDescription = name,
-                                        tint = if (hex == "#FFFFFF") Color.Black else Color.White,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
+                        LyricsColorTheme.values().forEach { theme ->
+                            FilterChip(
+                                selected = selectedColorTheme == theme,
+                                onClick = { selectedColorTheme = theme },
+                                label = {
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                        Box(Modifier.size(10.dp).clip(CircleShape).background(Color(android.graphics.Color.parseColor(theme.activeColorHex))))
+                                        Box(Modifier.size(10.dp).clip(CircleShape).background(Color(android.graphics.Color.parseColor(theme.inactiveColorHex)).copy(alpha = theme.inactiveAlpha)))
+                                        Text(theme.displayName, fontSize = 11.sp)
+                                    }
+                                },
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = YimlyPink,
+                                    selectedLabelColor = Color.White,
+                                    containerColor = SurfaceCardDark,
+                                    labelColor = TextSecondaryDark
+                                ),
+                                modifier = Modifier.testTag("lyrics_color_theme_${theme.name.lowercase()}")
+                            )
                         }
                     }
                 }
@@ -535,7 +527,8 @@ fun LyricsSettingsDialog(
                                 fontFamily = com.example.data.models.LyricFontFamily.DEFAULT,
                                 textCase = textCase,
                                 currentLineFontSizeSp = currentSize,
-                                currentLineColorHex = currentColorHex,
+                                currentLineColorHex = selectedColorTheme.activeColorHex,
+                                colorTheme = selectedColorTheme,
                                 otherLineFontSizeSp = otherSize,
                                 otherLinesOpacity = otherOpacity,
                                 lyricsOverlay = lyricsOverlay,
