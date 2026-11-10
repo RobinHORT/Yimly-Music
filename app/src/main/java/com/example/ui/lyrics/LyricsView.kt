@@ -13,6 +13,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -68,6 +69,8 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -495,66 +498,122 @@ private fun ContinuousLyricsDisplay(
         val listState = rememberLazyListState()
         val density = LocalDensity.current
         val topPadding = if (showPreLyrics) (maxHeight / 2 - 36.dp).coerceAtLeast(16.dp) else 16.dp
-        val lineSpacingPx = with(density) { config.lineSpacingDp.dp.roundToPx() }
+        // Coordinates are measured in root space, then converted to this lyrics viewport.
+        // A plain map avoids recomposing the entire list for every layout callback.
+        val containerBounds = remember(lines) { FloatArray(2) }
+        val lineCentresInRoot = remember(lines) { mutableMapOf<Int, Float>() }
 
-        // Fullscreen mode follows the playback clock frame-by-frame. Each line starts
-        // centred at its timestamp, then glides to the next line's centre over the
-        // exact timestamp interval between those two lines.
+        // A frame clock extrapolates between authoritative player samples. scrollBy()
+        // receives only the incremental pixel delta, so no easing curve or per-frame
+        // scrollToItem() repositioning can introduce a stepped effect.
         LaunchedEffect(lines, rotatingSections, config.formatMode) {
             if (rotatingSections && lines.isNotEmpty()) {
                 var lastSamplePositionMs = latestPositionMs
                 var anchorPositionMs = latestPositionMs.toDouble()
                 var anchorFrameNanos = 0L
+                var previousPlaying = latestIsPlaying
+                var previousSpeed = latestPlaybackSpeed
+                var previousActiveIndex = -1
+                var previousProgress = 0f
+                var needsCentreAnchor = true
 
                 while (isActive) {
                     val frameNanos = withFrameNanos { it }
                     val samplePositionMs = latestPositionMs
-                    if (anchorFrameNanos == 0L || samplePositionMs != lastSamplePositionMs) {
+                    val playingNow = latestIsPlaying
+                    val speedNow = latestPlaybackSpeed.coerceAtLeast(0f)
+
+                    // Re-anchor on player samples, pause/resume, and speed changes. This
+                    // prevents elapsed paused time from leaking into the scroll clock.
+                    if (
+                        anchorFrameNanos == 0L ||
+                        samplePositionMs != lastSamplePositionMs ||
+                        playingNow != previousPlaying ||
+                        speedNow != previousSpeed
+                    ) {
                         anchorPositionMs = samplePositionMs.toDouble()
                         anchorFrameNanos = frameNanos
                         lastSamplePositionMs = samplePositionMs
+                        previousPlaying = playingNow
+                        previousSpeed = speedNow
                     }
 
-                    val playbackPositionMs = if (latestIsPlaying) {
+                    val playbackPositionMs = if (playingNow) {
                         anchorPositionMs +
                             ((frameNanos - anchorFrameNanos).coerceAtLeast(0L) / 1_000_000.0) *
-                            latestPlaybackSpeed.coerceAtLeast(0f)
+                            speedNow
                     } else {
                         samplePositionMs.toDouble()
                     }
                     animatedPlaybackPositionMs = playbackPositionMs
+
                     val adjustedPositionMs = playbackPositionMs + latestEffectiveOffsetMs
                     val activeIndex = lineTimestamps.indexOfLast { it <= adjustedPositionMs }
                     activeDisplayIndex = activeIndex
 
                     if (activeIndex < 0) {
-                        listState.scrollToItem(0)
+                        if (listState.firstVisibleItemIndex != 0 ||
+                            listState.firstVisibleItemScrollOffset != 0
+                        ) {
+                            listState.scrollToItem(0)
+                        }
+                        previousActiveIndex = -1
+                        previousProgress = 0f
+                        needsCentreAnchor = true
                         continue
                     }
 
-                    val currentItem = listState.layoutInfo.visibleItemsInfo
-                        .firstOrNull { it.index == activeIndex && it.key != "pre_lyrics_status" }
-                    if (currentItem == null) {
+                    // A non-adjacent index change indicates an initial position or seek.
+                    // Reposition once to make the selected line measurable, then centre it.
+                    if (previousActiveIndex >= 0 && kotlin.math.abs(activeIndex - previousActiveIndex) > 1) {
                         listState.scrollToItem(activeIndex)
+                        previousActiveIndex = activeIndex
+                        previousProgress = 0f
+                        needsCentreAnchor = true
                         continue
+                    }
+
+                    val visibleIndices = listState.layoutInfo.visibleItemsInfo.map { it.index }
+                    if (activeIndex !in visibleIndices) {
+                        listState.scrollToItem(activeIndex)
+                        previousActiveIndex = activeIndex
+                        previousProgress = 0f
+                        needsCentreAnchor = true
+                        continue
+                    }
+
+                    val currentCentre = lineCentresInRoot[activeIndex]
+                        ?.minus(containerBounds[0])
+                    if (currentCentre == null) continue
+
+                    val viewportHeightPx = containerBounds[1]
+                    if (viewportHeightPx <= 0f) continue
+                    val viewportCentre = viewportHeightPx / 2f
+
+                    if (needsCentreAnchor) {
+                        // Initial load / seek: one measured correction to put the active
+                        // line at the exact viewport centre before starting the glide.
+                        listState.scrollBy(currentCentre - viewportCentre)
+                        needsCentreAnchor = false
+                        previousActiveIndex = activeIndex
+                        previousProgress = 0f
+                        continue
+                    }
+
+                    if (activeIndex != previousActiveIndex) {
+                        // The previous interval ended with this line arriving at centre.
+                        // Reset only the interval progress; do not reposition the list.
+                        previousActiveIndex = activeIndex
+                        previousProgress = 0f
                     }
 
                     val nextIndex = activeIndex + 1
                     val nextTimeMs = lineTimestamps.getOrNull(nextIndex)
-                    val nextItem = if (nextTimeMs != null) {
-                        listState.layoutInfo.visibleItemsInfo.firstOrNull {
-                            it.index == nextIndex && it.key != "pre_lyrics_status"
-                        }
+                    val nextIsVisible = nextIndex in visibleIndices
+                    val nextCentre = if (nextIsVisible) {
+                        lineCentresInRoot[nextIndex]?.minus(containerBounds[0])
                     } else null
 
-                    // The measured centre-to-centre distance includes actual wrapping
-                    // height and LazyColumn spacing, not an assumed fixed row height.
-                    val centreDistancePx = if (nextItem != null) {
-                        (nextItem.offset + nextItem.size / 2f) -
-                            (currentItem.offset + currentItem.size / 2f)
-                    } else {
-                        currentItem.size.toFloat() + lineSpacingPx
-                    }
                     val progress = if (nextTimeMs != null) {
                         fullscreenLyricsScrollProgress(
                             adjustedPositionMs,
@@ -564,12 +623,17 @@ private fun ContinuousLyricsDisplay(
                     } else {
                         0f
                     }
-                    val centredItemOffset = currentItem.size / 2 -
-                        listState.layoutInfo.viewportSize.height / 2
-                    val interpolatedOffset = centredItemOffset +
-                        (centreDistancePx * progress).toInt()
 
-                    listState.scrollToItem(activeIndex, interpolatedOffset)
+                    if (nextCentre != null) {
+                        // Pixel gap comes from the two real row centres, including wrapped
+                        // text height, row padding, and LazyColumn item spacing.
+                        val measuredGapPx = nextCentre - currentCentre
+                        val progressDelta = progress - previousProgress
+                        if (progressDelta != 0f && measuredGapPx > 0f) {
+                            listState.scrollBy(measuredGapPx * progressDelta)
+                        }
+                        previousProgress = progress
+                    }
                 }
             }
         }
@@ -585,7 +649,12 @@ private fun ContinuousLyricsDisplay(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .onGloballyPositioned { coordinates ->
+                    containerBounds[0] = coordinates.positionInRoot().y
+                    containerBounds[1] = coordinates.size.height.toFloat()
+                },
             contentPadding = PaddingValues(top = topPadding, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
         ) {
@@ -636,7 +705,11 @@ private fun ContinuousLyricsDisplay(
                         .alpha(lineAlpha)
                         .clickable { onSeekTo((line.timeMs - effectiveOffsetMs).coerceAtLeast(0L)) }
                         .padding(horizontal = 18.dp, vertical = 12.dp)
-                        .testTag(
+                        .onGloballyPositioned { coordinates ->
+                        lineCentresInRoot[index] =
+                            coordinates.positionInRoot().y + coordinates.size.height / 2f
+                    }
+                    .testTag(
                             when {
                                 isCurrent && rotatingSections -> "fullscreen_credit_active_line"
                                 isCurrent -> "current_lyric_slot"
