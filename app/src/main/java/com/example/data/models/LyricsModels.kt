@@ -114,7 +114,7 @@ data class LyricsDisplayConfig(
     val fontFamily: LyricFontFamily = LyricFontFamily.DEFAULT,
 
     // Text Case
-    val textCase: LyricTextCase = LyricTextCase.ORIGINAL,
+    val textCase: LyricTextCase = LyricTextCase.TITLE_CASE,
 
     // Current Line
     val currentLineFontSizeSp: Float = 24f,
