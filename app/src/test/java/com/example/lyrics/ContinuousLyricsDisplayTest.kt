@@ -4,6 +4,7 @@ import com.example.data.models.LyricLine
 import com.example.data.models.LyricWord
 import com.example.data.models.LyricsFormatMode
 import com.example.ui.lyrics.fullscreenLyricTimestamp
+import com.example.ui.lyrics.fullscreenLyricsSeekPosition
 import com.example.ui.lyrics.fullscreenLyricsScrollProgress
 import com.example.ui.lyrics.fullscreenLyricsPixelDelta
 import org.junit.Assert.assertEquals
@@ -75,6 +76,46 @@ class ContinuousLyricsDisplayTest {
     fun fullscreenLrcUsesLineTimestampAsScrollAnchor() {
         val line = LyricLine(timeMs = 2400L, text = "LRC line")
         assertEquals(2400L, fullscreenLyricTimestamp(line, LyricsFormatMode.LRC))
+    }
+
+    @Test
+    fun fullscreenElrcTapSeeksToFirstWordTimestampAdjustedForOffset() {
+        val line = LyricLine(
+            timeMs = 2000L,
+            text = "eLRC line",
+            words = listOf(
+                LyricWord("Hello", 2150L, 2600L),
+                LyricWord("world", 2600L, 3200L)
+            ),
+            hasWordTimestamps = true
+        )
+        assertEquals(
+            1900L,
+            fullscreenLyricsSeekPosition(line, LyricsFormatMode.ELRC, 250L)
+        )
+    }
+
+    @Test
+    fun fullscreenLrcTapSeeksToLineTimestampAdjustedForOffset() {
+        val line = LyricLine(timeMs = 2400L, text = "LRC line")
+        assertEquals(
+            2200L,
+            fullscreenLyricsSeekPosition(line, LyricsFormatMode.LRC, 200L)
+        )
+    }
+
+    @Test
+    fun fullscreenLyricsSeekPositionNeverReturnsNegativeMediaPosition() {
+        val line = LyricLine(
+            timeMs = 100L,
+            text = "Early line",
+            words = listOf(LyricWord("Early", 150L, 400L)),
+            hasWordTimestamps = true
+        )
+        assertEquals(
+            0L,
+            fullscreenLyricsSeekPosition(line, LyricsFormatMode.ELRC, 300L)
+        )
     }
 
     @Test
