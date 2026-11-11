@@ -408,9 +408,7 @@ class PlaybackManager(
     }
 
     fun playSong(song: Song, queue: List<Song> = listOf(song), startIndex: Int = 0) {
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         ensurePlayerInitialized()
         startPlaybackService()
         val finalQueue = if (queue.isEmpty()) listOf(song) else queue
@@ -472,6 +470,12 @@ class PlaybackManager(
         }
     }
 
+    private fun cancelAndroidAutoQueueSync() {
+        androidAutoQueueSyncVersion++
+        androidAutoQueueSyncJob?.cancel()
+        androidAutoQueueSyncJob = null
+    }
+
     private fun isAndroidAutoMediaId(mediaId: String): Boolean =
         mediaId.startsWith("playlist_song|") ||
             mediaId.startsWith("favorite_song|") ||
@@ -504,9 +508,7 @@ class PlaybackManager(
         }
         val (queue, _) = queueManager.getQueueSnapshot()
         if (index in queue.indices) {
-            androidAutoQueueSyncVersion++
-            androidAutoQueueSyncJob?.cancel()
-            androidAutoQueueSyncJob = null
+            cancelAndroidAutoQueueSync()
             ensurePlayerInitialized()
             startPlaybackService()
             queueManager.setCurrentIndex(index)
@@ -521,9 +523,7 @@ class PlaybackManager(
             coroutineScope.launch(Dispatchers.Main.immediate) { next(manual) }
             return
         }
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val info = _playbackInfo.value
         if (queue.isEmpty()) {
@@ -559,9 +559,7 @@ class PlaybackManager(
             coroutineScope.launch(Dispatchers.Main.immediate) { previous() }
             return
         }
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val info = _playbackInfo.value
         if (queue.isEmpty()) return
@@ -811,9 +809,7 @@ class PlaybackManager(
     }
     /** Start the current Android Auto/app queue at a random track and enable shuffle. */
     fun shuffleCurrentQueue() {
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val info = _playbackInfo.value
         if (queue.isEmpty()) return
@@ -853,9 +849,7 @@ class PlaybackManager(
             coroutineScope.launch(Dispatchers.Main.immediate) { addToQueue(song) }
             return
         }
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val currentSong = queue.getOrNull(currentQueueIndex)
         // shuffleHistory.clear() is handled by PQM
@@ -872,9 +866,7 @@ class PlaybackManager(
             coroutineScope.launch(Dispatchers.Main.immediate) { playNext(song) }
             return
         }
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val currentSong = queue.getOrNull(currentQueueIndex)
         
@@ -890,9 +882,7 @@ class PlaybackManager(
             coroutineScope.launch(Dispatchers.Main.immediate) { removeFromQueue(index) }
             return
         }
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         if (index !in queue.indices) return
 
@@ -916,9 +906,7 @@ class PlaybackManager(
         val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val currentSong = queue.getOrNull(currentQueueIndex)
         val currentWasRemoved = currentSong?.id == songId
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
 
         queueManager.removeSongFromQueue(songId, queue, currentQueueIndex)
 
@@ -949,9 +937,7 @@ class PlaybackManager(
             coroutineScope.launch(Dispatchers.Main.immediate) { reorderQueue(fromIndex, toIndex) }
             return
         }
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         val (queue, _) = queueManager.getQueueSnapshot()
         if (fromIndex in queue.indices && toIndex in queue.indices) {
             queueManager.reorderQueue(fromIndex, toIndex)
@@ -964,9 +950,7 @@ class PlaybackManager(
         playbackRequestId++
         networkRecoveryJob?.cancel()
         networkRecoveryJob = null
-        androidAutoQueueSyncVersion++
-        androidAutoQueueSyncJob?.cancel()
-        androidAutoQueueSyncJob = null
+        cancelAndroidAutoQueueSync()
         isTransitioning = false
         releaseTransitionWakeLock()
         _player?.stop()
@@ -978,6 +962,7 @@ class PlaybackManager(
     }
 
     fun clearUpcomingQueue() {
+        cancelAndroidAutoQueueSync()
         queueManager.keepOnlyCurrent()
         persistPlaybackSnapshot(force = true)
     }
