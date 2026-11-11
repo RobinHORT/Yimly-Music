@@ -3,6 +3,7 @@ package com.example.playback
 import androidx.media3.common.MediaItem
 import com.example.data.models.Song
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -26,7 +27,9 @@ interface QueueMediaSyncListener {
 class PlaybackQueueManager(
     private val coroutineScope: CoroutineScope,
     private val mediaItemBuilder: suspend (Song, Boolean) -> MediaItem,
-    private val syncListener: QueueMediaSyncListener
+    private val syncListener: QueueMediaSyncListener,
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate
 ) {
     private val _queueState = MutableStateFlow(QueueState())
     val queueState: StateFlow<QueueState> = _queueState.asStateFlow()
@@ -141,10 +144,10 @@ class PlaybackQueueManager(
             val (newState, pendingAdd) = QueueReducer.addEntryWithPending(_queueState.value, song)
             updateInternalState(newState)
 
-            coroutineScope.launch(Dispatchers.IO) {
+            coroutineScope.launch(ioDispatcher) {
                 try {
                     val mediaItem = mediaItemBuilder(song, false)
-                    withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    withContext(mainDispatcher) {
                         val result = QueueReducer.consumePendingAdd(_queueState.value, pendingAdd.token)
                         if (result.media3InsertionIndex != null) {
                             updateInternalState(result.newState)
@@ -154,8 +157,8 @@ class PlaybackQueueManager(
                             )
                         }
                     }
-                } catch (e: Exception) {
-                    withContext(NonCancellable + Dispatchers.Main.immediate) {
+                } catch (e: Throwable) {
+                    withContext(NonCancellable + mainDispatcher) {
                         val currentEntry = _queueState.value.entries.find { it.entryId == pendingAdd.entryId }
                         if (currentEntry != null) {
                             updateInternalState(QueueReducer.removeEntry(_queueState.value, pendingAdd.entryId))
@@ -215,10 +218,10 @@ class PlaybackQueueManager(
             val (newState, pendingAdd) = QueueReducer.insertEntryWithPending(state, insertIndex, song)
             updateInternalState(newState)
 
-            coroutineScope.launch(Dispatchers.IO) {
+            coroutineScope.launch(ioDispatcher) {
                 try {
                     val mediaItem = mediaItemBuilder(song, false)
-                    withContext(NonCancellable + Dispatchers.Main.immediate) {
+                    withContext(mainDispatcher) {
                         val result = QueueReducer.consumePendingAdd(_queueState.value, pendingAdd.token)
                         if (result.media3InsertionIndex != null) {
                             updateInternalState(result.newState)
@@ -228,8 +231,8 @@ class PlaybackQueueManager(
                             )
                         }
                     }
-                } catch (e: Exception) {
-                    withContext(NonCancellable + Dispatchers.Main.immediate) {
+                } catch (e: Throwable) {
+                    withContext(NonCancellable + mainDispatcher) {
                         val currentEntry = _queueState.value.entries.find { it.entryId == pendingAdd.entryId }
                         if (currentEntry != null) {
                             updateInternalState(QueueReducer.removeEntry(_queueState.value, pendingAdd.entryId))
