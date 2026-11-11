@@ -67,6 +67,27 @@ class PlaybackQueueManager(
         return -1
     }
 
+    /** Cleanup is allowed to outlive cancellation, but may only remove the exact operation it owns. */
+    private suspend fun cleanupPendingAdd(pendingAdd: PendingQueueAdd) {
+        withContext(NonCancellable + mainDispatcher) {
+            val state = _queueState.value
+            val tokenRegistration = state.pendingAdds.firstOrNull { it.token == pendingAdd.token }
+            when {
+                tokenRegistration?.entryId == pendingAdd.entryId -> {
+                    updateInternalState(QueueReducer.removeEntry(state, pendingAdd.entryId))
+                }
+                tokenRegistration != null -> {
+                    // The token belongs to this operation, but its entry identity no longer matches.
+                    updateInternalState(QueueReducer.invalidatePendingAdd(state, pendingAdd.token))
+                }
+                else -> {
+                    // The operation was already invalidated (for example, by queue replacement).
+                    // Never remove an entry merely because a replacement reused its entryId.
+                }
+            }
+        }
+    }
+
     /**
      * Replaces the entire queue while attempting to preserve stable entry identities.
      * Matching is performed by Song ID, preferring existing entries to maintain 
@@ -157,18 +178,10 @@ class PlaybackQueueManager(
                             )
                         }
                     }
-                } catch (e: Throwable) {
-                    withContext(NonCancellable + mainDispatcher) {
-                        val currentEntry = _queueState.value.entries.find { it.entryId == pendingAdd.entryId }
-                        if (currentEntry != null) {
-                            updateInternalState(QueueReducer.removeEntry(_queueState.value, pendingAdd.entryId))
-                        } else {
-                            updateInternalState(QueueReducer.invalidatePendingAdd(_queueState.value, pendingAdd.token))
-                        }
-                    }
-                    if (e is CancellationException) {
-                        throw e
-                    }
+                } catch (e: Exception) {
+                    cleanupPendingAdd(pendingAdd)
+                    if (e is CancellationException) throw e
+                    // Builder failures are reconciled before being contained by this async operation.
                 }
             }
         }
@@ -231,18 +244,10 @@ class PlaybackQueueManager(
                             )
                         }
                     }
-                } catch (e: Throwable) {
-                    withContext(NonCancellable + mainDispatcher) {
-                        val currentEntry = _queueState.value.entries.find { it.entryId == pendingAdd.entryId }
-                        if (currentEntry != null) {
-                            updateInternalState(QueueReducer.removeEntry(_queueState.value, pendingAdd.entryId))
-                        } else {
-                            updateInternalState(QueueReducer.invalidatePendingAdd(_queueState.value, pendingAdd.token))
-                        }
-                    }
-                    if (e is CancellationException) {
-                        throw e
-                    }
+                } catch (e: Exception) {
+                    cleanupPendingAdd(pendingAdd)
+                    if (e is CancellationException) throw e
+                    // Builder failures are reconciled before being contained by this async operation.
                 }
             }
         }

@@ -13,6 +13,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.coroutines.coroutineContext
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaybackQueueManagerMedia3SyncTest {
@@ -302,13 +303,16 @@ class PlaybackQueueManagerMedia3SyncTest {
     fun testCancelBuilderBeforeCompletion() = runTest {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         val syncListener = FakeMediaSyncListener()
-        val deferredCancel = CompletableDeferred<MediaItem>()
+        var builderJob: Job? = null
+        val builderGate = CompletableDeferred<Unit>()
 
         val manager = PlaybackQueueManager(
             coroutineScope = this,
             mediaItemBuilder = { song, _ ->
                 if (song.id == "CANCELLED") {
-                    deferredCancel.await()
+                    builderJob = coroutineContext[Job]
+                    builderGate.await()
+                    createMediaItem(song, song.id)
                 } else {
                     createMediaItem(song, song.id)
                 }
@@ -329,8 +333,10 @@ class PlaybackQueueManagerMedia3SyncTest {
         assertEquals(2, manager.queueState.value.entries.size)
         assertEquals(1, manager.queueState.value.pendingAdds.size)
 
-        deferredCancel.cancel(CancellationException("Builder cancelled"))
+        val cancelledJob = requireNotNull(builderJob)
+        cancelledJob.cancel(CancellationException("Cancel actual builder coroutine"))
         testScheduler.runCurrent()
+        cancelledJob.join()
 
         assertEquals(1, manager.queueState.value.entries.size)
         assertEquals("0", manager.queueState.value.entries[0].song.id)
@@ -345,7 +351,6 @@ class PlaybackQueueManagerMedia3SyncTest {
 
         var capturedJob: Job? = null
         val builderCompletedGate = CompletableDeferred<Unit>()
-        val releaseBuilderGate = CompletableDeferred<Unit>()
 
         val manager = PlaybackQueueManager(
             coroutineScope = this,
@@ -353,14 +358,13 @@ class PlaybackQueueManagerMedia3SyncTest {
                 if (song.id == "INTERRUPTED") {
                     capturedJob = coroutineContext[Job]
                     builderCompletedGate.complete(Unit)
-                    releaseBuilderGate.await()
                     createMediaItem(song, song.id)
                 } else {
                     createMediaItem(song, song.id)
                 }
             },
             syncListener = syncListener,
-            ioDispatcher = testDispatcher,
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             mainDispatcher = testDispatcher
         )
 
@@ -375,10 +379,10 @@ class PlaybackQueueManagerMedia3SyncTest {
         builderCompletedGate.await()
         assertTrue(capturedJob != null)
 
-        releaseBuilderGate.complete(Unit)
-        capturedJob?.cancel(CancellationException("Cancel before main insertion"))
-
+        val insertionJob = requireNotNull(capturedJob)
+        insertionJob.cancel(CancellationException("Cancel while Main insertion is queued"))
         testScheduler.runCurrent()
+        insertionJob.join()
 
         assertEquals(1, manager.queueState.value.entries.size)
         assertEquals("0", manager.queueState.value.entries[0].song.id)
@@ -413,18 +417,15 @@ class PlaybackQueueManagerMedia3SyncTest {
         manager.addToQueue(createSong("STALE"), isCurrentSongNull = false) { _, _, _ -> }
         testScheduler.runCurrent()
 
-        val newSong = createSong("NEW")
-        manager.updateQueueState(listOf(newSong), 0)
-        syncListener.media3Timeline.clear()
-        syncListener.media3Timeline.add("NEW")
+        // Replace the queue through its real clear operation; do not repair the fake timeline.
+        manager.clearQueue()
 
         deferredStale.complete(createMediaItem(createSong("STALE")))
         testScheduler.runCurrent()
 
-        assertEquals(1, manager.queueState.value.entries.size)
-        assertEquals("NEW", manager.queueState.value.entries[0].song.id)
+        assertTrue(manager.queueState.value.entries.isEmpty())
         assertTrue(manager.queueState.value.pendingAdds.isEmpty())
-        assertEquals(listOf("NEW"), syncListener.media3Timeline)
+        assertTrue(syncListener.media3Timeline.isEmpty())
     }
 
     @Test
@@ -467,13 +468,16 @@ class PlaybackQueueManagerMedia3SyncTest {
     fun testPlayNextCancellationBeforeCompletion() = runTest {
         val testDispatcher = StandardTestDispatcher(testScheduler)
         val syncListener = FakeMediaSyncListener()
-        val deferredCancel = CompletableDeferred<MediaItem>()
+        var builderJob: Job? = null
+        val builderGate = CompletableDeferred<Unit>()
 
         val manager = PlaybackQueueManager(
             coroutineScope = this,
             mediaItemBuilder = { song, _ ->
                 if (song.id == "CANCELLED_PN") {
-                    deferredCancel.await()
+                    builderJob = coroutineContext[Job]
+                    builderGate.await()
+                    createMediaItem(song, song.id)
                 } else {
                     createMediaItem(song, song.id)
                 }
@@ -493,8 +497,10 @@ class PlaybackQueueManagerMedia3SyncTest {
         assertEquals(2, manager.queueState.value.entries.size)
         assertEquals(1, manager.queueState.value.pendingAdds.size)
 
-        deferredCancel.cancel(CancellationException("PlayNext cancelled"))
+        val cancelledJob = requireNotNull(builderJob)
+        cancelledJob.cancel(CancellationException("Cancel actual Play Next builder coroutine"))
         testScheduler.runCurrent()
+        cancelledJob.join()
 
         assertEquals(1, manager.queueState.value.entries.size)
         assertEquals("0", manager.queueState.value.entries[0].song.id)
@@ -509,7 +515,6 @@ class PlaybackQueueManagerMedia3SyncTest {
 
         var capturedJob: Job? = null
         val builderCompletedGate = CompletableDeferred<Unit>()
-        val releaseBuilderGate = CompletableDeferred<Unit>()
 
         val manager = PlaybackQueueManager(
             coroutineScope = this,
@@ -517,14 +522,13 @@ class PlaybackQueueManagerMedia3SyncTest {
                 if (song.id == "INTERRUPTED_PN") {
                     capturedJob = coroutineContext[Job]
                     builderCompletedGate.complete(Unit)
-                    releaseBuilderGate.await()
                     createMediaItem(song, song.id)
                 } else {
                     createMediaItem(song, song.id)
                 }
             },
             syncListener = syncListener,
-            ioDispatcher = testDispatcher,
+            ioDispatcher = UnconfinedTestDispatcher(testScheduler),
             mainDispatcher = testDispatcher
         )
 
@@ -538,10 +542,10 @@ class PlaybackQueueManagerMedia3SyncTest {
         builderCompletedGate.await()
         assertTrue(capturedJob != null)
 
-        releaseBuilderGate.complete(Unit)
-        capturedJob?.cancel(CancellationException("Cancel playNext before main insertion"))
-
+        val insertionJob = requireNotNull(capturedJob)
+        insertionJob.cancel(CancellationException("Cancel Play Next while Main insertion is queued"))
         testScheduler.runCurrent()
+        insertionJob.join()
 
         assertEquals(1, manager.queueState.value.entries.size)
         assertEquals("0", manager.queueState.value.entries[0].song.id)
