@@ -48,7 +48,7 @@ class MainActivity : ComponentActivity() {
         val app = application as YimlyApplication
         MainViewModelFactory(
             musicRepository = app.musicRepository,
-            playbackManager = app.playbackManager,
+            playbackClient = app.playbackClient,
             authRepository = app.authRepository,
             preferencesManager = app.preferencesManager,
             downloadNotificationManager = app.downloadNotificationManager

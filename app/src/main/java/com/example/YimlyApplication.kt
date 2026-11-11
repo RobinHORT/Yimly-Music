@@ -66,6 +66,13 @@ class YimlyApplication : Application(), ImageLoaderFactory {
         )
     }
 
+    val playbackClient by lazy {
+        com.example.playback.PlaybackClient(
+            context = this,
+            coroutineScope = applicationScope
+        )
+    }
+
     val downloadNotificationManager by lazy {
         DownloadNotificationManager(this)
     }

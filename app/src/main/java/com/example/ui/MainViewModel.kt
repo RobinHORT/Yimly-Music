@@ -17,8 +17,8 @@ import com.example.data.models.Song
 import com.example.data.models.UserProfile
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.MusicRepository
+import com.example.playback.PlaybackClient
 import com.example.playback.PlaybackInfo
-import com.example.playback.PlaybackManager
 import com.example.notifications.DownloadNotificationManager
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.FlowPreview
@@ -43,7 +43,7 @@ import kotlinx.coroutines.cancelAndJoin
 @OptIn(FlowPreview::class, ExperimentalCoroutinesApi::class)
 class MainViewModel(
     private val musicRepository: MusicRepository,
-    private val playbackManager: PlaybackManager,
+    private val playbackClient: PlaybackClient,
     private val authRepository: AuthRepository,
     private val preferencesManager: PreferencesManager,
     private val downloadNotificationManager: DownloadNotificationManager
@@ -110,12 +110,34 @@ class MainViewModel(
         .stateIn(viewModelScope, SharingStarted.Lazily, emptyList())
 
     // Playback
-    val playbackInfo: StateFlow<PlaybackInfo> = playbackManager.playbackInfo
-    val playbackPositionMs: StateFlow<Long> = playbackManager.playbackPositionMs
-    val lyricsPositionMs: StateFlow<Long> = playbackManager.lyricsPositionMs
+    val playbackInfo: StateFlow<PlaybackInfo> = combine(
+        playbackClient.playbackState,
+        playbackClient.progressState
+    ) { state, progress ->
+        PlaybackInfo(
+            currentSong = state.currentSong,
+            isPlaying = state.isPlaying,
+            currentPositionMs = progress.currentPositionMs,
+            durationMs = progress.durationMs,
+            queue = state.queue,
+            currentQueueIndex = state.currentQueueIndex,
+            isShuffle = state.isShuffle,
+            repeatMode = state.repeatMode,
+            isBuffering = state.isBuffering,
+            hasInstrumental = state.hasInstrumental,
+            isInstrumental = state.isInstrumental,
+            playbackSpeed = state.playbackSpeed
+        )
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, PlaybackInfo())
+
+    val playbackPositionMs: StateFlow<Long> = playbackClient.progressState
+        .map { it.currentPositionMs }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, 0L)
+
+    val lyricsPositionMs: StateFlow<Long> = playbackPositionMs
 
     fun setLyricsActive(active: Boolean) {
-        playbackManager.setLyricsActive(active)
+        playbackClient.setLyricsActive(active)
     }
 
     // Lyrics State
@@ -582,7 +604,7 @@ class MainViewModel(
             try {
                 authRepository.logout()
             } finally {
-                playbackManager.clearQueueAndStop()
+                playbackClient.clearQueueAndStop()
                 musicRepository.clearLocalCache()
                 downloadNotificationManager.cancelAll()
                 completedTrackSongIdMap.clear()
@@ -595,31 +617,31 @@ class MainViewModel(
 
     // Playback Actions
     fun playSong(song: Song, playlist: List<Song> = listOf(song), startIndex: Int = -1) {
-        playbackManager.playSong(song, playlist, startIndex)
+        playbackClient.playSong(song, playlist, startIndex)
     }
 
     fun togglePlayPause() {
-        playbackManager.togglePlayPause()
+        playbackClient.togglePlayPause()
     }
 
     fun next() {
-        playbackManager.next()
+        playbackClient.next()
     }
 
     fun previous() {
-        playbackManager.previous()
+        playbackClient.previous()
     }
 
     fun seekTo(positionMs: Long) {
-        playbackManager.seekTo(positionMs)
+        playbackClient.seekTo(positionMs)
     }
 
     fun toggleShuffle() {
-        playbackManager.toggleShuffle()
+        playbackClient.toggleShuffle()
     }
 
     fun cycleRepeatMode() {
-        playbackManager.cycleRepeatMode()
+        playbackClient.cycleRepeatMode()
     }
 
     private val togglingSongIds = mutableSetOf<String>()
@@ -632,7 +654,7 @@ class MainViewModel(
         viewModelScope.launch {
             try {
                 val newFav = musicRepository.toggleFavorite(songId)
-                playbackManager.updateFavoriteStatus(songId, newFav)
+                playbackClient.updateFavoriteStatus(songId, newFav)
             } catch (e: Exception) {
                 _uiMessage.value = e.message ?: "Failed to update favorite on server"
             } finally {
@@ -645,31 +667,31 @@ class MainViewModel(
 
     fun toggleInstrumental() {
         android.util.Log.d("INSTRUMENTAL_DEBUG", "MainViewModel.toggleInstrumental() called")
-        playbackManager.toggleInstrumental()
+        playbackClient.toggleInstrumental()
     }
 
     fun addToQueue(song: Song) {
-        playbackManager.addToQueue(song)
+        playbackClient.addToQueue(song)
     }
 
     fun playNext(song: Song) {
-        playbackManager.playNext(song)
+        playbackClient.playNext(song)
     }
 
     fun removeFromQueue(index: Int) {
-        playbackManager.removeFromQueue(index)
+        playbackClient.removeFromQueue(index)
     }
 
     fun reorderQueue(fromIndex: Int, toIndex: Int) {
-        playbackManager.reorderQueue(fromIndex, toIndex)
+        playbackClient.reorderQueue(fromIndex, toIndex)
     }
 
     fun clearQueue() {
-        playbackManager.clearUpcomingQueue()
+        playbackClient.clearUpcomingQueue()
     }
 
     fun playQueueItem(index: Int) {
-        playbackManager.playQueueItem(index)
+        playbackClient.playQueueItem(index)
     }
 
     // Playlist Actions
@@ -906,7 +928,7 @@ class MainViewModel(
         viewModelScope.launch {
             val res = musicRepository.deleteSong(songId)
             if (res.isSuccess) {
-                playbackManager.removeSongFromQueue(songId)
+                playbackClient.removeSongFromQueue(songId)
                 preferencesManager.clearSongLyricsOffsets(songId)
                 completedTrackSongIdMap.entries.removeAll { it.value == songId }
                 _completedTrackSongIds.value = _completedTrackSongIds.value.filterValues { it != songId }
@@ -1022,7 +1044,7 @@ class MainViewModel(
 
 class MainViewModelFactory(
     private val musicRepository: MusicRepository,
-    private val playbackManager: PlaybackManager,
+    private val playbackClient: PlaybackClient,
     private val authRepository: AuthRepository,
     private val preferencesManager: PreferencesManager,
     private val downloadNotificationManager: DownloadNotificationManager
@@ -1032,7 +1054,7 @@ class MainViewModelFactory(
         if (modelClass.isAssignableFrom(MainViewModel::class.java)) {
             return MainViewModel(
                 musicRepository,
-                playbackManager,
+                playbackClient,
                 authRepository,
                 preferencesManager,
                 downloadNotificationManager

@@ -36,6 +36,25 @@ class YimlySessionCallback(
     companion object {
         const val ACTION_TOGGLE_INSTRUMENTAL = "com.example.ACTION_TOGGLE_INSTRUMENTAL"
         const val ACTION_SHUFFLE_PLAYLIST = "com.example.ACTION_SHUFFLE_PLAYLIST"
+        const val ACTION_PLAY_SONG = "com.example.ACTION_PLAY_SONG"
+        const val ACTION_PLAY_QUEUE_ITEM = "com.example.ACTION_PLAY_QUEUE_ITEM"
+        const val ACTION_ADD_TO_QUEUE = "com.example.ACTION_ADD_TO_QUEUE"
+        const val ACTION_PLAY_NEXT = "com.example.ACTION_PLAY_NEXT"
+        const val ACTION_REMOVE_FROM_QUEUE = "com.example.ACTION_REMOVE_FROM_QUEUE"
+        const val ACTION_REMOVE_SONG_FROM_QUEUE = "com.example.ACTION_REMOVE_SONG_FROM_QUEUE"
+        const val ACTION_REORDER_QUEUE = "com.example.ACTION_REORDER_QUEUE"
+        const val ACTION_CLEAR_UPCOMING_QUEUE = "com.example.ACTION_CLEAR_UPCOMING_QUEUE"
+        const val ACTION_CLEAR_QUEUE_AND_STOP = "com.example.ACTION_CLEAR_QUEUE_AND_STOP"
+        const val ACTION_UPDATE_FAVORITE_STATUS = "com.example.ACTION_UPDATE_FAVORITE_STATUS"
+        const val ACTION_SET_LYRICS_ACTIVE = "com.example.ACTION_SET_LYRICS_ACTIVE"
+
+        private val moshi by lazy { com.squareup.moshi.Moshi.Builder().build() }
+        private val songAdapter by lazy { moshi.adapter(com.example.data.models.Song::class.java) }
+        private val songListAdapter by lazy {
+            moshi.adapter<List<com.example.data.models.Song>>(
+                com.squareup.moshi.Types.newParameterizedType(List::class.java, com.example.data.models.Song::class.java)
+            )
+        }
     }
 
     override fun onConnect(
@@ -44,10 +63,27 @@ class YimlySessionCallback(
     ): MediaSession.ConnectionResult {
         android.util.Log.d("AA_DIAG", "YimlySessionCallback.onConnect() package=${controller.packageName}, uid=${controller.uid}, isTrusted=${controller.isTrusted}")
 
-        val sessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
-            .add(SessionCommand(ACTION_TOGGLE_INSTRUMENTAL, Bundle.EMPTY))
-            .add(SessionCommand(ACTION_SHUFFLE_PLAYLIST, Bundle.EMPTY))
-            .build()
+        val customActions = listOf(
+            ACTION_TOGGLE_INSTRUMENTAL,
+            ACTION_SHUFFLE_PLAYLIST,
+            ACTION_PLAY_SONG,
+            ACTION_PLAY_QUEUE_ITEM,
+            ACTION_ADD_TO_QUEUE,
+            ACTION_PLAY_NEXT,
+            ACTION_REMOVE_FROM_QUEUE,
+            ACTION_REMOVE_SONG_FROM_QUEUE,
+            ACTION_REORDER_QUEUE,
+            ACTION_CLEAR_UPCOMING_QUEUE,
+            ACTION_CLEAR_QUEUE_AND_STOP,
+            ACTION_UPDATE_FAVORITE_STATUS,
+            ACTION_SET_LYRICS_ACTIVE
+        )
+
+        val sessionCommandsBuilder = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()
+        for (action in customActions) {
+            sessionCommandsBuilder.add(SessionCommand(action, Bundle.EMPTY))
+        }
+        val sessionCommands = sessionCommandsBuilder.build()
 
         val playerCommands = session.player.availableCommands.buildUpon()
             .add(Player.COMMAND_PLAY_PAUSE)
@@ -80,6 +116,54 @@ class YimlySessionCallback(
         when (customCommand.customAction) {
             ACTION_TOGGLE_INSTRUMENTAL -> playbackManager.toggleInstrumental()
             ACTION_SHUFFLE_PLAYLIST -> playbackManager.shuffleCurrentQueue()
+            ACTION_PLAY_SONG -> {
+                val songJson = args.getString("songJson")
+                val playlistJson = args.getString("playlistJson")
+                val startIndex = args.getInt("startIndex", -1)
+                val song = songJson?.let { songAdapter.fromJson(it) }
+                val playlist = playlistJson?.let { songListAdapter.fromJson(it) } ?: song?.let { listOf(it) } ?: emptyList()
+                if (song != null) {
+                    playbackManager.playSong(song, playlist, startIndex)
+                }
+            }
+            ACTION_PLAY_QUEUE_ITEM -> {
+                val index = args.getInt("index", -1)
+                if (index >= 0) playbackManager.playQueueItem(index)
+            }
+            ACTION_ADD_TO_QUEUE -> {
+                val songJson = args.getString("songJson")
+                val song = songJson?.let { songAdapter.fromJson(it) }
+                if (song != null) playbackManager.addToQueue(song)
+            }
+            ACTION_PLAY_NEXT -> {
+                val songJson = args.getString("songJson")
+                val song = songJson?.let { songAdapter.fromJson(it) }
+                if (song != null) playbackManager.playNext(song)
+            }
+            ACTION_REMOVE_FROM_QUEUE -> {
+                val index = args.getInt("index", -1)
+                if (index >= 0) playbackManager.removeFromQueue(index)
+            }
+            ACTION_REMOVE_SONG_FROM_QUEUE -> {
+                val songId = args.getString("songId")
+                if (!songId.isNullOrEmpty()) playbackManager.removeSongFromQueue(songId)
+            }
+            ACTION_REORDER_QUEUE -> {
+                val fromIndex = args.getInt("fromIndex", -1)
+                val toIndex = args.getInt("toIndex", -1)
+                if (fromIndex >= 0 && toIndex >= 0) playbackManager.reorderQueue(fromIndex, toIndex)
+            }
+            ACTION_CLEAR_UPCOMING_QUEUE -> playbackManager.clearUpcomingQueue()
+            ACTION_CLEAR_QUEUE_AND_STOP -> playbackManager.clearQueueAndStop()
+            ACTION_UPDATE_FAVORITE_STATUS -> {
+                val songId = args.getString("songId")
+                val isFavorite = args.getBoolean("isFavorite", false)
+                if (!songId.isNullOrEmpty()) playbackManager.updateFavoriteStatus(songId, isFavorite)
+            }
+            ACTION_SET_LYRICS_ACTIVE -> {
+                val active = args.getBoolean("active", false)
+                playbackManager.setLyricsActive(active)
+            }
             else -> return super.onCustomCommand(session, controller, customCommand, args)
         }
         return Futures.immediateFuture(SessionResult(SessionResult.RESULT_SUCCESS))

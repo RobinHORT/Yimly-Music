@@ -40,6 +40,24 @@ data class PlaybackInfo(
     val playbackSpeed: Float = 1.0f
 )
 
+data class PlaybackState(
+    val currentSong: Song? = null,
+    val isPlaying: Boolean = false,
+    val queue: List<Song> = emptyList(),
+    val currentQueueIndex: Int = 0,
+    val isShuffle: Boolean = false,
+    val repeatMode: RepeatMode = RepeatMode.OFF,
+    val isBuffering: Boolean = false,
+    val hasInstrumental: Boolean = false,
+    val isInstrumental: Boolean = false,
+    val playbackSpeed: Float = 1.0f
+)
+
+data class ProgressState(
+    val currentPositionMs: Long = 0L,
+    val durationMs: Long = 0L
+)
+
 data class PendingQueueAdd(
     val token: String = UUID.randomUUID().toString(),
     val entryId: String = UUID.randomUUID().toString(),

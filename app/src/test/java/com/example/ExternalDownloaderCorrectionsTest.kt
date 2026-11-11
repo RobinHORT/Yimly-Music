@@ -167,10 +167,11 @@ class ExternalDownloaderCorrectionsTest {
             snapshotRepository = com.example.playback.PlaybackSnapshotRepository(preferencesManager),
             coroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         )
+        val playbackClient = com.example.playback.PlaybackClient(context)
         downloadNotificationManager = DownloadNotificationManager(context)
         viewModel = MainViewModel(
             musicRepository = repository,
-            playbackManager = playbackManager,
+            playbackClient = playbackClient,
             authRepository = authRepository,
             preferencesManager = preferencesManager,
             downloadNotificationManager = downloadNotificationManager

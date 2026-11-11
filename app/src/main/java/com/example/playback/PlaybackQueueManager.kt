@@ -156,6 +156,21 @@ class PlaybackQueueManager(
         return if (index >= 0) index else null
     }
 
+    /**
+     * Selects a random candidate index and song from the queue (excluding the active index)
+     * for shuffle activation or track advancement.
+     */
+    fun selectShuffleCandidate(): Pair<Int, Song>? {
+        val state = _queueState.value
+        val queue = state.entries.map { it.song }
+        if (queue.isEmpty()) return null
+        val currentQueueIndex = state.entries.indexOfFirst { it.entryId == state.currentEntryId }
+        if (queue.size <= 1) return 0 to queue[0]
+        val candidates = queue.indices.filter { it != currentQueueIndex }
+        val nextIndex = candidates.randomOrNull() ?: currentQueueIndex
+        return nextIndex to queue[nextIndex]
+    }
+
     fun addToQueue(song: Song, isCurrentSongNull: Boolean, onPlaySong: (Song, List<Song>, Int) -> Unit) {
         if (isCurrentSongNull) {
             val newState = QueueReducer.addEntry(_queueState.value, song)
