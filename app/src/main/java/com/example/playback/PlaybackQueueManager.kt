@@ -2,8 +2,10 @@ package com.example.playback
 
 import androidx.media3.common.MediaItem
 import com.example.data.models.Song
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -45,6 +47,21 @@ class PlaybackQueueManager(
      */
     private fun updateInternalState(newState: QueueState) {
         _queueState.value = newState
+    }
+
+    private fun getResolvedEntries(state: QueueState): List<QueueEntry> {
+        val pendingEntryIds = state.pendingAdds.map { it.entryId }.toSet()
+        return state.entries.filter { it.entryId !in pendingEntryIds }
+    }
+
+    private fun getMedia3Index(state: QueueState, entryId: String): Int {
+        val pendingEntryIds = state.pendingAdds.map { it.entryId }.toSet()
+        var media3Index = 0
+        for (entry in state.entries) {
+            if (entry.entryId == entryId) return media3Index
+            if (entry.entryId !in pendingEntryIds) media3Index++
+        }
+        return -1
     }
 
     /**
@@ -127,7 +144,7 @@ class PlaybackQueueManager(
             coroutineScope.launch(Dispatchers.IO) {
                 try {
                     val mediaItem = mediaItemBuilder(song, false)
-                    withContext(Dispatchers.Main.immediate) {
+                    withContext(NonCancellable + Dispatchers.Main.immediate) {
                         val result = QueueReducer.consumePendingAdd(_queueState.value, pendingAdd.token)
                         if (result.media3InsertionIndex != null) {
                             updateInternalState(result.newState)
@@ -138,7 +155,7 @@ class PlaybackQueueManager(
                         }
                     }
                 } catch (e: Exception) {
-                    withContext(Dispatchers.Main.immediate) {
+                    withContext(NonCancellable + Dispatchers.Main.immediate) {
                         val currentEntry = _queueState.value.entries.find { it.entryId == pendingAdd.entryId }
                         if (currentEntry != null) {
                             updateInternalState(QueueReducer.removeEntry(_queueState.value, pendingAdd.entryId))
@@ -146,33 +163,43 @@ class PlaybackQueueManager(
                             updateInternalState(QueueReducer.invalidatePendingAdd(_queueState.value, pendingAdd.token))
                         }
                     }
+                    if (e is CancellationException) {
+                        throw e
+                    }
                 }
             }
         }
     }
 
     fun removeSongFromQueue(songId: String, currentQueue: List<Song>, oldIndex: Int): Pair<List<Song>, Int> {
-        val state = _queueState.value
-        val indicesToRemove = state.entries.indices.filter { state.entries[it].song.id == songId }
-        if (indicesToRemove.isEmpty()) return currentQueue to oldIndex
+        var currentState = _queueState.value
+        val matchingEntries = currentState.entries.filter { it.song.id == songId }
+        if (matchingEntries.isEmpty()) return currentQueue to oldIndex
 
-        var currentState = state
-        // Process removals in descending order to preserve index validity for callbacks
-        for (idx in indicesToRemove.sortedDescending()) {
-            val entryId = currentState.entries[idx].entryId
-            currentState = QueueReducer.removeEntry(currentState, entryId)
+        // Process matching entries in descending order of their current positions in currentState
+        for (entry in matchingEntries.reversed()) {
+            val currentIdx = currentState.entries.indexOfFirst { it.entryId == entry.entryId }
+            if (currentIdx == -1) continue
+
+            val isPending = currentState.pendingAdds.any { it.entryId == entry.entryId }
+            val media3Index = if (!isPending) getMedia3Index(currentState, entry.entryId) else -1
+
+            currentState = QueueReducer.removeEntry(currentState, entry.entryId)
+
+            if (!isPending && media3Index >= 0) {
+                syncListener.onMediaItemRemoved(media3Index)
+            }
         }
-        
+
         updateInternalState(currentState)
-        
-        // Notify listener for each removal
-        for (idx in indicesToRemove.sortedDescending()) {
-            syncListener.onMediaItemRemoved(idx)
+
+        if (currentState.entries.isEmpty()) {
+            syncListener.onQueueCleared()
         }
-        
+
         val newSongs = currentState.entries.map { it.song }
         val newIndex = currentQueueIndex.value
-        
+
         return newSongs to newIndex
     }
 
@@ -191,7 +218,7 @@ class PlaybackQueueManager(
             coroutineScope.launch(Dispatchers.IO) {
                 try {
                     val mediaItem = mediaItemBuilder(song, false)
-                    withContext(Dispatchers.Main.immediate) {
+                    withContext(NonCancellable + Dispatchers.Main.immediate) {
                         val result = QueueReducer.consumePendingAdd(_queueState.value, pendingAdd.token)
                         if (result.media3InsertionIndex != null) {
                             updateInternalState(result.newState)
@@ -202,13 +229,16 @@ class PlaybackQueueManager(
                         }
                     }
                 } catch (e: Exception) {
-                    withContext(Dispatchers.Main.immediate) {
+                    withContext(NonCancellable + Dispatchers.Main.immediate) {
                         val currentEntry = _queueState.value.entries.find { it.entryId == pendingAdd.entryId }
                         if (currentEntry != null) {
                             updateInternalState(QueueReducer.removeEntry(_queueState.value, pendingAdd.entryId))
                         } else {
                             updateInternalState(QueueReducer.invalidatePendingAdd(_queueState.value, pendingAdd.token))
                         }
+                    }
+                    if (e is CancellationException) {
+                        throw e
                     }
                 }
             }
@@ -219,14 +249,17 @@ class PlaybackQueueManager(
         val state = _queueState.value
         if (index !in state.entries.indices) return
         
-        val entryId = state.entries[index].entryId
-        val newState = QueueReducer.removeEntry(state, entryId)
+        val targetEntry = state.entries[index]
+        val isPending = state.pendingAdds.any { it.entryId == targetEntry.entryId }
+        val media3Index = if (!isPending) getMedia3Index(state, targetEntry.entryId) else -1
+
+        val newState = QueueReducer.removeEntry(state, targetEntry.entryId)
         updateInternalState(newState)
 
         if (newState.entries.isEmpty()) {
             syncListener.onQueueCleared()
-        } else {
-            syncListener.onMediaItemRemoved(index)
+        } else if (!isPending && media3Index >= 0) {
+            syncListener.onMediaItemRemoved(media3Index)
         }
     }
 
@@ -235,10 +268,20 @@ class PlaybackQueueManager(
         if (fromIndex !in state.entries.indices || toIndex !in state.entries.indices) return
         if (fromIndex == toIndex) return
 
+        val fromEntry = state.entries[fromIndex]
+        val resolvedBefore = getResolvedEntries(state)
         val newState = QueueReducer.reorder(state, fromIndex, toIndex)
+        val resolvedAfter = getResolvedEntries(newState)
+
         updateInternalState(newState)
-        
-        syncListener.onMediaItemMoved(fromIndex, toIndex)
+
+        if (resolvedBefore != resolvedAfter) {
+            val media3From = resolvedBefore.indexOfFirst { it.entryId == fromEntry.entryId }
+            val media3To = resolvedAfter.indexOfFirst { it.entryId == fromEntry.entryId }
+            if (media3From >= 0 && media3To >= 0 && media3From != media3To) {
+                syncListener.onMediaItemMoved(media3From, media3To)
+            }
+        }
     }
 
     fun clearQueue() {
@@ -250,7 +293,26 @@ class PlaybackQueueManager(
      * Clears everything from the queue except the currently playing song.
      */
     fun keepOnlyCurrent() {
-        updateInternalState(QueueReducer.keepOnlyCurrent(_queueState.value))
+        val state = _queueState.value
+        val currentEntry = state.entries.find { it.entryId == state.currentEntryId }
+        val resolvedEntries = getResolvedEntries(state)
+        val media3CurrentIndex = if (currentEntry != null) resolvedEntries.indexOfFirst { it.entryId == currentEntry.entryId } else -1
+
+        val newState = QueueReducer.keepOnlyCurrent(state)
+        updateInternalState(newState)
+
+        if (currentEntry == null) {
+            syncListener.onQueueCleared()
+        } else if (media3CurrentIndex >= 0) {
+            // Remove resolved items after current index in descending order
+            for (i in (resolvedEntries.size - 1) downTo (media3CurrentIndex + 1)) {
+                syncListener.onMediaItemRemoved(i)
+            }
+            // Remove resolved items before current index in descending order
+            for (i in (media3CurrentIndex - 1) downTo 0) {
+                syncListener.onMediaItemRemoved(i)
+            }
+        }
     }
 
     fun updateSong(songId: String, transform: (Song) -> Song) {
