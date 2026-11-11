@@ -37,6 +37,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.Job
 
 @OptIn(UnstableApi::class)
 class PlaybackManager(
@@ -1093,10 +1095,10 @@ class PlaybackManager(
             0L
         }
 
-        withContext(Dispatchers.Main.immediate) {
-            if (restoreRequestId != playbackRequestId) return@withContext
+        return withContext(Dispatchers.Main.immediate) {
+            if (restoreRequestId != playbackRequestId) return@withContext false
             val (currentQueue, _) = queueManager.getQueueSnapshot()
-            if (currentQueue.isNotEmpty()) return@withContext
+            if (currentQueue.isNotEmpty()) return@withContext false
 
             val validQueue = resolvedEntries.map { it.song }
             val mediaItems = resolvedEntries.map { it.mediaItem }
@@ -1138,8 +1140,8 @@ class PlaybackManager(
                 "PlaybackManager",
                 "Restored ${mediaItems.size} queued tracks into Media3 player timeline at index $targetEntryIndex"
             )
+            true
         }
-        return true
     }
 
     private fun restorePlaybackSnapshot() {
@@ -1162,9 +1164,11 @@ class PlaybackManager(
         }
     }
 
+    private var progressTrackerJob: Job? = null
+
     private fun startProgressTracker() {
-        coroutineScope.launch(Dispatchers.Main) {
-            while (true) {
+        progressTrackerJob = coroutineScope.launch(Dispatchers.Main) {
+            while (isActive) {
                 val p = _player
                 if (p != null && p.isPlaying) {
                     _playbackPositionMs.value = p.currentPosition
@@ -1181,6 +1185,8 @@ class PlaybackManager(
         playbackRequestId++
         networkRecoveryJob?.cancel()
         networkRecoveryJob = null
+        progressTrackerJob?.cancel()
+        progressTrackerJob = null
         isTransitioning = false
         releaseTransitionWakeLock()
         _mediaSession?.release()
