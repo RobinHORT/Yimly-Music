@@ -209,7 +209,7 @@ class PlaybackQueueManagerMedia3SyncTest {
     fun testMoveResolvedEntryAcrossPendingEntry() = runTest {
         val syncListener = FakeMediaSyncListener()
         val manager = PlaybackQueueManager(
-            coroutineScope = this,
+            coroutineScope = backgroundScope,
             mediaItemBuilder = { song, _ -> createMediaItem(song, song.id) },
             syncListener = syncListener
         )

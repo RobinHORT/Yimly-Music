@@ -106,6 +106,11 @@ class PlaybackManager(
                 _player?.stop()
                 _player?.clearMediaItems()
             }
+        },
+        queueChangeListener = { state ->
+            if (state.revision > 0 && !isRestoringSnapshot) {
+                persistPlaybackSnapshot(force = false)
+            }
         }
     )
 
@@ -168,6 +173,8 @@ class PlaybackManager(
                             if (isPlaying) {
                                 isTransitioning = false
                                 releaseTransitionWakeLock()
+                            } else {
+                                persistPlaybackSnapshot(force = true)
                             }
                             updatePlaybackInfo()
                         }
@@ -269,16 +276,6 @@ class PlaybackManager(
                 }
         }
 
-        coroutineScope.launch {
-            queueManager.queueState
-                .map { it.revision }
-                .distinctUntilChanged()
-                .collect { revision ->
-                    if (revision > 0 && !isRestoringSnapshot) {
-                        persistPlaybackSnapshot(force = false)
-                    }
-                }
-        }
     }
 
     fun startPlaybackService() {
@@ -864,7 +861,6 @@ class PlaybackManager(
         val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val currentSong = queue.getOrNull(currentQueueIndex)
         // shuffleHistory.clear() is handled by PQM
-        persistPlaybackSnapshot(force = true)
         if (currentSong == null) {
             playSong(song, queue + song, 0)
         } else {
@@ -992,23 +988,54 @@ class PlaybackManager(
                 isBuffering = p.playbackState == Player.STATE_BUFFERING,
                 playbackSpeed = p.playbackParameters.speed
             )
-            persistPlaybackSnapshot()
         }
     }
 
     private fun persistPlaybackSnapshot(force: Boolean = false) {
+        if (isRestoringSnapshot) return
+
         val now = System.currentTimeMillis()
-        if (!force && now - lastSnapshotPersistAtMs < 5_000L) return
-        
+        val timeSinceLast = now - lastSnapshotPersistAtMs
+
+        if (!force && timeSinceLast < 5_000L) {
+            val remainingDelay = (5_000L - timeSinceLast).coerceAtLeast(1L)
+            snapshotWriteJob?.cancel()
+            snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
+                delay(remainingDelay)
+                performSave()
+            }
+            return
+        }
+
+        snapshotWriteJob?.cancel()
+        snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
+            performSave()
+        }
+    }
+
+    private suspend fun performSave() {
+        if (isRestoringSnapshot) return
+
+        val now = System.currentTimeMillis()
+        lastSnapshotPersistAtMs = now
+
         val state = queueManager.queueState.value
         val entries = state.entries
         val currentEntryId = state.currentEntryId
         val currentIndex = entries.indexOfFirst { it.entryId == currentEntryId }
-        
+
+        if (entries.isEmpty()) {
+            try {
+                snapshotRepository.clearSnapshot()
+            } catch (e: Exception) {
+                Log.w("PlaybackManager", "Failed to clear playback snapshot", e)
+            }
+            return
+        }
+
         if (currentIndex !in entries.indices) return
-        
+
         val info = _playbackInfo.value
-        lastSnapshotPersistAtMs = now
         val snapshot = PlaybackSnapshot(
             queue = entries.map { it.song },
             currentQueueIndex = currentIndex,
@@ -1020,13 +1047,10 @@ class PlaybackManager(
                 entries.indexOfFirst { it.entryId == entryId }.takeIf { it >= 0 }
             }
         )
-        snapshotWriteJob?.cancel()
-        snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
-            try {
-                snapshotRepository.saveSnapshot(snapshot)
-            } catch (e: Exception) {
-                Log.w("PlaybackManager", "Failed to persist playback snapshot", e)
-            }
+        try {
+            snapshotRepository.saveSnapshot(snapshot)
+        } catch (e: Exception) {
+            Log.w("PlaybackManager", "Failed to persist playback snapshot", e)
         }
     }
 

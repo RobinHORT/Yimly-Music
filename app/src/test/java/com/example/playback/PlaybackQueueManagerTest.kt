@@ -1,18 +1,44 @@
 package com.example.playback
 
+import androidx.media3.common.MediaItem
 import com.example.data.models.Song
-import io.mockk.mockk
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.TestScope
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Before
 import org.junit.Test
-import java.util.UUID
 
+@OptIn(ExperimentalCoroutinesApi::class)
 class PlaybackQueueManagerTest {
 
-    private val testScope = TestScope()
-    private val syncListener = mockk<QueueMediaSyncListener>(relaxed = true)
+    private val testDispatcher = UnconfinedTestDispatcher()
+    private val testScope = TestScope(testDispatcher)
+    private val syncListener = FakeSyncListener()
+
+    private class FakeSyncListener : QueueMediaSyncListener {
+        override fun onMediaItemAdded(index: Int, mediaItem: MediaItem) {}
+        override fun onMediaItemRemoved(index: Int) {}
+        override fun onMediaItemMoved(fromIndex: Int, toIndex: Int) {}
+        override fun onQueueCleared() {}
+    }
+
+    @Before
+    fun setUp() {
+        Dispatchers.setMain(testDispatcher)
+    }
+
+    @After
+    fun tearDown() {
+        Dispatchers.resetMain()
+    }
     
     private fun createSong(id: String) = Song(
         id = id,
@@ -21,10 +47,16 @@ class PlaybackQueueManagerTest {
         album = "Album $id"
     )
 
+    private fun createMediaItem(song: Song) = MediaItem.Builder()
+        .setMediaId(song.id)
+        .build()
+
     private fun createManager() = PlaybackQueueManager(
         coroutineScope = testScope,
-        mediaItemBuilder = { _, _ -> mockk(relaxed = true) },
-        syncListener = syncListener
+        mediaItemBuilder = { song, _ -> createMediaItem(song) },
+        syncListener = syncListener,
+        ioDispatcher = testDispatcher,
+        mainDispatcher = testDispatcher
     )
 
     @Test
@@ -108,5 +140,44 @@ class PlaybackQueueManagerTest {
         assertEquals(2, history.size)
         assertEquals(id1, history[0])
         assertEquals(id3, history[1])
+    }
+
+    @Test
+    fun `committed queue change invokes queueChangeListener`() = runTest {
+        var notifiedState: QueueState? = null
+        val manager = PlaybackQueueManager(
+            coroutineScope = testScope,
+            mediaItemBuilder = { song, _ -> createMediaItem(song) },
+            syncListener = syncListener,
+            ioDispatcher = testDispatcher,
+            mainDispatcher = testDispatcher,
+            queueChangeListener = { notifiedState = it }
+        )
+        val songs = listOf(createSong("1"), createSong("2"))
+        manager.updateQueueState(songs, 0)
+        
+        assertNotNull(notifiedState)
+        assertEquals(1L, notifiedState?.revision)
+        assertEquals(2, notifiedState?.entries?.size)
+    }
+
+    @Test
+    fun `unchanged queue state produces no notification`() = runTest {
+        var callCount = 0
+        val manager = PlaybackQueueManager(
+            coroutineScope = testScope,
+            mediaItemBuilder = { song, _ -> createMediaItem(song) },
+            syncListener = syncListener,
+            ioDispatcher = testDispatcher,
+            mainDispatcher = testDispatcher,
+            queueChangeListener = { callCount++ }
+        )
+        val songs = listOf(createSong("1"))
+        manager.updateQueueState(songs, 0)
+        assertEquals(1, callCount)
+
+        // Calling with exact same queue and index produces no notification
+        manager.updateQueueState(songs, 0)
+        assertEquals(1, callCount)
     }
 }

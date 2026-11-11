@@ -24,12 +24,17 @@ interface QueueMediaSyncListener {
     fun onQueueCleared()
 }
 
+fun interface QueueChangeListener {
+    fun onQueueChanged(state: QueueState)
+}
+
 class PlaybackQueueManager(
     private val coroutineScope: CoroutineScope,
     private val mediaItemBuilder: suspend (Song, Boolean) -> MediaItem,
     private val syncListener: QueueMediaSyncListener,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate
+    private val mainDispatcher: CoroutineDispatcher = Dispatchers.Main.immediate,
+    private val queueChangeListener: QueueChangeListener? = null
 ) {
     private val _queueState = MutableStateFlow(QueueState())
     val queueState: StateFlow<QueueState> = _queueState.asStateFlow()
@@ -47,9 +52,14 @@ class PlaybackQueueManager(
     /**
      * Internal helper to update the authoritative QueueState.
      * Projections (queue, currentQueueIndex) will update reactively.
+     * Invokes queueChangeListener only when a committed state change occurs (revision increments).
      */
     private fun updateInternalState(newState: QueueState) {
+        val oldState = _queueState.value
         _queueState.value = newState
+        if (oldState.revision != newState.revision) {
+            queueChangeListener?.onQueueChanged(newState)
+        }
     }
 
     private fun getResolvedEntries(state: QueueState): List<QueueEntry> {
