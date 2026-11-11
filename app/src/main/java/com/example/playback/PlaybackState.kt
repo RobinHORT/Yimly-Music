@@ -42,8 +42,9 @@ data class PlaybackInfo(
 
 data class PendingQueueAdd(
     val token: String = UUID.randomUUID().toString(),
+    val entryId: String = UUID.randomUUID().toString(),
     val song: Song,
-    val targetIndex: Int // Now immutable as per Phase 3B.2R requirement
+    val targetIndex: Int // Immutable as per Phase 3B.2R requirement
 )
 
 data class QueueEntry(

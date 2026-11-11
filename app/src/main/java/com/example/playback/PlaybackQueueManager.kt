@@ -39,15 +39,6 @@ class PlaybackQueueManager(
         }
         .stateIn(coroutineScope, SharingStarted.Eagerly, -1)
 
-    // Preserve existing runtime pending-add mechanism for now (Fix 1.3.2)
-    private val pendingQueueAdds = mutableListOf<PendingQueueAdd>()
-
-    private data class PendingQueueAdd(
-        val token: String = UUID.randomUUID().toString(),
-        val song: Song,
-        var targetIndex: Int
-    )
-
     /**
      * Internal helper to update the authoritative QueueState.
      * Projections (queue, currentQueueIndex) will update reactively.
@@ -76,13 +67,14 @@ class PlaybackQueueManager(
         
         val newCurrentEntryId = newEntries.getOrNull(currentIndex)?.entryId
         
-        if (newEntries == oldState.entries && newCurrentEntryId == oldState.currentEntryId) {
+        if (newEntries == oldState.entries && newCurrentEntryId == oldState.currentEntryId && oldState.pendingAdds.isEmpty()) {
             return // No-op: do not increment revision
         }
 
         val newState = oldState.copy(
             entries = newEntries,
             currentEntryId = newCurrentEntryId,
+            pendingAdds = emptyList(), // Invalidate all pending additions from the previous queue
             revision = oldState.revision + 1
         )
         updateInternalState(newState)
@@ -124,27 +116,35 @@ class PlaybackQueueManager(
     }
 
     fun addToQueue(song: Song, isCurrentSongNull: Boolean, onPlaySong: (Song, List<Song>, Int) -> Unit) {
-        val newState = QueueReducer.addEntry(_queueState.value, song)
-        updateInternalState(newState)
-
         if (isCurrentSongNull) {
+            val newState = QueueReducer.addEntry(_queueState.value, song)
+            updateInternalState(newState)
             onPlaySong(song, newState.entries.map { it.song }, 0)
         } else {
-            val pendingIndex = newState.entries.lastIndex
-            val pendingAdd = PendingQueueAdd(song = song, targetIndex = pendingIndex)
-            pendingQueueAdds.add(pendingAdd)
+            val (newState, pendingAdd) = QueueReducer.addEntryWithPending(_queueState.value, song)
+            updateInternalState(newState)
+
             coroutineScope.launch(Dispatchers.IO) {
                 try {
                     val mediaItem = mediaItemBuilder(song, false)
                     withContext(Dispatchers.Main.immediate) {
-                        if (pendingAdd in pendingQueueAdds) {
-                            pendingQueueAdds.remove(pendingAdd)
-                            syncListener.onMediaItemAdded(pendingAdd.targetIndex.coerceIn(0, _queueState.value.entries.size), mediaItem)
+                        val result = QueueReducer.consumePendingAdd(_queueState.value, pendingAdd.token)
+                        if (result.media3InsertionIndex != null) {
+                            updateInternalState(result.newState)
+                            syncListener.onMediaItemAdded(
+                                result.media3InsertionIndex.coerceIn(0, result.newState.entries.size),
+                                mediaItem
+                            )
                         }
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main.immediate) {
-                        pendingQueueAdds.remove(pendingAdd)
+                        val currentEntry = _queueState.value.entries.find { it.entryId == pendingAdd.entryId }
+                        if (currentEntry != null) {
+                            updateInternalState(QueueReducer.removeEntry(_queueState.value, pendingAdd.entryId))
+                        } else {
+                            updateInternalState(QueueReducer.invalidatePendingAdd(_queueState.value, pendingAdd.token))
+                        }
                     }
                 }
             }
@@ -160,18 +160,6 @@ class PlaybackQueueManager(
         // Process removals in descending order to preserve index validity for callbacks
         for (idx in indicesToRemove.sortedDescending()) {
             val entryId = currentState.entries[idx].entryId
-            
-            // Adjust runtime pending list (Fix 1.3.2 preservation)
-            val iterator = pendingQueueAdds.iterator()
-            while (iterator.hasNext()) {
-                val add = iterator.next()
-                if (add.targetIndex == idx) {
-                    iterator.remove()
-                } else if (add.targetIndex > idx) {
-                    add.targetIndex--
-                }
-            }
-            
             currentState = QueueReducer.removeEntry(currentState, entryId)
         }
         
@@ -191,34 +179,36 @@ class PlaybackQueueManager(
     fun playNext(song: Song, isCurrentSongNull: Boolean, currentQueueIndex: Int, onPlaySong: (Song, List<Song>, Int) -> Unit) {
         val state = _queueState.value
         val insertIndex = if (currentQueueIndex in state.entries.indices) currentQueueIndex + 1 else state.entries.size
-        
-        // Adjust runtime pending list (Fix 1.3.2 preservation)
-        for (add in pendingQueueAdds) {
-            if (add.targetIndex >= insertIndex) {
-                add.targetIndex++
-            }
-        }
-
-        val newState = QueueReducer.insertEntry(state, insertIndex, song)
-        updateInternalState(newState)
 
         if (isCurrentSongNull) {
+            val newState = QueueReducer.insertEntry(state, insertIndex, song)
+            updateInternalState(newState)
             onPlaySong(song, newState.entries.map { it.song }, insertIndex)
         } else {
-            val pendingAdd = PendingQueueAdd(song = song, targetIndex = insertIndex)
-            pendingQueueAdds.add(pendingAdd)
+            val (newState, pendingAdd) = QueueReducer.insertEntryWithPending(state, insertIndex, song)
+            updateInternalState(newState)
+
             coroutineScope.launch(Dispatchers.IO) {
                 try {
                     val mediaItem = mediaItemBuilder(song, false)
                     withContext(Dispatchers.Main.immediate) {
-                        if (pendingAdd in pendingQueueAdds) {
-                            pendingQueueAdds.remove(pendingAdd)
-                            syncListener.onMediaItemAdded(pendingAdd.targetIndex.coerceIn(0, _queueState.value.entries.size), mediaItem)
+                        val result = QueueReducer.consumePendingAdd(_queueState.value, pendingAdd.token)
+                        if (result.media3InsertionIndex != null) {
+                            updateInternalState(result.newState)
+                            syncListener.onMediaItemAdded(
+                                result.media3InsertionIndex.coerceIn(0, result.newState.entries.size),
+                                mediaItem
+                            )
                         }
                     }
                 } catch (e: Exception) {
                     withContext(Dispatchers.Main.immediate) {
-                        pendingQueueAdds.remove(pendingAdd)
+                        val currentEntry = _queueState.value.entries.find { it.entryId == pendingAdd.entryId }
+                        if (currentEntry != null) {
+                            updateInternalState(QueueReducer.removeEntry(_queueState.value, pendingAdd.entryId))
+                        } else {
+                            updateInternalState(QueueReducer.invalidatePendingAdd(_queueState.value, pendingAdd.token))
+                        }
                     }
                 }
             }
@@ -230,18 +220,6 @@ class PlaybackQueueManager(
         if (index !in state.entries.indices) return
         
         val entryId = state.entries[index].entryId
-
-        // Adjust runtime pending list (Fix 1.3.2 preservation)
-        val iterator = pendingQueueAdds.iterator()
-        while (iterator.hasNext()) {
-            val add = iterator.next()
-            if (add.targetIndex == index) {
-                iterator.remove()
-            } else if (add.targetIndex > index) {
-                add.targetIndex--
-            }
-        }
-
         val newState = QueueReducer.removeEntry(state, entryId)
         updateInternalState(newState)
 
@@ -257,17 +235,6 @@ class PlaybackQueueManager(
         if (fromIndex !in state.entries.indices || toIndex !in state.entries.indices) return
         if (fromIndex == toIndex) return
 
-        // Adjust runtime pending list (Fix 1.3.2 preservation)
-        for (add in pendingQueueAdds) {
-            if (add.targetIndex == fromIndex) {
-                add.targetIndex = toIndex
-            } else if (fromIndex < toIndex && add.targetIndex in (fromIndex + 1)..toIndex) {
-                add.targetIndex--
-            } else if (fromIndex > toIndex && add.targetIndex in toIndex until fromIndex) {
-                add.targetIndex++
-            }
-        }
-
         val newState = QueueReducer.reorder(state, fromIndex, toIndex)
         updateInternalState(newState)
         
@@ -275,7 +242,6 @@ class PlaybackQueueManager(
     }
 
     fun clearQueue() {
-        pendingQueueAdds.clear()
         updateInternalState(QueueReducer.clear(_queueState.value))
         syncListener.onQueueCleared()
     }
@@ -284,17 +250,7 @@ class PlaybackQueueManager(
      * Clears everything from the queue except the currently playing song.
      */
     fun keepOnlyCurrent() {
-        val state = _queueState.value
-        val currentEntry = state.entries.find { it.entryId == state.currentEntryId }
-        if (currentEntry != null) {
-            updateInternalState(state.copy(
-                entries = listOf(currentEntry),
-                revision = state.revision + 1
-            ))
-            // Current index becomes 0
-        } else {
-            clearQueue()
-        }
+        updateInternalState(QueueReducer.keepOnlyCurrent(_queueState.value))
     }
 
     fun updateSong(songId: String, transform: (Song) -> Song) {

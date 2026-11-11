@@ -1,6 +1,12 @@
 package com.example.playback
 
 import com.example.data.models.Song
+import java.util.UUID
+
+data class ConsumeResult(
+    val newState: QueueState,
+    val media3InsertionIndex: Int?
+)
 
 object QueueReducer {
 
@@ -17,9 +23,121 @@ object QueueReducer {
     }
 
     /**
+     * Atomically creates one QueueEntry and its corresponding PendingQueueAdd at the end of the queue.
+     * Increments revision exactly once.
+     */
+    fun addEntryWithPending(
+        state: QueueState,
+        song: Song,
+        token: String = UUID.randomUUID().toString()
+    ): Pair<QueueState, PendingQueueAdd> {
+        val entry = QueueEntry(song = song)
+        val targetIndex = state.entries.size
+        val pendingAdd = PendingQueueAdd(
+            token = token,
+            entryId = entry.entryId,
+            song = song,
+            targetIndex = targetIndex
+        )
+        val newState = state.copy(
+            entries = state.entries + entry,
+            pendingAdds = state.pendingAdds + pendingAdd,
+            revision = state.revision + 1
+        )
+        return newState to pendingAdd
+    }
+
+    /**
+     * Atomically inserts one QueueEntry at index, correctly adjusts existing pending additions,
+     * and registers the new PendingQueueAdd referencing the newly created entryId.
+     * The new pending addition's targetIndex is not shifted by its own insertion.
+     * Increments revision exactly once.
+     */
+    fun insertEntryWithPending(
+        state: QueueState,
+        index: Int,
+        song: Song,
+        token: String = UUID.randomUUID().toString()
+    ): Pair<QueueState, PendingQueueAdd> {
+        val safeIndex = index.coerceIn(0, state.entries.size)
+        val entry = QueueEntry(song = song)
+        
+        val newEntries = state.entries.toMutableList()
+        newEntries.add(safeIndex, entry)
+
+        // Adjust existing pending adds for the insertion
+        val shiftedExistingPending = state.pendingAdds.map { add ->
+            if (add.targetIndex >= safeIndex) add.copy(targetIndex = add.targetIndex + 1)
+            else add
+        }
+
+        val newPendingAdd = PendingQueueAdd(
+            token = token,
+            entryId = entry.entryId,
+            song = song,
+            targetIndex = safeIndex
+        )
+
+        val newState = state.copy(
+            entries = newEntries.toList(),
+            pendingAdds = shiftedExistingPending + newPendingAdd,
+            revision = state.revision + 1
+        )
+        return newState to newPendingAdd
+    }
+
+    /**
+     * Atomically consumes a pending addition:
+     * - Locates the pending operation by token.
+     * - Verifies its associated entry still exists.
+     * - Calculates its correct Media3 timeline insertion index:
+     *   media3InsertionIndex = queueEntryIndex - unresolvedPrecedingPendingCount
+     * - Removes the pending operation.
+     * - Returns the updated QueueState and insertion index.
+     * - Returns no insertion index if the operation was cancelled, already consumed, or its entry no longer exists.
+     */
+    fun consumePendingAdd(state: QueueState, token: String): ConsumeResult {
+        val pending = state.pendingAdds.find { it.token == token }
+        if (pending == null) {
+            return ConsumeResult(state, null)
+        }
+
+        val queueEntryIndex = state.entries.indexOfFirst { it.entryId == pending.entryId }
+        if (queueEntryIndex == -1) {
+            val updatedState = state.copy(
+                pendingAdds = state.pendingAdds.filter { it.token != token },
+                revision = state.revision + 1
+            )
+            return ConsumeResult(updatedState, null)
+        }
+
+        val otherPendingEntryIds = state.pendingAdds
+            .filter { it.token != token }
+            .map { it.entryId }
+            .toSet()
+
+        var unresolvedPrecedingPendingCount = 0
+        for (i in 0 until queueEntryIndex) {
+            if (state.entries[i].entryId in otherPendingEntryIds) {
+                unresolvedPrecedingPendingCount++
+            }
+        }
+
+        val media3InsertionIndex = (queueEntryIndex - unresolvedPrecedingPendingCount).coerceAtLeast(0)
+
+        val updatedState = state.copy(
+            pendingAdds = state.pendingAdds.filter { it.token != token },
+            revision = state.revision + 1
+        )
+        return ConsumeResult(updatedState, media3InsertionIndex)
+    }
+
+    /**
      * Removes an entry by its stable entryId.
      * Updates currentEntryId if the removed entry was active.
      * Cleans up shuffleHistory.
+     * Cancels any pending addition associated with the removed entryId.
+     * Shifts remaining pending target indices.
      * Increments revision if removal actually occurred.
      */
     fun removeEntry(state: QueueState, entryId: String): QueueState {
@@ -39,10 +157,10 @@ object QueueReducer {
         // Clean up shuffle history: remove the entryId if present
         val newShuffleHistory = state.shuffleHistory.filter { it != entryId }
 
-        // Also update pending adds: remove any add targeting this specific absolute index
-        // or shift indices of adds after this removal.
-        // NOTE: In the future SSOT, pendingAdds are associated with song resolution.
-        val newPendingAdds = state.pendingAdds.filter { it.targetIndex != entryIndex }
+        // Cancel pending additions associated with the removed entryId or index,
+        // and shift remaining pending adds targeting indices after this removal.
+        val newPendingAdds = state.pendingAdds
+            .filter { it.entryId != entryId && it.targetIndex != entryIndex }
             .map { add ->
                 if (add.targetIndex > entryIndex) add.copy(targetIndex = add.targetIndex - 1)
                 else add
@@ -89,6 +207,25 @@ object QueueReducer {
     }
 
     /**
+     * Retains only the active entry and clears all pending additions associated with the upcoming queue.
+     */
+    fun keepOnlyCurrent(state: QueueState): QueueState {
+        val currentEntry = state.entries.find { it.entryId == state.currentEntryId }
+        if (currentEntry == null) {
+            return clear(state)
+        }
+        if (state.entries.size == 1 && state.entries[0].entryId == currentEntry.entryId && state.pendingAdds.isEmpty()) {
+            return state // No-op
+        }
+        return state.copy(
+            entries = listOf(currentEntry),
+            shuffleHistory = state.shuffleHistory.filter { it == currentEntry.entryId },
+            pendingAdds = emptyList(),
+            revision = state.revision + 1
+        )
+    }
+
+    /**
      * Updates the current entry by ID.
      * Increments revision if the ID actually changed.
      */
@@ -103,10 +240,10 @@ object QueueReducer {
     }
 
     /**
-     * Clears everything and resets revision.
+     * Clears everything and increments revision if not already empty.
      */
     fun clear(state: QueueState): QueueState {
-        if (state.entries.isEmpty() && state.currentEntryId == null && state.pendingAdds.isEmpty()) return state
+        if (state.entries.isEmpty() && state.currentEntryId == null && state.pendingAdds.isEmpty() && state.shuffleHistory.isEmpty()) return state
         return state.copy(
             entries = emptyList(),
             currentEntryId = null,
