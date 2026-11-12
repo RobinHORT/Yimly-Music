@@ -173,6 +173,16 @@ class PlaybackManager(
 
                         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
                             syncAndroidAutoQueueFromPlayer(mediaItem)
+                            
+                            // Synchronise PlaybackQueueManager with the actual active MediaItem from ExoPlayer.
+                            // This ensures the queue state reflects natural advancements (reason == AUTO) 
+                            // as well as any other item transitions not already covered by explicit logic.
+                            if (mediaItem != null) {
+                                val player = _player ?: return
+                                val index = player.currentMediaItemIndex
+                                val mediaId = mediaItem.mediaId
+                                queueManager.syncCurrentEntryFromPlayer(index, mediaId)
+                            }
                         }
 
                         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -540,32 +550,20 @@ class PlaybackManager(
             return
         }
         cancelAndroidAutoQueueSync()
-        val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
         val info = _playbackInfo.value
-        if (queue.isEmpty()) {
+        
+        val nextIndex = queueManager.advanceNext(
+            manual = manual,
+            repeatMode = info.repeatMode,
+            isShuffle = info.isShuffle
+        )
+
+        if (nextIndex == null) {
             isTransitioning = false
             releaseTransitionWakeLock()
             return
         }
         
-        val nextIndex = when {
-            !manual && info.repeatMode == RepeatMode.ONE -> currentQueueIndex
-            info.isShuffle && queue.size > 1 -> queue.indices.filter { it != currentQueueIndex }.random()
-            info.isShuffle -> currentQueueIndex
-            info.repeatMode == RepeatMode.ALL -> (currentQueueIndex + 1) % queue.size
-            currentQueueIndex + 1 < queue.size -> currentQueueIndex + 1
-            else -> {
-                isTransitioning = false
-                releaseTransitionWakeLock()
-                return
-            }
-        }
-        
-        if (info.isShuffle && nextIndex != currentQueueIndex && currentQueueIndex in queue.indices) {
-            queueManager.addShuffleHistory(currentQueueIndex)
-        }
-        
-        queueManager.setCurrentIndex(nextIndex)
         persistPlaybackSnapshot(force = true)
         playCurrentQueueIndex()
     }
@@ -576,9 +574,6 @@ class PlaybackManager(
             return
         }
         cancelAndroidAutoQueueSync()
-        val (queue, currentQueueIndex) = queueManager.getQueueSnapshot()
-        val info = _playbackInfo.value
-        if (queue.isEmpty()) return
         
         val currentP = _player
         if (currentP != null && currentP.currentPosition > 3000L) {
@@ -588,15 +583,11 @@ class PlaybackManager(
             return
         }
 
-        val prevIndex = if (info.isShuffle) {
-            queueManager.removeLastShuffleHistory() ?: (currentQueueIndex - 1).coerceAtLeast(0)
-        } else if (currentQueueIndex - 1 >= 0) {
-            currentQueueIndex - 1
-        } else {
-            queue.size - 1
-        }
+        val info = _playbackInfo.value
+        val prevIndex = queueManager.advancePrevious(isShuffle = info.isShuffle)
+        
+        if (prevIndex == null) return
 
-        queueManager.setCurrentIndex(prevIndex)
         persistPlaybackSnapshot(force = true)
         playCurrentQueueIndex()
     }

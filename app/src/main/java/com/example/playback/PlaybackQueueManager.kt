@@ -366,6 +366,77 @@ class PlaybackQueueManager(
     }
 
     /**
+     * Calculates and applies the next queue index based on playback policy.
+     * Returns the new index, or null if the queue has reached its end.
+     */
+    fun advanceNext(manual: Boolean, repeatMode: RepeatMode, isShuffle: Boolean): Int? {
+        val state = _queueState.value
+        if (state.entries.isEmpty()) return null
+        
+        val currentIndex = state.entries.indexOfFirst { it.entryId == state.currentEntryId }
+        val nextIndex = when {
+            !manual && repeatMode == RepeatMode.ONE -> currentIndex
+            isShuffle && state.entries.size > 1 -> {
+                state.entries.indices.filter { it != currentIndex }.randomOrNull() ?: currentIndex
+            }
+            isShuffle -> currentIndex
+            repeatMode == RepeatMode.ALL -> (currentIndex + 1) % state.entries.size
+            currentIndex + 1 < state.entries.size -> currentIndex + 1
+            else -> return null
+        }
+        
+        var nextState = state
+        if (isShuffle && nextIndex != currentIndex && currentIndex in state.entries.indices) {
+            val currentEntryId = state.entries[currentIndex].entryId
+            if (!state.shuffleHistory.contains(currentEntryId)) {
+                nextState = nextState.copy(
+                    shuffleHistory = nextState.shuffleHistory + currentEntryId
+                )
+            }
+        }
+        
+        val nextEntryId = nextState.entries.getOrNull(nextIndex)?.entryId
+        nextState = QueueReducer.setCurrentEntry(nextState, nextEntryId)
+        
+        updateInternalState(nextState)
+        return nextIndex
+    }
+
+    /**
+     * Calculates and applies the previous queue index based on playback policy.
+     * Returns the new index, or null if the queue is empty.
+     */
+    fun advancePrevious(isShuffle: Boolean): Int? {
+        val state = _queueState.value
+        if (state.entries.isEmpty()) return null
+        
+        val currentIndex = state.entries.indexOfFirst { it.entryId == state.currentEntryId }
+        
+        val prevIndex = if (isShuffle && state.shuffleHistory.isNotEmpty()) {
+            val lastEntryId = state.shuffleHistory.last()
+            state.entries.indexOfFirst { it.entryId == lastEntryId }.takeIf { it >= 0 } 
+                ?: (currentIndex - 1).coerceAtLeast(0)
+        } else if (currentIndex - 1 >= 0) {
+            currentIndex - 1
+        } else {
+            state.entries.size - 1
+        }
+        
+        var nextState = state
+        if (isShuffle && state.shuffleHistory.isNotEmpty()) {
+            nextState = nextState.copy(
+                shuffleHistory = nextState.shuffleHistory.dropLast(1)
+            )
+        }
+        
+        val prevEntryId = nextState.entries.getOrNull(prevIndex)?.entryId
+        nextState = QueueReducer.setCurrentEntry(nextState, prevEntryId)
+        
+        updateInternalState(nextState)
+        return prevIndex
+    }
+
+    /**
      * Returns a consistent snapshot of the current queue and active index.
      * Use this instead of reading separate flows to avoid revision divergence.
      */
@@ -380,6 +451,38 @@ class PlaybackQueueManager(
         val state = _queueState.value
         val entryId = state.entries.getOrNull(index)?.entryId
         updateInternalState(QueueReducer.setCurrentEntry(state, entryId))
+    }
+
+    /**
+     * Synchronises the current entry ID with the actual active item in ExoPlayer.
+     * This is used for natural transitions where ExoPlayer has already moved to the next item.
+     * Returns true if the current entry actually changed.
+     */
+    fun syncCurrentEntryFromPlayer(index: Int, mediaId: String?): Boolean {
+        if (mediaId == null) return false
+        val state = _queueState.value
+        val resolvedEntries = getResolvedEntries(state)
+        
+        // Find the entry at the reported index in the resolved entries list.
+        val targetEntry = resolvedEntries.getOrNull(index)
+        
+        // Safety check: verify mediaId matches.
+        // In Yimly, mediaId is either songId or songId + "_inst"
+        if (targetEntry != null) {
+            val expectedSongId = targetEntry.song.id
+            val actualSongId = mediaId.removeSuffix("_inst")
+            if (expectedSongId != actualSongId) {
+                // Stale or mismatched transition: index does not match mediaId.
+                return false
+            }
+        } else {
+            return false
+        }
+        
+        if (state.currentEntryId == targetEntry.entryId) return false
+        
+        updateInternalState(QueueReducer.setCurrentEntry(state, targetEntry.entryId))
+        return true
     }
 
     /**
