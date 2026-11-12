@@ -909,23 +909,8 @@ private fun ContinuousLyricsDisplay(
                             text = formatLyricText(line.text, config.textCase),
                             fontSize = lineSize.sp,
                             fontFamily = composeFontFamily,
-                            fontWeight = if (
-                                isCurrent || (fullscreenCreditMode && index < activeDisplayIndex)
-                            ) FontWeight.Bold else FontWeight.Normal,
+                            fontWeight = FontWeight.Bold,
                             color = lineColor,
-                            style = TextStyle(
-                                shadow = if (
-                                    config.formatMode == LyricsFormatMode.ELRC ||
-                                    (fullscreenCreditMode && index <= activeDisplayIndex) ||
-                                    (isCurrent && config.highlightCurrentLine)
-                                ) {
-                                    Shadow(
-                                        color = Color.Black.copy(alpha = 1f),
-                                        offset = Offset.Zero,
-                                        blurRadius = 2f
-                                    )
-                                } else null
-                            ),
                             textAlign = if (config.formatMode == LyricsFormatMode.ELRC) TextAlign.Center else textAlign,
                             lineHeight = (lineSize * 1.2f).sp,
                             modifier = Modifier.fillMaxWidth()
@@ -1038,7 +1023,6 @@ fun ProgressiveSweepWord(
     fontWeight: FontWeight,
     modifier: Modifier = Modifier
 ) {
-    val resolvedFontWeight = if (progress > 0f) FontWeight.Bold else FontWeight.Normal
     Box(
         modifier = modifier,
         contentAlignment = Alignment.Center
@@ -1049,7 +1033,7 @@ fun ProgressiveSweepWord(
             color = inactiveColor,
             fontSize = fontSize,
             fontFamily = fontFamily,
-            fontWeight = resolvedFontWeight,
+            fontWeight = fontWeight,
             maxLines = 1,
             softWrap = false
         )
@@ -1058,13 +1042,6 @@ fun ProgressiveSweepWord(
         Text(
             text = text,
             color = activeColor,
-            style = TextStyle(
-                shadow = Shadow(
-                    color = Color.Black.copy(alpha = 1f),
-                    offset = Offset.Zero,
-                    blurRadius = 2f
-                )
-            ),
             fontSize = fontSize,
             fontFamily = fontFamily,
             fontWeight = fontWeight,
