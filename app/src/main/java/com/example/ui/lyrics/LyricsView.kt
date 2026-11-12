@@ -519,8 +519,8 @@ private fun ContinuousLyricsDisplay(
         val latestRequestedSeekTargetMs by rememberUpdatedState(requestedSeekTargetMs)
         val latestIsUserDragging by rememberUpdatedState(isUserDragging)
         val density = LocalDensity.current
-        // Half-viewport end padding lets the first and last lyric lines reach centre.
-        val topPadding = if (fullscreenCreditMode) maxHeight / 2
+        // Fullscreen padding lets the first and last lyric lines reach the 37.5% target.
+        val topPadding = if (fullscreenCreditMode) maxHeight * 0.375f
             else if (showPreLyrics) (maxHeight / 2 - 36.dp).coerceAtLeast(16.dp)
             else 16.dp
         // Coordinates are measured in root space, then converted to this lyrics viewport.
@@ -670,7 +670,7 @@ private fun ContinuousLyricsDisplay(
 
                     val viewportHeightPx = containerBounds[1]
                     if (viewportHeightPx <= 0f) continue
-                    val viewportCentre = viewportHeightPx / 2f
+                    val viewportTarget = viewportHeightPx * 0.375f
                     val nextIndex = activeIndex + 1
                     val nextTimeMs = lineTimestamps.getOrNull(nextIndex)
                     val progress = if (nextTimeMs != null) {
@@ -686,7 +686,7 @@ private fun ContinuousLyricsDisplay(
                     if (needsCentreAnchor) {
                         // Initial load / seek: one measured correction to put the active
                         // line at the exact viewport centre before starting the glide.
-                        listState.scrollBy(currentCentre - viewportCentre)
+                        listState.scrollBy(currentCentre - viewportTarget)
                         needsCentreAnchor = false
                         previousActiveIndex = activeIndex
                         // We have centred the active line at the current playback instant.
@@ -776,16 +776,16 @@ private fun ContinuousLyricsDisplay(
                             .drawWithContent {
                                 drawContent()
                                 if (size.height > 0f) {
-                                    // Fullscreen mask proportions: 15% clear gap, 20% fade,
-                                    // 30% fully visible centre, then the mirrored fade and gap.
+                                    // Fullscreen mask proportions: 5% top gap, 20% fade-in, 25% visible region,
+                                    // 25% fade-out, and 25% bottom gap.
                                     drawRect(
                                         brush = Brush.verticalGradient(
                                             colorStops = arrayOf(
                                                 0f to Color.Transparent,
-                                                0.15f to Color.Transparent,
-                                                0.35f to Color.Black,
-                                                0.65f to Color.Black,
-                                                0.85f to Color.Transparent,
+                                                0.05f to Color.Transparent,
+                                                0.25f to Color.Black,
+                                                0.50f to Color.Black,
+                                                0.75f to Color.Transparent,
                                                 1f to Color.Transparent
                                             ),
                                             startY = 0f,
@@ -801,7 +801,7 @@ private fun ContinuousLyricsDisplay(
                 ),
             contentPadding = PaddingValues(
                 top = topPadding,
-                bottom = if (fullscreenCreditMode) maxHeight / 2 else 16.dp
+                bottom = if (fullscreenCreditMode) maxHeight * 0.625f else 16.dp
             ),
             verticalArrangement = Arrangement.spacedBy(config.lineSpacingDp.dp)
         ) {
