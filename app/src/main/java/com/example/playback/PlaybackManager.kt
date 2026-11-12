@@ -39,6 +39,9 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.NonCancellable
 
 @OptIn(UnstableApi::class)
 class PlaybackManager(
@@ -46,7 +49,8 @@ class PlaybackManager(
     val musicRepository: MusicRepository,
     val preferencesManager: PreferencesManager,
     val snapshotRepository: PlaybackSnapshotRepository,
-    val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob()),
+    private val clock: () -> Long = { System.currentTimeMillis() }
 ) {
     constructor(context: Context) : this(
         context = context,
@@ -83,8 +87,10 @@ class PlaybackManager(
     private var networkRecoverySongId: String? = null
     private var androidAutoQueueSyncJob: kotlinx.coroutines.Job? = null
     private var androidAutoQueueSyncVersion: Long = 0L
+    private val snapshotMutex = Mutex()
+    private var pendingDebounceJob: kotlinx.coroutines.Job? = null
     private var lastSnapshotPersistAtMs = 0L
-    private var snapshotWriteJob: kotlinx.coroutines.Job? = null
+    private var lastPersistedStateRevision = -1L
     private val snapshotRestoreCompleted = CompletableDeferred<Unit>()
     @Volatile
     private var isRestoringSnapshot = false
@@ -994,45 +1000,52 @@ class PlaybackManager(
     private fun persistPlaybackSnapshot(force: Boolean = false) {
         if (isRestoringSnapshot) return
 
-        val now = System.currentTimeMillis()
+        val now = clock()
         val timeSinceLast = now - lastSnapshotPersistAtMs
 
         if (!force && timeSinceLast < 5_000L) {
             val remainingDelay = (5_000L - timeSinceLast).coerceAtLeast(1L)
-            snapshotWriteJob?.cancel()
-            snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
+            pendingDebounceJob?.cancel()
+            pendingDebounceJob = coroutineScope.launch(Dispatchers.IO) {
                 delay(remainingDelay)
-                performSave()
+                executeSave()
             }
             return
         }
 
-        snapshotWriteJob?.cancel()
-        snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
-            performSave()
+        pendingDebounceJob?.cancel()
+        pendingDebounceJob = coroutineScope.launch(Dispatchers.IO) {
+            executeSave()
         }
     }
 
-    private suspend fun performSave() {
+    private suspend fun executeSave() = withContext(NonCancellable) {
+        snapshotMutex.withLock {
+            if (isRestoringSnapshot) return@withLock
+            performSaveLocked()
+        }
+    }
+
+    private suspend fun performSaveLocked() {
         if (isRestoringSnapshot) return
 
-        val now = System.currentTimeMillis()
-        lastSnapshotPersistAtMs = now
-
+        val now = clock()
         val state = queueManager.queueState.value
         val entries = state.entries
-        val currentEntryId = state.currentEntryId
-        val currentIndex = entries.indexOfFirst { it.entryId == currentEntryId }
 
         if (entries.isEmpty()) {
             try {
                 snapshotRepository.clearSnapshot()
+                lastSnapshotPersistAtMs = now
+                lastPersistedStateRevision = state.revision
             } catch (e: Exception) {
                 Log.w("PlaybackManager", "Failed to clear playback snapshot", e)
             }
             return
         }
 
+        val currentEntryId = state.currentEntryId
+        val currentIndex = entries.indexOfFirst { it.entryId == currentEntryId }
         if (currentIndex !in entries.indices) return
 
         val info = _playbackInfo.value
@@ -1049,18 +1062,26 @@ class PlaybackManager(
         )
         try {
             snapshotRepository.saveSnapshot(snapshot)
+            lastSnapshotPersistAtMs = now
+            lastPersistedStateRevision = state.revision
         } catch (e: Exception) {
             Log.w("PlaybackManager", "Failed to persist playback snapshot", e)
         }
     }
 
     private fun clearPersistedPlaybackSnapshot() {
-        snapshotWriteJob?.cancel()
-        snapshotWriteJob = coroutineScope.launch(Dispatchers.IO) {
-            try {
-                snapshotRepository.clearSnapshot()
-            } catch (e: Exception) {
-                Log.w("PlaybackManager", "Failed to clear playback snapshot", e)
+        pendingDebounceJob?.cancel()
+        coroutineScope.launch(Dispatchers.IO) {
+            withContext(NonCancellable) {
+                snapshotMutex.withLock {
+                    try {
+                        snapshotRepository.clearSnapshot()
+                        lastSnapshotPersistAtMs = clock()
+                        lastPersistedStateRevision = queueManager.queueState.value.revision
+                    } catch (e: Exception) {
+                        Log.w("PlaybackManager", "Failed to clear playback snapshot", e)
+                    }
+                }
             }
         }
     }

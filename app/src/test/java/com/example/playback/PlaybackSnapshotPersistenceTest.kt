@@ -1,14 +1,10 @@
 package com.example.playback
 
 import android.content.Context
-import android.net.Uri
-import android.os.Looper
-import android.util.Log
-import androidx.media3.exoplayer.ExoPlayer
+import androidx.test.core.app.ApplicationProvider
 import com.example.data.datastore.PreferencesManager
 import com.example.data.models.Song
 import com.example.data.repository.MusicRepository
-import io.mockk.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.*
@@ -17,61 +13,77 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [36])
 class PlaybackSnapshotPersistenceTest {
 
     private val testDispatcher = StandardTestDispatcher()
     private val testScope = TestScope(testDispatcher)
 
-    private val context = mockk<Context>(relaxed = true)
-    private val musicRepository = mockk<MusicRepository>(relaxed = true)
-    private val preferencesManager = mockk<PreferencesManager>(relaxed = true)
-    private val snapshotRepository = mockk<PlaybackSnapshotRepository>(relaxed = true)
-    private val mockPlayer = mockk<ExoPlayer>(relaxed = true)
+    private lateinit var context: Context
+    private lateinit var preferencesManager: PreferencesManager
+    private lateinit var fakeSnapshotRepository: FakePlaybackSnapshotRepository
+
+    private var simulatedTimeMs = 1000L
+    private val testClock: () -> Long = { simulatedTimeMs }
 
     private lateinit var playbackManager: PlaybackManager
+
+    class FakePlaybackSnapshotRepository(
+        preferencesManager: PreferencesManager
+    ) : PlaybackSnapshotRepository(preferencesManager) {
+        val savedSnapshots = mutableListOf<PlaybackSnapshot>()
+        var clearCount = 0
+
+        override suspend fun saveSnapshot(snapshot: PlaybackSnapshot) {
+            savedSnapshots.add(snapshot)
+        }
+
+        override suspend fun loadSnapshot(): PlaybackSnapshot? {
+            return savedSnapshots.lastOrNull()
+        }
+
+        override suspend fun clearSnapshot() {
+            clearCount++
+            savedSnapshots.clear()
+        }
+    }
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
-
-        mockkStatic(Looper::class)
-        val mockLooper = mockk<Looper>(relaxed = true)
-        every { Looper.getMainLooper() } returns mockLooper
-        every { Looper.myLooper() } returns mockLooper
-
-        mockkStatic(Log::class)
-        every { Log.d(any(), any()) } returns 0
-        every { Log.i(any(), any()) } returns 0
-        every { Log.w(any(), any<String>()) } returns 0
-        every { Log.w(any(), any<String>(), any()) } returns 0
-        every { Log.e(any(), any()) } returns 0
-        every { Log.e(any(), any(), any()) } returns 0
-
-        mockkStatic(Uri::class)
-        every { Uri.parse(any()) } returns mockk(relaxed = true)
+        context = ApplicationProvider.getApplicationContext()
+        preferencesManager = PreferencesManager(context)
+        fakeSnapshotRepository = FakePlaybackSnapshotRepository(preferencesManager)
+        simulatedTimeMs = 1000L
 
         playbackManager = PlaybackManager(
             context = context,
-            musicRepository = musicRepository,
+            musicRepository = MusicRepository(
+                musicDao = com.example.data.db.YimlyDatabase.getDatabase(context).musicDao(),
+                apiService = com.example.data.api.NetworkModule(
+                    preferencesManager = preferencesManager,
+                    scope = testScope
+                ).apiService,
+                coroutineScope = testScope,
+                context = context,
+                preferencesManager = preferencesManager
+            ),
             preferencesManager = preferencesManager,
-            snapshotRepository = snapshotRepository,
-            coroutineScope = testScope.backgroundScope
+            snapshotRepository = fakeSnapshotRepository,
+            coroutineScope = testScope.backgroundScope,
+            clock = testClock
         )
-
-        // Inject mock ExoPlayer so ensurePlayerInitialized() returns immediately
-        val playerField = PlaybackManager::class.java.getDeclaredField("_player")
-        playerField.isAccessible = true
-        playerField.set(playbackManager, mockPlayer)
     }
 
     @After
     fun tearDown() {
         playbackManager.release()
-        unmockkStatic(Looper::class)
-        unmockkStatic(Log::class)
-        unmockkStatic(Uri::class)
         Dispatchers.resetMain()
     }
 
@@ -92,7 +104,7 @@ class PlaybackSnapshotPersistenceTest {
         // First action: playSong persists immediately
         playbackManager.playSong(song1)
         testScheduler.advanceUntilIdle()
-        coVerify(exactly = 1) { snapshotRepository.saveSnapshot(any()) }
+        assertEquals(1, fakeSnapshotRepository.savedSnapshots.size)
 
         // Rapid consecutive mutations within the 5s debounce window
         playbackManager.addToQueue(song2)
@@ -101,17 +113,16 @@ class PlaybackSnapshotPersistenceTest {
         testScheduler.runCurrent()
 
         // Within debounce window, no additional saves yet
-        coVerify(exactly = 1) { snapshotRepository.saveSnapshot(any()) }
+        assertEquals(1, fakeSnapshotRepository.savedSnapshots.size)
 
-        // Advance past debounce window to allow trailing persistence to run
+        // Advance simulated time past debounce window (5000ms)
+        simulatedTimeMs += 5001L
         testScheduler.advanceTimeBy(5001L)
         testScheduler.advanceUntilIdle()
 
         // Latest state is eventually persisted
-        coVerify(atLeast = 2) { snapshotRepository.saveSnapshot(any()) }
-        val savedSnapshots = mutableListOf<PlaybackSnapshot>()
-        coVerify { snapshotRepository.saveSnapshot(capture(savedSnapshots)) }
-        val lastSnapshot = savedSnapshots.last()
+        assertTrue(fakeSnapshotRepository.savedSnapshots.size >= 2)
+        val lastSnapshot = fakeSnapshotRepository.savedSnapshots.last()
         assertEquals(3, lastSnapshot.queue.size)
     }
 
@@ -125,22 +136,19 @@ class PlaybackSnapshotPersistenceTest {
 
         playbackManager.pause()
         testScheduler.advanceUntilIdle()
-        val initialSaves = mutableListOf<PlaybackSnapshot>()
-        coVerify { snapshotRepository.saveSnapshot(capture(initialSaves)) }
-        val countAfterPause = initialSaves.size
+        val countAfterPause = fakeSnapshotRepository.savedSnapshots.size
 
         // Mutate queue while paused
         playbackManager.addToQueue(song2)
         testScheduler.runCurrent()
 
-        // Advance past debounce window
+        // Advance simulated time past debounce window
+        simulatedTimeMs += 5001L
         testScheduler.advanceTimeBy(5001L)
         testScheduler.advanceUntilIdle()
 
-        val afterSaves = mutableListOf<PlaybackSnapshot>()
-        coVerify { snapshotRepository.saveSnapshot(capture(afterSaves)) }
-        assertTrue(afterSaves.size > countAfterPause)
-        assertEquals(2, afterSaves.last().queue.size)
+        assertTrue(fakeSnapshotRepository.savedSnapshots.size > countAfterPause)
+        assertEquals(2, fakeSnapshotRepository.savedSnapshots.last().queue.size)
     }
 
     @Test
@@ -152,7 +160,7 @@ class PlaybackSnapshotPersistenceTest {
         playbackManager.clearQueueAndStop()
         testScheduler.advanceUntilIdle()
 
-        coVerify(atLeast = 1) { snapshotRepository.clearSnapshot() }
+        assertTrue(fakeSnapshotRepository.clearCount >= 1)
     }
 
     @Test
@@ -165,15 +173,14 @@ class PlaybackSnapshotPersistenceTest {
         testScheduler.advanceUntilIdle()
 
         // Wait out throttle window so next action is immediate
+        simulatedTimeMs += 5001L
         testScheduler.advanceTimeBy(5001L)
         testScheduler.advanceUntilIdle()
 
         playbackManager.clearUpcomingQueue()
         testScheduler.advanceUntilIdle()
 
-        val savedSnapshots = mutableListOf<PlaybackSnapshot>()
-        coVerify { snapshotRepository.saveSnapshot(capture(savedSnapshots)) }
-        val lastSnapshot = savedSnapshots.last()
+        val lastSnapshot = fakeSnapshotRepository.savedSnapshots.last()
         assertEquals(1, lastSnapshot.queue.size)
         assertEquals(song1.id, lastSnapshot.queue[0].id)
     }
@@ -191,7 +198,7 @@ class PlaybackSnapshotPersistenceTest {
             isInstrumental = false
         )
 
-        clearMocks(snapshotRepository)
+        fakeSnapshotRepository.savedSnapshots.clear()
 
         // Restore snapshot
         val result = playbackManager.restoreFromSnapshot(snapshot)
@@ -199,7 +206,7 @@ class PlaybackSnapshotPersistenceTest {
 
         assertTrue(result)
         // During restoration, intermediate writes to snapshotRepository are blocked
-        coVerify(exactly = 0) { snapshotRepository.saveSnapshot(any()) }
+        assertEquals(0, fakeSnapshotRepository.savedSnapshots.size)
     }
 
     @Test
@@ -208,13 +215,14 @@ class PlaybackSnapshotPersistenceTest {
         playbackManager.playSong(song1)
         testScheduler.advanceUntilIdle()
 
-        clearMocks(snapshotRepository)
+        fakeSnapshotRepository.savedSnapshots.clear()
 
         // Advance time representing playback progress ticks (e.g. 10 seconds of playback)
+        simulatedTimeMs += 10000L
         testScheduler.advanceTimeBy(10000L)
         testScheduler.advanceUntilIdle()
 
         // Progress updates must not cause repeated snapshot writes
-        coVerify(exactly = 0) { snapshotRepository.saveSnapshot(any()) }
+        assertEquals(0, fakeSnapshotRepository.savedSnapshots.size)
     }
 }
