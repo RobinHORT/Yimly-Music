@@ -177,11 +177,14 @@ class PlaybackManager(
                             // Synchronise PlaybackQueueManager with the actual active MediaItem from ExoPlayer.
                             // This ensures the queue state reflects natural advancements (reason == AUTO) 
                             // as well as any other item transitions not already covered by explicit logic.
-                            if (mediaItem != null) {
+                            if (mediaItem != null && !isRestoringSnapshot) {
                                 val player = _player ?: return
-                                val index = player.currentMediaItemIndex
-                                val mediaId = mediaItem.mediaId
-                                queueManager.syncCurrentEntryFromPlayer(index, mediaId)
+                                val currentItem = player.currentMediaItem ?: return
+                                // Guard against stale callbacks: revalidate against the actual active item in ExoPlayer
+                                if (currentItem.mediaId == mediaItem.mediaId) {
+                                    val index = player.currentMediaItemIndex
+                                    queueManager.syncCurrentEntryFromPlayer(index, currentItem.mediaId)
+                                }
                             }
                         }
 

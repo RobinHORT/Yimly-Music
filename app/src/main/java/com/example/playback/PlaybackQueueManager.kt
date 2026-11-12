@@ -464,18 +464,20 @@ class PlaybackQueueManager(
         val resolvedEntries = getResolvedEntries(state)
         
         // Find the entry at the reported index in the resolved entries list.
-        val targetEntry = resolvedEntries.getOrNull(index)
+        val targetEntry = resolvedEntries.getOrNull(index) ?: return false
         
         // Safety check: verify mediaId matches.
-        // In Yimly, mediaId is either songId or songId + "_inst"
-        if (targetEntry != null) {
-            val expectedSongId = targetEntry.song.id
-            val actualSongId = mediaId.removeSuffix("_inst")
-            if (expectedSongId != actualSongId) {
-                // Stale or mismatched transition: index does not match mediaId.
-                return false
-            }
-        } else {
+        // In Yimly, mediaId is either songId, songId + "_inst", or an Android Auto formatted ID.
+        val expectedSongId = targetEntry.song.id
+        val actualSongId = when {
+            mediaId.startsWith("playlist_song|") -> mediaId.substringAfterLast("|").removeSuffix("_inst")
+            mediaId.startsWith("favorite_song|") ||
+                mediaId.startsWith("recent_song|") ||
+                mediaId.startsWith("all_song|") -> mediaId.substringAfter("|").removeSuffix("_inst")
+            else -> mediaId.removeSuffix("_inst")
+        }
+        if (expectedSongId != actualSongId) {
+            // Stale or mismatched transition: index does not match mediaId.
             return false
         }
         
