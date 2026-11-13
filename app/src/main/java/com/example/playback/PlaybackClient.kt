@@ -25,7 +25,8 @@ import kotlinx.coroutines.flow.asStateFlow
 @OptIn(UnstableApi::class)
 class PlaybackClient(
     private val context: Context,
-    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private val coroutineScope: CoroutineScope = CoroutineScope(Dispatchers.Main + SupervisorJob()),
+    autoConnect: Boolean = true
 ) {
     @Volatile
     private var isReleased = false
@@ -47,7 +48,9 @@ class PlaybackClient(
     }
 
     init {
-        connect()
+        if (autoConnect) {
+            connect()
+        }
     }
 
     fun connect() {
@@ -111,13 +114,19 @@ class PlaybackClient(
         }
     }
 
-    private fun updateState(player: Player) {
+    internal fun updateState(player: Player) {
         val queue = (0 until player.mediaItemCount).map { i ->
             player.getMediaItemAt(i).toSong()
         }
         val currentIndex = player.currentMediaItemIndex.coerceIn(0, (queue.size - 1).coerceAtLeast(0))
         val currentSong = queue.getOrNull(currentIndex)
-        val isInstrumental = player.currentMediaItem?.mediaId?.endsWith("_inst") == true
+        val currentItem = player.currentMediaItem
+        val currentExtras = currentItem?.mediaMetadata?.extras
+        val isInstrumental = if (currentExtras?.containsKey(PlaybackMediaMetadata.EXTRA_IS_INSTRUMENTAL_ACTIVE) == true) {
+            currentExtras.getBoolean(PlaybackMediaMetadata.EXTRA_IS_INSTRUMENTAL_ACTIVE, false)
+        } else {
+            CanonicalMediaId.parse(currentItem?.mediaId)?.isInstrumental == true
+        }
 
         _playbackState.value = PlaybackState(
             currentSong = currentSong,
@@ -131,7 +140,7 @@ class PlaybackClient(
                 else -> RepeatMode.OFF
             },
             isBuffering = player.playbackState == Player.STATE_BUFFERING,
-            hasInstrumental = currentSong?.hasInstrumental ?: false,
+            hasInstrumental = currentSong?.hasInstrumentalEffective ?: false,
             isInstrumental = isInstrumental,
             playbackSpeed = player.playbackParameters.speed
         )
@@ -142,14 +151,32 @@ class PlaybackClient(
         )
     }
 
-    private fun MediaItem.toSong(): Song {
+    internal fun MediaItem.toSong(): Song {
         val meta = mediaMetadata
+        val extras = meta.extras
+        val parsed = CanonicalMediaId.parse(mediaId)
+        val canonicalId = extras?.getString(PlaybackMediaMetadata.EXTRA_CANONICAL_SONG_ID)
+            ?.takeIf { it.isNotBlank() }
+            ?: parsed?.canonicalSongId
+            ?: ""
+        val hasInstrumental = extras?.getBoolean(PlaybackMediaMetadata.EXTRA_HAS_INSTRUMENTAL, false) ?: false
+        val isFavorite = extras?.getBoolean(PlaybackMediaMetadata.EXTRA_IS_FAVORITE, false) ?: false
+        val durationSeconds = extras
+            ?.takeIf { it.containsKey(PlaybackMediaMetadata.EXTRA_DURATION_SECONDS) }
+            ?.getLong(PlaybackMediaMetadata.EXTRA_DURATION_SECONDS)
+            ?.takeIf { it > 0L }
+            ?: meta.durationMs?.takeIf { it > 0L }?.let { it / 1000L }
+            ?: 0L
+
         return Song(
-            id = mediaId.removeSuffix("_inst"),
+            id = canonicalId,
             title = meta.title?.toString() ?: "",
             artist = meta.artist?.toString() ?: "",
             album = meta.albumTitle?.toString() ?: "",
-            explicitArtworkUrl = meta.artworkUri?.toString()
+            durationSeconds = durationSeconds,
+            explicitArtworkUrl = meta.artworkUri?.toString(),
+            hasInstrumental = hasInstrumental,
+            isFavorite = isFavorite
         )
     }
 

@@ -357,18 +357,14 @@ class YimlySessionCallback(
                         val songs = playbackManager.musicRepository.recentlyPlayedSongs.firstOrNull() ?: emptyList()
                         for (song in songs) {
                             val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                            val metadata = MediaMetadata.Builder()
-                                .setTitle(song.title)
-                                .setArtist(song.artist)
-                                .setAlbumTitle(song.album)
-                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                .setIsBrowsable(false)
-                                .setIsPlayable(true)
-                                .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                                .build()
+                            val metadata = PlaybackMediaMetadata.buildForSong(
+                                song = song,
+                                isInstrumentalActive = false,
+                                artworkUri = resolvedArt?.let { Uri.parse(it) }
+                            )
                             mediaItems.add(
                                 MediaItem.Builder()
-                                    .setMediaId("recent_song|${song.id}")
+                                    .setMediaId(CanonicalMediaId.forRecentlyPlayed(song.id))
                                     .setMediaMetadata(metadata)
                                     .build()
                             )
@@ -378,18 +374,14 @@ class YimlySessionCallback(
                         val songs = playbackManager.musicRepository.allSongs.firstOrNull() ?: emptyList()
                         for (song in songs) {
                             val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                            val metadata = MediaMetadata.Builder()
-                                .setTitle(song.title)
-                                .setArtist(song.artist)
-                                .setAlbumTitle(song.album)
-                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                .setIsBrowsable(false)
-                                .setIsPlayable(true)
-                                .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                                .build()
+                            val metadata = PlaybackMediaMetadata.buildForSong(
+                                song = song,
+                                isInstrumentalActive = false,
+                                artworkUri = resolvedArt?.let { Uri.parse(it) }
+                            )
                             mediaItems.add(
                                 MediaItem.Builder()
-                                    .setMediaId("all_song|${song.id}")
+                                    .setMediaId(CanonicalMediaId.forAllSongs(song.id))
                                     .setMediaMetadata(metadata)
                                     .build()
                             )
@@ -416,18 +408,14 @@ class YimlySessionCallback(
                         val songs = playbackManager.musicRepository.favoriteSongs.firstOrNull() ?: emptyList()
                         for (song in songs) {
                             val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                            val metadata = MediaMetadata.Builder()
-                                .setTitle(song.title)
-                                .setArtist(song.artist)
-                                .setAlbumTitle(song.album)
-                                .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                .setIsBrowsable(false)
-                                .setIsPlayable(true)
-                                .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                                .build()
+                            val metadata = PlaybackMediaMetadata.buildForSong(
+                                song = song,
+                                isInstrumentalActive = false,
+                                artworkUri = resolvedArt?.let { Uri.parse(it) }
+                            )
                             mediaItems.add(
                                 MediaItem.Builder()
-                                    .setMediaId("favorite_song|${song.id}")
+                                    .setMediaId(CanonicalMediaId.forFavorites(song.id))
                                     .setMediaMetadata(metadata)
                                     .build()
                             )
@@ -439,18 +427,14 @@ class YimlySessionCallback(
                             val songs = playbackManager.musicRepository.getSongsForPlaylist(playlistId).firstOrNull() ?: emptyList()
                             for (song in songs) {
                                 val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                                val metadata = MediaMetadata.Builder()
-                                    .setTitle(song.title)
-                                    .setArtist(song.artist)
-                                    .setAlbumTitle(song.album)
-                                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                    .setIsBrowsable(false)
-                                    .setIsPlayable(true)
-                                    .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                                    .build()
+                                val metadata = PlaybackMediaMetadata.buildForSong(
+                                    song = song,
+                                    isInstrumentalActive = false,
+                                    artworkUri = resolvedArt?.let { Uri.parse(it) }
+                                )
                                 mediaItems.add(
                                     MediaItem.Builder()
-                                        .setMediaId("playlist_song|${playlistId}|${song.id}")
+                                        .setMediaId(CanonicalMediaId.forPlaylist(playlistId, song.id))
                                         .setMediaMetadata(metadata)
                                         .build()
                                 )
@@ -498,26 +482,16 @@ class YimlySessionCallback(
         val future = SettableFuture.create<LibraryResult<MediaItem>>()
         val job = playbackManager.coroutineScope.launch(Dispatchers.IO) {
             try {
-                val parts = mediaId.split("|")
-                val actualSongId = when {
-                    mediaId.startsWith("playlist_song|") && parts.size >= 3 -> parts[2]
-                    mediaId.startsWith("favorite_song|") && parts.size >= 2 -> parts[1]
-                    mediaId.startsWith("recent_song|") && parts.size >= 2 -> parts[1]
-                    mediaId.startsWith("all_song|") && parts.size >= 2 -> parts[1]
-                    else -> mediaId
-                }
-                val song = playbackManager.musicRepository.getSongById(actualSongId)
+                val parsed = CanonicalMediaId.parse(mediaId)
+                val actualSongId = parsed?.canonicalSongId
+                val song = actualSongId?.let { playbackManager.musicRepository.getSongById(it) }
                 if (song != null) {
                     val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                    val metadata = MediaMetadata.Builder()
-                        .setTitle(song.title)
-                        .setArtist(song.artist)
-                        .setAlbumTitle(song.album)
-                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                        .build()
+                    val metadata = PlaybackMediaMetadata.buildForSong(
+                        song = song,
+                        isInstrumentalActive = parsed.isInstrumental,
+                        artworkUri = resolvedArt?.let { Uri.parse(it) }
+                    )
                     val item = MediaItem.Builder()
                         .setMediaId(mediaId)
                         .setMediaMetadata(metadata)
@@ -587,17 +561,13 @@ class YimlySessionCallback(
                 val songs = playbackManager.musicRepository.searchSongs(query)
                 val mediaItems = songs.map { song ->
                     val resolvedArt = playbackManager.getResolvedArtworkUrl(song)
-                    val metadata = MediaMetadata.Builder()
-                        .setTitle(song.title)
-                        .setArtist(song.artist)
-                        .setAlbumTitle(song.album)
-                        .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                        .setIsBrowsable(false)
-                        .setIsPlayable(true)
-                        .setArtworkUri(resolvedArt?.let { Uri.parse(it) })
-                        .build()
+                    val metadata = PlaybackMediaMetadata.buildForSong(
+                        song = song,
+                        isInstrumentalActive = false,
+                        artworkUri = resolvedArt?.let { Uri.parse(it) }
+                    )
                     MediaItem.Builder()
-                        .setMediaId("all_song|${song.id}")
+                        .setMediaId(CanonicalMediaId.forAllSongs(song.id))
                         .setMediaMetadata(metadata)
                         .build()
                 }
@@ -641,14 +611,8 @@ class YimlySessionCallback(
                 val resolvedItems = mutableListOf<MediaItem>()
                 for (item in mediaItems) {
                     val mediaId = item.mediaId
-                    val parts = mediaId.split("|")
-                    val songId = when {
-                        mediaId.startsWith("playlist_song|") && parts.size >= 3 -> parts[2]
-                        mediaId.startsWith("favorite_song|") && parts.size >= 2 -> parts[1]
-                        mediaId.startsWith("recent_song|") && parts.size >= 2 -> parts[1]
-                        mediaId.startsWith("all_song|") && parts.size >= 2 -> parts[1]
-                        else -> null
-                    }
+                    val parsed = CanonicalMediaId.parse(mediaId)
+                    val songId = parsed?.takeIf { it.isAndroidAutoSource }?.canonicalSongId
                     val song = if (songId != null) {
                         playbackManager.musicRepository.getSongById(songId)
                     } else {
@@ -656,7 +620,8 @@ class YimlySessionCallback(
                     }
 
                     if (song != null) {
-                        val resolvedTrack = playbackManager.musicRepository.resolvePlayableTrack(song, false)
+                        val wantInstrumental = parsed?.isInstrumental == true
+                        val resolvedTrack = playbackManager.musicRepository.resolvePlayableTrack(song, wantInstrumental)
                         val audioUrl = resolvedTrack.playableUrl
                         val artworkUri = playbackManager.getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
                         val parsedAudioUri = Uri.parse(audioUrl)
@@ -670,14 +635,11 @@ class YimlySessionCallback(
                                     .build()
                             )
                             .setMediaMetadata(
-                                MediaMetadata.Builder()
-                                    .setTitle(song.title)
-                                    .setArtist(song.artist)
-                                    .setAlbumTitle(song.album)
-                                    .setArtworkUri(artworkUri)
-                                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                                    .setIsPlayable(true)
-                                    .build()
+                                PlaybackMediaMetadata.buildForSong(
+                                    song = song,
+                                    isInstrumentalActive = wantInstrumental,
+                                    artworkUri = artworkUri
+                                )
                             )
                             .build()
                         resolvedItems.add(resolvedItem)

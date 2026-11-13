@@ -114,4 +114,140 @@ class PlaybackClientTest {
         playbackClient.connect() // Must be no-op when released
         assertEquals(emptyList<Song>(), playbackClient.playbackState.value.queue)
     }
+
+    @Test
+    fun test10_toSongAndUpdateState_reconstructAndroidAutoPrefixedItems() {
+        val player = androidx.media3.exoplayer.ExoPlayer.Builder(context).build()
+        try {
+            val song1 = Song(
+                id = "s100",
+                title = "Playlist Song",
+                artist = "Artist One",
+                album = "Album One",
+                durationSeconds = 215L,
+                explicitArtworkUrl = "https://example.com/art1.jpg",
+                hasInstrumental = true,
+                isFavorite = true
+            )
+            val song2 = Song(
+                id = "s200",
+                title = "All Song Inst",
+                artist = "Artist Two",
+                album = "Album Two",
+                durationSeconds = 180L,
+                explicitArtworkUrl = "https://example.com/art2.jpg",
+                hasInstrumental = true,
+                isFavorite = false
+            )
+            val item1 = androidx.media3.common.MediaItem.Builder()
+                .setMediaId("playlist_song|pl_9|s100")
+                .setUri("https://example.com/100.mp3")
+                .setMediaMetadata(
+                    PlaybackMediaMetadata.buildForSong(
+                        song = song1,
+                        isInstrumentalActive = false,
+                        artworkUri = android.net.Uri.parse("https://example.com/art1.jpg")
+                    )
+                )
+                .build()
+            val item2 = androidx.media3.common.MediaItem.Builder()
+                .setMediaId("all_song|s200_inst")
+                .setUri("https://example.com/200_inst.mp3")
+                .setMediaMetadata(
+                    PlaybackMediaMetadata.buildForSong(
+                        song = song2,
+                        isInstrumentalActive = true,
+                        artworkUri = android.net.Uri.parse("https://example.com/art2.jpg")
+                    )
+                )
+                .build()
+
+            player.setMediaItems(listOf(item1, item2), 0, 0L)
+            playbackClient.updateState(player)
+
+            val stateVocal = playbackClient.playbackState.value
+            assertEquals(2, stateVocal.queue.size)
+            assertEquals("s100", stateVocal.currentSong?.id)
+            assertEquals("s100", stateVocal.queue[0].id)
+            assertEquals("s200", stateVocal.queue[1].id)
+            assertTrue(stateVocal.currentSong!!.hasInstrumental)
+            assertTrue(stateVocal.currentSong!!.isFavorite)
+            assertEquals(215L, stateVocal.currentSong!!.durationSeconds)
+            assertTrue(stateVocal.hasInstrumental)
+            assertEquals(false, stateVocal.isInstrumental)
+
+            player.seekTo(1, 0L)
+            playbackClient.updateState(player)
+
+            val stateInst = playbackClient.playbackState.value
+            assertEquals("s200", stateInst.currentSong?.id)
+            assertTrue(stateInst.hasInstrumental)
+            assertTrue(stateInst.isInstrumental)
+            assertEquals(false, stateInst.currentSong!!.isFavorite)
+            assertEquals(180L, stateInst.currentSong!!.durationSeconds)
+        } finally {
+            player.release()
+        }
+    }
+
+    @Test
+    fun test11_toSongAndUpdateState_preservesPhonePlaybackAndUnknownDefaults() {
+        val player = androidx.media3.exoplayer.ExoPlayer.Builder(context).build()
+        try {
+            val phoneSongWithEffectiveInst = Song(
+                id = "phone_1",
+                title = "Phone Track",
+                artist = "Phone Artist",
+                album = "Phone Album",
+                durationSeconds = 0L, // unknown duration must stay 0L, not invented
+                instrumentalAudioUrl = "https://example.com/phone_1_inst.mp3",
+                isFavorite = false
+            )
+            val phoneItem = androidx.media3.common.MediaItem.Builder()
+                .setMediaId(CanonicalMediaId.forPlayback(phoneSongWithEffectiveInst.id, isInstrumental = true))
+                .setUri("https://example.com/phone_1_inst.mp3")
+                .setMediaMetadata(
+                    PlaybackMediaMetadata.buildForSong(
+                        song = phoneSongWithEffectiveInst,
+                        isInstrumentalActive = true,
+                        artworkUri = null
+                    )
+                )
+                .build()
+
+            val bareAutoItem = androidx.media3.common.MediaItem.Builder()
+                .setMediaId("recent_song|bare_99")
+                .setUri("https://example.com/bare_99.mp3")
+                .setMediaMetadata(
+                    androidx.media3.common.MediaMetadata.Builder()
+                        .setTitle("Bare Title")
+                        .build()
+                )
+                .build()
+
+            player.setMediaItems(listOf(phoneItem, bareAutoItem), 0, 0L)
+            playbackClient.updateState(player)
+
+            val phoneState = playbackClient.playbackState.value
+            assertEquals("phone_1", phoneState.currentSong?.id)
+            assertTrue(phoneState.currentSong!!.hasInstrumental)
+            assertTrue(phoneState.hasInstrumental)
+            assertTrue(phoneState.isInstrumental)
+            assertEquals(0L, phoneState.currentSong!!.durationSeconds)
+            assertEquals(null, phoneItem.mediaMetadata.durationMs)
+
+            player.seekTo(1, 0L)
+            playbackClient.updateState(player)
+
+            val bareState = playbackClient.playbackState.value
+            assertEquals("bare_99", bareState.currentSong?.id)
+            assertEquals("Bare Title", bareState.currentSong?.title)
+            assertEquals(false, bareState.hasInstrumental)
+            assertEquals(false, bareState.isInstrumental)
+            assertEquals(false, bareState.currentSong!!.isFavorite)
+            assertEquals(0L, bareState.currentSong!!.durationSeconds)
+        } finally {
+            player.release()
+        }
+    }
 }

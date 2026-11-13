@@ -469,14 +469,8 @@ class PlaybackQueueManager(
         // Safety check: verify mediaId matches.
         // In Yimly, mediaId is either songId, songId + "_inst", or an Android Auto formatted ID.
         val expectedSongId = targetEntry.song.id
-        val actualSongId = when {
-            mediaId.startsWith("playlist_song|") -> mediaId.substringAfterLast("|").removeSuffix("_inst")
-            mediaId.startsWith("favorite_song|") ||
-                mediaId.startsWith("recent_song|") ||
-                mediaId.startsWith("all_song|") -> mediaId.substringAfter("|").removeSuffix("_inst")
-            else -> mediaId.removeSuffix("_inst")
-        }
-        if (expectedSongId != actualSongId) {
+        val actualSongId = CanonicalMediaId.extractCanonicalSongId(mediaId)
+        if (actualSongId == null || (expectedSongId != actualSongId && expectedSongId != mediaId)) {
             // Stale or mismatched transition: index does not match mediaId.
             return false
         }

@@ -94,6 +94,8 @@ class PlaybackManager(
     private val snapshotRestoreCompleted = CompletableDeferred<Unit>()
     @Volatile
     private var isRestoringSnapshot = false
+    @Volatile
+    private var isUpdatingMediaMetadata = false
 
     private val queueManager = PlaybackQueueManager(
         coroutineScope = coroutineScope,
@@ -172,7 +174,9 @@ class PlaybackManager(
                         }
 
                         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
-                            syncAndroidAutoQueueFromPlayer(mediaItem)
+                            if (!isUpdatingMediaMetadata) {
+                                syncAndroidAutoQueueFromPlayer(mediaItem)
+                            }
                             
                             // Synchronise PlaybackQueueManager with the actual active MediaItem from ExoPlayer.
                             // This ensures the queue state reflects natural advancements (reason == AUTO) 
@@ -506,18 +510,10 @@ class PlaybackManager(
     }
 
     private fun isAndroidAutoMediaId(mediaId: String): Boolean =
-        mediaId.startsWith("playlist_song|") ||
-            mediaId.startsWith("favorite_song|") ||
-            mediaId.startsWith("recent_song|") ||
-            mediaId.startsWith("all_song|")
+        CanonicalMediaId.isAndroidAutoMediaId(mediaId)
 
-    private fun androidAutoSongId(mediaId: String): String? = when {
-        mediaId.startsWith("playlist_song|") -> mediaId.substringAfterLast("|").takeIf { it.isNotBlank() }
-        mediaId.startsWith("favorite_song|") ||
-            mediaId.startsWith("recent_song|") ||
-            mediaId.startsWith("all_song|") -> mediaId.substringAfter("|").takeIf { it.isNotBlank() }
-        else -> null
-    }
+    private fun androidAutoSongId(mediaId: String): String? =
+        CanonicalMediaId.parse(mediaId)?.takeIf { it.isAndroidAutoSource }?.canonicalSongId
 
     fun playSongFromAuto(songId: String, type: String?, playlistId: String?) {
         coroutineScope.launch(Dispatchers.IO) {
@@ -608,8 +604,8 @@ class PlaybackManager(
     private fun isQueueMatchingPlayerTimeline(player: Player, queue: List<Song>): Boolean {
         if (player.mediaItemCount != queue.size) return false
         for (i in queue.indices) {
-            val itemMediaId = player.getMediaItemAt(i).mediaId.removeSuffix("_inst")
-            if (itemMediaId != queue[i].id) {
+            val itemSongId = PlaybackMediaMetadata.resolveCanonicalSongId(player.getMediaItemAt(i))
+            if (itemSongId != queue[i].id) {
                 return false
             }
         }
@@ -623,7 +619,7 @@ class PlaybackManager(
         val artworkUri = getResolvedArtworkUrl(song)?.let { Uri.parse(it) }
 
         return MediaItem.Builder()
-            .setMediaId(if (wantInstrumental) "${song.id}_inst" else song.id)
+            .setMediaId(CanonicalMediaId.forPlayback(song.id, wantInstrumental))
             .setUri(parsedAudioUri)
             .setRequestMetadata(
                 MediaItem.RequestMetadata.Builder()
@@ -631,14 +627,11 @@ class PlaybackManager(
                     .build()
             )
             .setMediaMetadata(
-                MediaMetadata.Builder()
-                    .setTitle(song.title)
-                    .setArtist(song.artist)
-                    .setAlbumTitle(song.album)
-                    .setArtworkUri(artworkUri)
-                    .setMediaType(MediaMetadata.MEDIA_TYPE_MUSIC)
-                    .setIsPlayable(true)
-                    .build()
+                PlaybackMediaMetadata.buildForSong(
+                    song = song,
+                    isInstrumentalActive = wantInstrumental,
+                    artworkUri = artworkUri
+                )
             )
             .build()
     }
@@ -702,8 +695,10 @@ class PlaybackManager(
                         return@withContext
                     }
                     val p = ensurePlayerInitialized()
-                    val activeMediaId = p.currentMediaItem?.mediaId
-                    val isSameSong = activeMediaId == song.id || activeMediaId == "${song.id}_inst"
+                    val activeCanonicalId = p.currentMediaItem?.let {
+                        PlaybackMediaMetadata.resolveCanonicalSongId(it)
+                    }
+                    val isSameSong = activeCanonicalId == song.id
                     val currentPos = initialPositionMs?.coerceAtLeast(0L)
                         ?: if (isSameSong && p.playbackState != Player.STATE_ENDED) p.currentPosition.coerceAtLeast(0L) else 0L
 
@@ -836,7 +831,40 @@ class PlaybackManager(
 
 
     fun updateFavoriteStatus(songId: String, isFavorite: Boolean) {
-        queueManager.updateSong(songId) { it.copy(isFavorite = isFavorite) }
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) {
+            coroutineScope.launch(Dispatchers.Main.immediate) { updateFavoriteStatus(songId, isFavorite) }
+            return
+        }
+        val canonicalSongId = CanonicalMediaId.extractCanonicalSongId(songId) ?: songId
+        queueManager.updateSong(canonicalSongId) { it.copy(isFavorite = isFavorite) }
+
+        val p = _player ?: return
+        val itemCount = p.mediaItemCount
+        for (i in 0 until itemCount) {
+            val item = p.getMediaItemAt(i)
+            if (PlaybackMediaMetadata.resolveCanonicalSongId(item) == canonicalSongId) {
+                val extras = item.mediaMetadata.extras
+                val alreadyMatches = extras != null &&
+                    extras.containsKey(PlaybackMediaMetadata.EXTRA_IS_FAVORITE) &&
+                    extras.getBoolean(PlaybackMediaMetadata.EXTRA_IS_FAVORITE) == isFavorite
+                if (alreadyMatches) continue
+
+                val updatedMetadata = PlaybackMediaMetadata.withFavoriteStatus(
+                    metadata = item.mediaMetadata,
+                    canonicalSongId = canonicalSongId,
+                    isFavorite = isFavorite
+                )
+                val updatedItem = item.buildUpon()
+                    .setMediaMetadata(updatedMetadata)
+                    .build()
+                isUpdatingMediaMetadata = true
+                try {
+                    p.replaceMediaItem(i, updatedItem)
+                } finally {
+                    isUpdatingMediaMetadata = false
+                }
+            }
+        }
     }
 
     fun toggleInstrumental() {
